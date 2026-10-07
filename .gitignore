@@ -23,3 +23,9 @@ public/.web-assets/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Deployment: only the generic placeholder templates are tracked
+/deploy/*.env
+!/deploy/*.env.example
+/deploy/*.service.local
+/deploy/launchd/*.plist.local

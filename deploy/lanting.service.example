@@ -1,0 +1,27 @@
+# 通用样例，不是线上配置。部署时把 __占位符__ 换成本机实际值，
+# 另存为 lanting.service.local 或直接写进 systemd 单元目录，不要提交真实值。
+
+[Unit]
+Description=lanting multi-AI group chat
+# 上传服务是独立项目，缺席时纯文本群聊仍应可用，所以用 Wants 而不是 Requires。
+Wants=network-online.target ai-remote-upload.service
+After=network-online.target ai-remote-upload.service
+
+[Service]
+Type=simple
+User=__RUN_USER__
+Group=__RUN_GROUP__
+WorkingDirectory=__APP_DIR__
+Environment=HOME=__RUN_HOME__
+Environment=PATH=__RUNTIME_PATH__
+Environment=NODE_ENV=production
+EnvironmentFile=__ENV_FILE__
+ExecStart=__NODE_BIN__ __APP_DIR__/src/server/main.ts
+Restart=on-failure
+RestartSec=3s
+# 收到 SIGTERM 后要打断进行中的轮次并关闭各 AI 的会话。
+TimeoutStopSec=15s
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

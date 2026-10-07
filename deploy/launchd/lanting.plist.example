@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 通用样例，不是线上配置。部署时把 __占位符__ 换成本机实际值，
+     另存为 lanting.plist.local 或直接写进 LaunchDaemons 目录，不要提交真实值。 -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>__LANTING_SERVICE_LABEL__</string>
+  <key>UserName</key>
+  <string>__RUN_USER__</string>
+  <key>GroupName</key>
+  <string>__RUN_GROUP__</string>
+  <key>WorkingDirectory</key>
+  <string>__APP_DIR__</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE_BIN__</string>
+    <string>--env-file=__ENV_FILE__</string>
+    <string>__APP_DIR__/src/server/main.ts</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>__RUN_HOME__</string>
+    <key>PATH</key><string>__RUNTIME_PATH__</string>
+    <key>NODE_ENV</key><string>production</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key>
+  <dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>__LOG_DIR__/lanting.log</string>
+  <key>StandardErrorPath</key><string>__LOG_DIR__/lanting.error.log</string>
+</dict>
+</plist>
