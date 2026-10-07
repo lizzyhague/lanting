@@ -227,16 +227,28 @@ button.primary {
 }
 
 .connection-status {
+  flex: none;
   font-size: 0.8rem;
   color: var(--muted);
+  white-space: nowrap;
 }
 
-.connection-status[data-state="connected"] {
-  color: var(--ok);
+.connection-status::before {
+  content: "";
+  display: inline-block;
+  width: 0.52rem;
+  height: 0.52rem;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+  background: #facc15;
 }
 
-.connection-status[data-state="disconnected"] {
-  color: var(--danger);
+.connection-status[data-state="connected"]::before {
+  background: #a6c47f;
+}
+
+.connection-status[data-state="disconnected"]::before {
+  background: #f87171;
 }
 
 .create-form {
@@ -514,6 +526,8 @@ button.primary {
 .group-pane {
   min-width: 0;
   height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -524,9 +538,9 @@ button.primary {
 }
 
 .group-view {
-  height: 100%;
+  min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: minmax(0, 1fr) auto auto;
 }
 
 .group-header {
@@ -539,20 +553,35 @@ button.primary {
 }
 
 .group-heading {
+  flex: 1;
   min-width: 0;
   display: grid;
   gap: 0.15rem;
 }
 
-.group-heading strong {
+.group-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.group-title-row strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.back-button {
+.sidebar-open-button {
   display: none;
-  font-size: 1.3rem;
+  width: 40px;
+  min-height: 38px;
+  padding: 0;
+  font-size: 1.15rem;
+}
+
+.sidebar-backdrop {
+  display: none;
 }
 
 /* ---------- 时间线 ---------- */
@@ -737,6 +766,44 @@ button.primary {
 
 .composer .form-status:empty {
   display: none;
+}
+
+.task-button {
+  flex: none;
+  width: 2.25rem;
+  min-width: 2.25rem;
+  height: 2.25rem;
+  min-height: 2.25rem;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.task-send-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  color: currentColor;
+}
+
+.task-stop-icon {
+  display: none;
+  width: 0.62rem;
+  height: 0.62rem;
+  border-radius: 2px;
+  background: #ef4444;
+}
+
+.task-button[data-action="stop"] {
+  background: #2a1e1a;
+}
+
+.task-button[data-action="stop"] .task-send-icon {
+  display: none;
+}
+
+.task-button[data-action="stop"] .task-stop-icon {
+  display: block;
 }
 
 /* ---------- Markdown（取自 Relayu） ---------- */
@@ -1022,21 +1089,62 @@ button.primary {
   color: var(--danger);
 }
 
-@media (max-width: 720px) {
+@media (max-width: 800px) {
   .app-view {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .app-view[data-pane="list"] .group-pane,
-  .app-view[data-pane="group"] .group-sidebar {
-    display: none;
+  .group-sidebar {
+    position: fixed;
+    z-index: 30;
+    inset: 0 auto 0 0;
+    width: min(88vw, 340px);
+    min-width: min(88vw, 340px);
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(-102%);
+    transition: transform 180ms ease;
+    box-shadow: 16px 0 45px rgb(0 0 0 / 42%);
   }
 
-  .back-button {
-    display: inline-block;
+  .app-view[data-mobile-sidebar-open="true"] .group-sidebar {
+    transform: translateX(0);
+  }
+
+  .sidebar-open-button {
+    display: inline-grid;
+    place-items: center;
+  }
+
+  .sidebar-backdrop {
+    position: fixed;
+    z-index: 25;
+    inset: 0;
+    display: block;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: rgb(0 0 0 / 50%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease;
+  }
+
+  .app-view[data-mobile-sidebar-open="true"] .sidebar-backdrop {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .message {
     max-width: 94%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .group-sidebar,
+  .sidebar-backdrop {
+    transition: none;
   }
 }

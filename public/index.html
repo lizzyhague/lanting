@@ -21,11 +21,10 @@
       </form>
     </section>
 
-    <div id="app-view" class="app-view" data-pane="list" hidden>
+    <div id="app-view" class="app-view" data-mobile-sidebar-open="false" hidden>
       <aside id="group-sidebar" class="group-sidebar" aria-label="群列表">
         <div class="sidebar-heading">
           <strong class="sidebar-brand">lanting</strong>
-          <span id="connection-status" class="connection-status" data-state="connecting">正在连接</span>
           <button id="settings-button" class="quiet small" type="button">设置</button>
         </div>
         <form id="create-form" class="create-form">
@@ -39,13 +38,13 @@
           <button id="create-button" type="submit" disabled>新建</button>
           <p id="create-status" class="form-status" aria-live="polite"></p>
         </form>
-        <div class="list-heading">
-          <button id="list-back-button" class="quiet small" type="button" hidden>← 群</button>
+        <div id="list-heading" class="list-heading">
           <strong id="list-title">群</strong>
           <button id="select-button" class="quiet small" type="button">选择</button>
         </div>
         <div id="selection-heading" class="list-heading" hidden>
           <button id="cancel-selection-button" class="quiet small" type="button">取消</button>
+          <button id="list-back-button" class="quiet small" type="button" hidden>← 群</button>
           <strong id="selection-count">已选择 0 项</strong>
           <button id="select-all-button" class="quiet small" type="button">全选</button>
         </div>
@@ -62,18 +61,23 @@
         </div>
       </aside>
 
+      <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭群列表" tabindex="-1"></button>
+
       <main id="group-pane" class="group-pane">
+        <header class="group-header">
+          <button id="open-sidebar-button" class="quiet sidebar-open-button" type="button" aria-label="打开群列表" aria-expanded="false">☰</button>
+          <div class="group-heading">
+            <div class="group-title-row">
+              <strong id="group-title">lanting</strong>
+              <span id="connection-status" class="connection-status" data-state="connecting">正在连接</span>
+            </div>
+            <span id="group-meta" class="group-meta"></span>
+          </div>
+        </header>
         <div id="group-empty" class="pane-empty">
           <p class="empty-hint">从左侧选择一个群</p>
         </div>
         <section id="group-view" class="group-view" hidden>
-          <header class="group-header">
-            <button id="back-button" class="quiet small back-button" type="button" aria-label="返回群列表">‹</button>
-            <div class="group-heading">
-              <strong id="group-title"></strong>
-              <span id="group-meta" class="group-meta"></span>
-            </div>
-          </header>
           <div id="timeline" class="timeline" aria-live="polite"></div>
           <div id="approval-list" class="approval-list"></div>
           <form id="composer" class="composer">
@@ -87,8 +91,10 @@
               </div>
               <div id="call-picks" class="call-picks" role="group" aria-label="点名"></div>
               <div id="agent-panel" class="popover agent-panel" hidden></div>
-              <button id="interrupt-button" class="danger" type="button" hidden>打断</button>
-              <button id="send-button" class="primary" type="submit">发送</button>
+              <button id="task-button" class="primary task-button" type="submit" data-action="send" aria-label="发送" title="发送">
+                <svg class="task-send-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3M8 3 4 7M8 3l4 4"/></svg>
+                <span class="task-stop-icon" aria-hidden="true"></span>
+              </button>
             </div>
             <p id="composer-status" class="form-status" aria-live="polite"></p>
           </form>

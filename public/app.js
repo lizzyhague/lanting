@@ -29,6 +29,7 @@ const elements = {
   createButton: byId("create-button"),
   createStatus: byId("create-status"),
   groupList: byId("group-list"),
+  listHeading: byId("list-heading"),
   listBackButton: byId("list-back-button"),
   listTitle: byId("list-title"),
   selectButton: byId("select-button"),
@@ -60,7 +61,9 @@ const elements = {
   renameSaveButton: byId("rename-save-button"),
   groupEmpty: byId("group-empty"),
   groupView: byId("group-view"),
-  backButton: byId("back-button"),
+  groupSidebar: byId("group-sidebar"),
+  openSidebarButton: byId("open-sidebar-button"),
+  sidebarBackdrop: byId("sidebar-backdrop"),
   groupTitle: byId("group-title"),
   groupMeta: byId("group-meta"),
   timeline: byId("timeline"),
@@ -71,8 +74,7 @@ const elements = {
   plusButton: byId("plus-button"),
   plusMenu: byId("plus-menu"),
   agentPanel: byId("agent-panel"),
-  interruptButton: byId("interrupt-button"),
-  sendButton: byId("send-button"),
+  taskButton: byId("task-button"),
   composerStatus: byId("composer-status"),
 };
 
@@ -117,6 +119,7 @@ const state = {
   /** 点名正在保存：多选框和发送按钮都锁住。 */
   savingOrder: false,
   sending: false,
+  interrupting: false,
   /** 成员面板用的模型和权限列表，按 “群 id:AI” 存；值为 { catalog } 或 { error }。 */
   catalogs: new Map(),
   /** 正在保存设置的 AI，它的下拉框锁住。 */
@@ -520,11 +523,12 @@ function renderGroupList() {
   for (const id of state.selected) if (!visibleIds.has(id)) state.selected.delete(id);
 
   elements.listTitle.textContent = trash ? "回收站" : "群";
+  elements.listHeading.hidden = inSelection();
   elements.listBackButton.hidden = !trash;
   elements.trashViewButton.hidden = trash;
   elements.selectButton.hidden = trash || state.selecting;
   elements.selectionHeading.hidden = !inSelection();
-  // 回收站一直在选择模式，返回用上面的“← 群”。
+  // 回收站一直在选择模式，返回按钮占用选择标题的左侧位置。
   elements.cancelSelectionButton.hidden = trash;
   elements.selectionCount.textContent = `已选择 ${state.selected.size} 项`;
   elements.selectAllButton.textContent =
@@ -690,7 +694,7 @@ async function openGroup(groupId, { keepPane = false } = {}) {
 
   elements.groupEmpty.hidden = true;
   elements.groupView.hidden = false;
-  if (!keepPane) elements.appView.dataset.pane = "group";
+  if (!keepPane) closeMobileSidebar();
   renderGroupList();
   renderHeader();
   renderTimeline();
@@ -698,10 +702,6 @@ async function openGroup(groupId, { keepPane = false } = {}) {
   renderCallPicks();
   renderComposer();
 }
-
-elements.backButton.addEventListener("click", () => {
-  elements.appView.dataset.pane = "list";
-});
 
 /** 当前的群被删了：回到空白页。 */
 function closeGroup() {
@@ -712,7 +712,9 @@ function closeGroup() {
   closePopovers();
   elements.groupView.hidden = true;
   elements.groupEmpty.hidden = false;
-  elements.appView.dataset.pane = "list";
+  elements.groupTitle.textContent = "lanting";
+  elements.groupMeta.replaceChildren();
+  openMobileSidebar();
 }
 
 function renderHeader() {
@@ -724,6 +726,36 @@ function renderHeader() {
     document.createTextNode(group.directory),
   );
 }
+
+const mobileNavigationQuery = window.matchMedia("(max-width: 800px)");
+
+function syncMobileSidebar() {
+  const mobile = mobileNavigationQuery.matches;
+  const open = mobile && elements.appView.dataset.mobileSidebarOpen === "true";
+  elements.groupSidebar.inert = mobile && !open;
+  elements.groupSidebar.setAttribute("aria-hidden", String(mobile && !open));
+  elements.openSidebarButton.setAttribute("aria-expanded", String(open));
+  elements.sidebarBackdrop.setAttribute("aria-hidden", String(!open));
+}
+
+function openMobileSidebar() {
+  if (!mobileNavigationQuery.matches) return;
+  elements.appView.dataset.mobileSidebarOpen = "true";
+  syncMobileSidebar();
+}
+
+function closeMobileSidebar() {
+  elements.appView.dataset.mobileSidebarOpen = "false";
+  syncMobileSidebar();
+}
+
+elements.openSidebarButton.addEventListener("click", openMobileSidebar);
+elements.sidebarBackdrop.addEventListener("click", closeMobileSidebar);
+mobileNavigationQuery.addEventListener("change", () => {
+  elements.appView.dataset.mobileSidebarOpen = "false";
+  syncMobileSidebar();
+});
+syncMobileSidebar();
 
 /* ---------- 时间线 ---------- */
 
@@ -1005,14 +1037,23 @@ function renderComposer() {
   const current = state.current;
   const busy = Boolean(current?.group.busy || current?.round || current?.compaction);
   // 压缩一旦开始不打断，只有发言能打断。
-  elements.interruptButton.hidden = !busy || Boolean(current?.compaction && !current?.round);
-  elements.sendButton.disabled = busy || state.sending || state.savingOrder || !state.authenticated ||
-    state.callOrder.length === 0 || state.drafts.some((draft) => draft.status === "uploading");
+  const canInterrupt = busy && !Boolean(current?.compaction && !current?.round);
+  const taskLabel = canInterrupt ? state.interrupting ? "正在停止" : "停止" : "发送";
+  elements.taskButton.dataset.action = canInterrupt ? "stop" : "send";
+  elements.taskButton.setAttribute("aria-label", taskLabel);
+  elements.taskButton.title = taskLabel;
+  elements.taskButton.classList.toggle("primary", !canInterrupt);
+  elements.taskButton.classList.toggle("danger", canInterrupt);
+  elements.taskButton.disabled = canInterrupt
+    ? !state.authenticated || state.interrupting
+    : busy || state.sending || state.savingOrder || !state.authenticated ||
+      state.callOrder.length === 0 || state.drafts.some((draft) => draft.status === "uploading");
 }
 
 elements.composer.addEventListener("submit", (event) => {
   event.preventDefault();
-  void send();
+  if (elements.taskButton.dataset.action === "stop") void interrupt();
+  else void send();
 });
 
 elements.messageInput.addEventListener("keydown", (event) => {
@@ -1026,7 +1067,8 @@ async function send() {
   const current = state.current;
   const text = elements.messageInput.value;
   const attachmentIds = state.drafts.filter((draft) => draft.status === "done").map((draft) => draft.attachment.id);
-  if (!current || (!text.trim() && attachmentIds.length === 0) || elements.sendButton.disabled) return;
+  if (!current || (!text.trim() && attachmentIds.length === 0) ||
+      elements.taskButton.dataset.action !== "send" || elements.taskButton.disabled) return;
   state.sending = true;
   renderComposer();
   elements.composerStatus.textContent = "";
@@ -1043,18 +1085,20 @@ async function send() {
   }
 }
 
-elements.interruptButton.addEventListener("click", async () => {
+async function interrupt() {
   const current = state.current;
-  if (!current) return;
-  elements.interruptButton.disabled = true;
+  if (!current || elements.taskButton.dataset.action !== "stop" || elements.taskButton.disabled) return;
+  state.interrupting = true;
+  renderComposer();
   try {
     await request("round.interrupt", { groupId: current.group.id });
   } catch (error) {
     elements.composerStatus.textContent = errorMessage(error);
   } finally {
-    elements.interruptButton.disabled = false;
+    state.interrupting = false;
+    renderComposer();
   }
-});
+}
 
 /* ---------- + 菜单与成员设置框 ---------- */
 
@@ -1084,7 +1128,10 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closePopovers();
+  if (event.key === "Escape") {
+    closePopovers();
+    closeMobileSidebar();
+  }
 });
 
 window.addEventListener("resize", () => positionAgentPanel());
@@ -1555,6 +1602,7 @@ function showLogin() {
 function showApp() {
   elements.loginView.hidden = true;
   elements.appView.hidden = false;
+  syncMobileSidebar();
   updateCreateButton();
 }
 
