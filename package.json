@@ -1,0 +1,23 @@
+{
+  "name": "lanting",
+  "version": "0.1.0",
+  "description": "lanting — a multi-AI group chat for coding CLIs.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/server/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "@types/ws": "^8.18.1",
+    "typescript": "5.9.3"
+  }
+}

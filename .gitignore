@@ -1,0 +1,25 @@
+# Local configuration and runtime data
+/.env
+/.env.*
+/config.json
+/data/
+
+# Dependencies, build output, and test artifacts
+node_modules/
+dist/
+coverage/
+public/.web-assets/
+*.tsbuildinfo
+
+# Logs and temporary files
+*.log
+*.orig
+*.tmp
+*.swp
+*.local.md
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

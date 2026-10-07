@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#141413">
+    <meta name="color-scheme" content="dark">
+    <meta name="description" content="lanting — a multi-AI group chat for coding CLIs.">
+    <link rel="stylesheet" href="/styles.css">
+    <title>lanting</title>
+  </head>
+  <body>
+    <section id="login-view" class="login-view">
+      <form id="token-form" class="login-card">
+        <h1>lanting</h1>
+        <p class="login-hint">登录后由浏览器安全保存登录状态</p>
+        <label for="token-input">访问令牌</label>
+        <input id="token-input" type="password" autocomplete="current-password" required>
+        <button id="connect-button" class="primary" type="submit">连接</button>
+        <p id="login-status" class="form-status" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <div id="app-view" class="app-view" hidden>
+      <aside id="group-sidebar" class="group-sidebar" aria-label="群列表">
+        <div class="sidebar-heading">
+          <strong class="sidebar-brand">lanting</strong>
+          <span id="connection-status" class="connection-status" data-state="connecting">正在连接</span>
+        </div>
+        <div id="group-list" class="group-list">
+          <p class="empty-hint">还没有群</p>
+        </div>
+      </aside>
+      <main class="main-pane">
+        <p class="empty-hint">从左侧选择一个群</p>
+      </main>
+    </div>
+
+    <script src="/boot.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

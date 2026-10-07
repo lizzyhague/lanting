@@ -1,0 +1,212 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: #faf9f5;
+
+  /* 表面梯子：sunken 比画布更深，surface-1..3 依次抬起。 */
+  --sunken: #0d0d0c;
+  --bg: #141413;
+  --surface-1: #1c1c1a;
+  --surface-2: #232321;
+  --surface-3: #2f2e2b;
+
+  --border: #3a3936;
+  --border-strong: #55534d;
+
+  --muted: #b0aea5;
+
+  --primary-fill: #faf9f5;
+  --primary-ink: #141413;
+
+  --danger: #fca5a5;
+  --ok: #86efac;
+
+  /* 每个 AI 一个主色，取自各自 Remote 的 --accent。 */
+  --agent-claude: #d97757;
+  --agent-codex: #a7f3d0;
+  --agent-grok: #f3c56b;
+
+  --radius-md: 12px;
+  --radius-xl: 20px;
+
+  --header-height: 64px;
+  --sidebar-width: clamp(260px, 20vw, 304px);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+}
+
+body {
+  min-height: 100dvh;
+}
+
+button,
+input {
+  font: inherit;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+button {
+  min-height: 42px;
+  padding: 0.55rem 0.9rem;
+  background: var(--surface-3);
+  color: #faf9f5;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+button.primary {
+  border-color: var(--primary-fill);
+  background: var(--primary-fill);
+  color: var(--primary-ink);
+  font-weight: 700;
+}
+
+.login-view {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+}
+
+.login-card {
+  width: min(100%, 420px);
+  padding: 2rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface-2);
+  box-shadow: 0 24px 70px rgb(0 0 0 / 28%);
+}
+
+.login-card h1 {
+  margin: 0 0 0.4rem;
+}
+
+.login-card p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.login-card label {
+  display: block;
+  margin: 1.3rem 0 0.4rem;
+  font-size: 0.9rem;
+  color: #cbc8c0;
+}
+
+.login-card input {
+  width: 100%;
+  padding: 0.75rem;
+  background: var(--sunken);
+  color: #fff;
+}
+
+.login-card button {
+  width: 100%;
+  margin-top: 0.8rem;
+}
+
+.login-hint {
+  font-size: 0.8rem;
+}
+
+.form-status {
+  min-height: 1.4em;
+  margin-bottom: 0;
+  color: var(--danger) !important;
+}
+
+.app-view {
+  height: 100dvh;
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.group-sidebar {
+  min-width: 0;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  background: var(--surface-1);
+}
+
+.sidebar-heading {
+  min-height: var(--header-height);
+  padding: max(0.55rem, env(safe-area-inset-top)) 0.75rem 0.55rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-brand {
+  letter-spacing: 0.01em;
+}
+
+.connection-status {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.connection-status[data-state="connected"] {
+  color: var(--ok);
+}
+
+.connection-status[data-state="disconnected"] {
+  color: var(--danger);
+}
+
+.group-list {
+  overflow-y: auto;
+  padding: 0.75rem;
+}
+
+.main-pane {
+  min-width: 0;
+  height: 100dvh;
+  display: grid;
+  place-items: center;
+}
+
+.empty-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* 窄屏先让侧栏占满整屏；收起和展开到做群页面时再加。 */
+@media (max-width: 720px) {
+  .app-view {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .main-pane {
+    display: none;
+  }
+}
