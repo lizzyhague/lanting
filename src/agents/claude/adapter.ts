@@ -1,4 +1,9 @@
-import type { EffortLevel, ModelInfo, PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import {
+  deleteSession,
+  type EffortLevel,
+  type ModelInfo,
+  type PermissionMode,
+} from "@anthropic-ai/claude-agent-sdk";
 import { randomUUID } from "node:crypto";
 
 import { CatalogCache } from "../catalog-cache.ts";
@@ -73,6 +78,15 @@ export class ClaudeAdapter implements AgentAdapter {
         await runtime.close("模型列表已取到。");
       }
     });
+  }
+
+  /** 照 Relayu：SDK 的 deleteSession；会话文件已经不在也算删掉了。 */
+  async deleteSession(nativeId: string, cwd: string): Promise<void> {
+    try {
+      await deleteSession(nativeId, { dir: cwd });
+    } catch (error) {
+      if (!isSessionNotFoundError(error)) throw error;
+    }
   }
 
   startSession(options: SessionOptions): Promise<AgentSession> {
@@ -223,6 +237,12 @@ export function modelOptions(models: readonly ModelInfo[]): ModelOption[] {
     });
   }
   return options;
+}
+
+function isSessionNotFoundError(error: unknown): boolean {
+  if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return true;
+  const message = error instanceof Error ? error.message : "";
+  return /(?:session.*not found|not found.*session)/iu.test(message);
 }
 
 function permissionMode(value: string | null): PermissionMode {

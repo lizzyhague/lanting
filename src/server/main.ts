@@ -52,8 +52,10 @@ export async function main(): Promise<void> {
     console.log(`服务正在监听 http://${address.host}:${address.port}/`);
     console.log(`已接入的 AI：${agents.ids.join("、") || "无"}`);
     runtime.startIdleSweeper();
+    groups.startTrashSweeper();
     await waitForShutdownSignal();
   } finally {
+    groups.stopTrashSweeper();
     await server.close();
     await runtime.shutdown();
   }

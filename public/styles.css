@@ -206,7 +206,7 @@ button.primary {
   min-width: 0;
   height: 100dvh;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
   overflow: hidden;
   border-right: 1px solid var(--border);
   background: var(--surface-1);
@@ -273,6 +273,85 @@ button.primary {
 
 .pick input {
   accent-color: var(--agent);
+}
+
+.list-heading {
+  min-height: 44px;
+  padding: 0.35rem 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.list-heading strong {
+  font-size: 0.9rem;
+}
+
+.list-status {
+  margin: 0;
+  padding: 0 0.75rem;
+  font-size: 0.85rem;
+  white-space: pre-line;
+}
+
+.list-status:empty {
+  display: none;
+}
+
+.list-footer {
+  padding: 0.5rem 0.75rem max(0.5rem, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.bulk-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.group-item-title input {
+  margin: 0 0.45rem 0 0;
+  vertical-align: middle;
+  pointer-events: none;
+}
+
+.purge-badge {
+  color: var(--muted);
+}
+
+.rename-dialog {
+  width: min(92vw, 420px);
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  color: #faf9f5;
+}
+
+.rename-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+.rename-dialog h2 {
+  margin: 0 0 0.8rem;
+  font-size: 1.05rem;
+}
+
+.rename-dialog input {
+  width: 100%;
+  padding: 0.65rem;
+  background: var(--sunken);
+  color: #fff;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .group-list {

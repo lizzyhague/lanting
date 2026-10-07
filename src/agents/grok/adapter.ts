@@ -1,4 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { readdir, rm, stat } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
@@ -16,6 +19,8 @@ import { AcpClient, type AcpPermissionRequest, type AcpUpdate } from "./acp-clie
 
 export type GrokAdapterOptions = {
   executable: string;
+  /** Grok 保存会话的根目录，默认取 GROK_HOME，没有就是 ~/.grok。 */
+  grokHome?: string;
 };
 
 /** session/cancel 之后等这么久这一轮还没结束，就直接关掉 Grok 进程。 */
@@ -66,6 +71,23 @@ export class GrokAdapter implements AgentAdapter {
         await terminateGroup(child);
       }
     });
+  }
+
+  /**
+   * Grok 没有删除会话的 RPC。照 Grok Remote 删磁盘目录 `<GROK_HOME>/sessions/<分组>/<会话 id>`；
+   * 找不到目录就当作已经删掉了。
+   */
+  async deleteSession(nativeId: string): Promise<void> {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(nativeId) || nativeId.includes("..")) {
+      throw new Error(`Grok 会话 id 格式不对：${nativeId}`);
+    }
+    const root = path.join(this.#options.grokHome ?? resolveGrokHome(), "sessions");
+    for (const group of await readdir(root, { withFileTypes: true }).catch(() => [])) {
+      if (!group.isDirectory()) continue;
+      const directory = path.join(root, group.name, nativeId);
+      const info = await stat(directory).catch(() => null);
+      if (info?.isDirectory()) await rm(directory, { recursive: true, force: true });
+    }
   }
 
   startSession(options: SessionOptions): Promise<AgentSession> {
@@ -268,6 +290,10 @@ class GrokSession implements AgentSession {
       this.#client.respondPermission(request.rpcId, permissionOutcome(request, answer));
     });
   }
+}
+
+function resolveGrokHome(env: NodeJS.ProcessEnv = process.env): string {
+  return env.GROK_HOME?.trim() || path.join(os.homedir(), ".grok");
 }
 
 function spawnGrok(executable: string, cwd: string): ChildProcessWithoutNullStreams {

@@ -25,6 +25,13 @@ export type Group = {
   callOrder: string[];
   agents: Record<string, AgentState>;
   createdAt: string;
+  /** 移入回收站的时间；不在回收站时为 null。到期时间由它推出来，不另存。 */
+  trashedAt: string | null;
+  /**
+   * 开始永久删除的时间。删到一半失败时留着，服务启动和下一次扫描时接着删；
+   * 这期间群不能恢复，也不能做别的操作。
+   */
+  deletingAt: string | null;
 };
 
 export type Speaker =

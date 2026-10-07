@@ -204,6 +204,18 @@ export class GroupRuntime {
     return true;
   }
 
+  /** 关掉这个群缓存的所有原生会话，等进程确实退出。群必须空闲。 */
+  async closeSessions(groupId: string): Promise<void> {
+    if (this.isBusy(groupId)) throw new GroupError("busy", "这个群正忙，请等这一轮或这次压缩结束。");
+    const closing: AgentSession[] = [];
+    for (const [key, cached] of this.#sessions) {
+      if (key.split("\0")[0] !== groupId) continue;
+      this.#sessions.delete(key);
+      closing.push(cached.session);
+    }
+    await Promise.allSettled(closing.map((session) => session.close()));
+  }
+
   /** 定时关掉空闲的原生会话。 */
   startIdleSweeper(intervalMs = 60_000): void {
     if (this.#sweeper) return;

@@ -26,6 +26,24 @@ const elements = {
   createButton: byId("create-button"),
   createStatus: byId("create-status"),
   groupList: byId("group-list"),
+  listBackButton: byId("list-back-button"),
+  listTitle: byId("list-title"),
+  selectButton: byId("select-button"),
+  selectionHeading: byId("selection-heading"),
+  cancelSelectionButton: byId("cancel-selection-button"),
+  selectionCount: byId("selection-count"),
+  selectAllButton: byId("select-all-button"),
+  listStatus: byId("list-status"),
+  trashViewButton: byId("trash-view-button"),
+  bulkActions: byId("bulk-actions"),
+  bulkRestoreButton: byId("bulk-restore-button"),
+  bulkDeleteButton: byId("bulk-delete-button"),
+  renameDialog: byId("rename-dialog"),
+  renameForm: byId("rename-form"),
+  renameInput: byId("rename-input"),
+  renameStatus: byId("rename-status"),
+  renameCancelButton: byId("rename-cancel-button"),
+  renameSaveButton: byId("rename-save-button"),
   groupEmpty: byId("group-empty"),
   groupView: byId("group-view"),
   backButton: byId("back-button"),
@@ -61,6 +79,12 @@ const state = {
   /** 新建群时勾选的 AI。 */
   createMembers: new Set(),
   createBusy: false,
+  /** 侧栏显示哪一类：groups（群）或 trash（回收站）。 */
+  listView: "groups",
+  /** 选择模式。回收站里的群点不开，所以回收站一直处在选择模式。 */
+  selecting: false,
+  selected: new Set(),
+  batchBusy: false,
 
   currentGroupId: null,
   /** 当前打开的群：{ group, transcript, round, compaction, approvals: Map } */
@@ -174,7 +198,12 @@ async function connect(token) {
       await loadAppState();
       await request("connection.ready");
       // 断线重连后回到原来的群，按快照补齐。
-      if (state.currentGroupId) await openGroup(state.currentGroupId, { keepPane: true });
+      if (state.currentGroupId) {
+        // 断线期间这个群可能被删了（进了回收站或已永久删除）。
+        const group = state.groups.get(state.currentGroupId);
+        if (!group || group.trashedAt) closeGroup();
+        else await openGroup(state.currentGroupId, { keepPane: true });
+      }
       if (generation !== state.generation || socket.readyState !== WebSocket.OPEN) return;
       setConnectionStatus("connected", "已连接");
     } catch (error) {
@@ -260,9 +289,17 @@ function handleSocketMessage(data) {
 
 function handleEvent(event) {
   switch (event.type) {
+    case "group.removed":
+      state.groups.delete(event.groupId);
+      state.selected.delete(event.groupId);
+      if (event.groupId === state.currentGroupId) closeGroup();
+      renderGroupList();
+      return;
     case "group.created":
     case "group.updated":
       state.groups.set(event.group.id, event.group);
+      // 群被移进回收站（可能是别的设备删的），正开着的这个群就关掉。
+      if (event.group.trashedAt && event.group.id === state.currentGroupId) closeGroup();
       renderGroupList();
       if (state.current && event.group.id === state.currentGroupId) {
         state.current.group = event.group;
@@ -428,39 +465,159 @@ function defaultTitle(directory) {
   return `${directory} ${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
 }
 
-/* ---------- 群列表 ---------- */
+/* ---------- 群列表、选择与回收站 ---------- */
+
+function inSelection() {
+  return state.listView === "trash" || state.selecting;
+}
+
+function visibleGroups() {
+  const trash = state.listView === "trash";
+  return [...state.groups.values()]
+    .filter((group) => Boolean(group.trashedAt) === trash)
+    .sort((a, b) => trash
+      ? b.trashedAt.localeCompare(a.trashedAt)
+      : b.createdAt.localeCompare(a.createdAt));
+}
 
 function renderGroupList() {
-  const groups = [...state.groups.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const trash = state.listView === "trash";
+  const groups = visibleGroups();
+  // 已经不在这一类里的群（被删、被恢复）从选择里去掉。
+  const visibleIds = new Set(groups.map((group) => group.id));
+  for (const id of state.selected) if (!visibleIds.has(id)) state.selected.delete(id);
+
+  elements.listTitle.textContent = trash ? "回收站" : "群";
+  elements.listBackButton.hidden = !trash;
+  elements.trashViewButton.hidden = trash;
+  elements.selectButton.hidden = trash || state.selecting;
+  elements.selectionHeading.hidden = !inSelection();
+  // 回收站一直在选择模式，返回用上面的“← 群”。
+  elements.cancelSelectionButton.hidden = trash;
+  elements.selectionCount.textContent = `已选择 ${state.selected.size} 项`;
+  elements.selectAllButton.textContent =
+    groups.length > 0 && state.selected.size === groups.length ? "全不选" : "全选";
+  elements.bulkActions.hidden = !inSelection();
+  elements.bulkRestoreButton.hidden = !trash;
+  elements.bulkDeleteButton.textContent = trash ? "永久删除" : "删除";
+  const noSelection = state.selected.size === 0 || state.batchBusy || !state.authenticated;
+  elements.bulkRestoreButton.disabled = noSelection;
+  elements.bulkDeleteButton.disabled = noSelection;
+
   if (groups.length === 0) {
     const hint = document.createElement("p");
     hint.className = "empty-hint";
-    hint.textContent = "还没有群";
+    hint.textContent = trash ? "回收站是空的" : "还没有群";
     elements.groupList.replaceChildren(hint);
     return;
   }
-  elements.groupList.replaceChildren(...groups.map((group) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "group-item";
-    if (group.id === state.currentGroupId) button.setAttribute("aria-current", "true");
-    const title = document.createElement("span");
-    title.className = "group-item-title";
-    title.textContent = group.title;
-    const meta = document.createElement("span");
-    meta.className = "group-item-meta";
-    meta.append(...group.members.map((member) => agentDot(member)));
-    meta.append(document.createTextNode(group.directory));
-    if (group.busy) {
-      const busy = document.createElement("span");
-      busy.className = "busy-badge";
-      busy.textContent = "发言中";
-      meta.append(busy);
+  elements.groupList.replaceChildren(...groups.map((group) => groupItem(group, trash)));
+}
+
+function groupItem(group, trash) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "group-item";
+  if (!inSelection() && group.id === state.currentGroupId) button.setAttribute("aria-current", "true");
+  const title = document.createElement("span");
+  title.className = "group-item-title";
+  if (inSelection()) {
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.tabIndex = -1;
+    check.checked = state.selected.has(group.id);
+    check.setAttribute("aria-hidden", "true");
+    title.append(check);
+  }
+  title.append(document.createTextNode(group.title));
+  const meta = document.createElement("span");
+  meta.className = "group-item-meta";
+  meta.append(...group.members.map((member) => agentDot(member)));
+  meta.append(document.createTextNode(group.directory));
+  const badge = document.createElement("span");
+  badge.className = "busy-badge";
+  if (trash) {
+    badge.textContent = group.deleting ? "正在删除" : `${formatDate(group.purgeAt)} 到期`;
+    badge.classList.add("purge-badge");
+  } else if (group.busy) {
+    badge.textContent = "发言中";
+  }
+  if (badge.textContent) meta.append(badge);
+  button.append(title, meta);
+  button.addEventListener("click", () => {
+    if (inSelection()) toggleSelected(group.id);
+    else void openGroup(group.id);
+  });
+  return button;
+}
+
+function toggleSelected(groupId) {
+  if (state.selected.has(groupId)) state.selected.delete(groupId);
+  else state.selected.add(groupId);
+  renderGroupList();
+}
+
+function formatDate(iso) {
+  const date = new Date(iso);
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function setListView(view) {
+  state.listView = view;
+  state.selecting = false;
+  state.selected.clear();
+  elements.listStatus.textContent = "";
+  renderGroupList();
+}
+
+elements.selectButton.addEventListener("click", () => {
+  state.selecting = true;
+  state.selected.clear();
+  elements.listStatus.textContent = "";
+  renderGroupList();
+});
+
+elements.cancelSelectionButton.addEventListener("click", () => setListView("groups"));
+
+elements.selectAllButton.addEventListener("click", () => {
+  const groups = visibleGroups();
+  if (state.selected.size === groups.length) state.selected.clear();
+  else for (const group of groups) state.selected.add(group.id);
+  renderGroupList();
+});
+
+elements.trashViewButton.addEventListener("click", () => setListView("trash"));
+elements.listBackButton.addEventListener("click", () => setListView("groups"));
+
+elements.bulkDeleteButton.addEventListener("click", () => {
+  void runBatch(state.listView === "trash" ? "groups.purge" : "groups.trash");
+});
+elements.bulkRestoreButton.addEventListener("click", () => void runBatch("groups.restore"));
+
+/** 多选操作：后端逐个处理，失败的留在原处并列出原因。永久删除不再另弹确认。 */
+async function runBatch(type) {
+  const groupIds = [...state.selected];
+  if (groupIds.length === 0 || state.batchBusy) return;
+  state.batchBusy = true;
+  elements.listStatus.textContent = "";
+  renderGroupList();
+  try {
+    const result = await request(type, { groupIds });
+    for (const id of result.done) state.selected.delete(id);
+    if (result.failed.length > 0) {
+      elements.listStatus.textContent = result.failed
+        .map((item) => `${state.groups.get(item.groupId)?.title ?? item.groupId}：${item.message}`)
+        .join("\n");
+    } else if (state.listView === "groups") {
+      state.selecting = false;
     }
-    button.append(title, meta);
-    button.addEventListener("click", () => void openGroup(group.id));
-    return button;
-  }));
+  } catch (error) {
+    elements.listStatus.textContent = errorMessage(error);
+  } finally {
+    state.batchBusy = false;
+    renderGroupList();
+  }
 }
 
 function agentDot(agent) {
@@ -510,6 +667,18 @@ async function openGroup(groupId, { keepPane = false } = {}) {
 elements.backButton.addEventListener("click", () => {
   elements.appView.dataset.pane = "list";
 });
+
+/** 当前的群被删了：回到空白页。 */
+function closeGroup() {
+  if (!state.currentGroupId) return;
+  void request("group.unsubscribe", { groupId: state.currentGroupId }).catch(() => {});
+  state.currentGroupId = null;
+  state.current = null;
+  closePopovers();
+  elements.groupView.hidden = true;
+  elements.groupEmpty.hidden = false;
+  elements.appView.dataset.pane = "list";
+}
 
 function renderHeader() {
   const group = state.current?.group;
@@ -859,9 +1028,12 @@ elements.plusButton.addEventListener("click", () => {
 });
 
 document.addEventListener("click", (event) => {
-  if (!(event.target instanceof Element)) return;
-  if (event.target.closest(".menu-anchor, .agent-panel, .pick-name")) return;
-  closePopovers();
+  // 用点击那一刻的祖先链判断：菜单在点击处理里重画后，被点的按钮已经不在页面上，
+  // 再从它往上找就找不到所属的菜单，会被误当成点在外面。
+  const inside = event.composedPath().some((node) =>
+    node instanceof Element && node.matches(".menu-anchor, .agent-panel, .pick-name")
+  );
+  if (!inside) closePopovers();
 });
 
 document.addEventListener("keydown", (event) => {
@@ -880,12 +1052,16 @@ function renderPlusMenu() {
   const group = state.current?.group;
   if (!group || elements.plusMenu.hidden) return;
   if (state.plusLevel === "root") {
-    const item = menuItem("压缩上下文", null, false, () => {
+    const compactItem = menuItem("压缩上下文", null, false, () => {
       state.plusLevel = "compact";
       renderPlusMenu();
     });
-    item.classList.add("has-submenu");
-    elements.plusMenu.replaceChildren(item);
+    compactItem.classList.add("has-submenu");
+    const renameItem = menuItem("重命名", null, !state.authenticated, () => {
+      closePopovers();
+      openRenameDialog();
+    });
+    elements.plusMenu.replaceChildren(compactItem, renameItem);
     return;
   }
   const back = menuItem("‹ 压缩上下文", null, false, () => {
@@ -1115,6 +1291,42 @@ async function saveSettings(agent, settings) {
     renderAgentPanel();
   }
 }
+
+/* ---------- 重命名 ---------- */
+
+/** 只改 lanting 里的群名，各 AI 的原生会话名不动。 */
+function openRenameDialog() {
+  const group = state.current?.group;
+  if (!group) return;
+  elements.renameInput.value = group.title;
+  elements.renameStatus.textContent = "";
+  elements.renameSaveButton.disabled = false;
+  elements.renameDialog.showModal();
+  elements.renameInput.select();
+}
+
+elements.renameCancelButton.addEventListener("click", () => elements.renameDialog.close());
+
+elements.renameForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const current = state.current;
+  const title = elements.renameInput.value.trim();
+  if (!current || !title) return;
+  elements.renameSaveButton.disabled = true;
+  elements.renameStatus.textContent = "";
+  try {
+    const { group } = await request("group.rename", { groupId: current.group.id, title });
+    state.groups.set(group.id, group);
+    if (state.current === current) current.group = group;
+    renderGroupList();
+    renderHeader();
+    elements.renameDialog.close();
+  } catch (error) {
+    elements.renameStatus.textContent = errorMessage(error);
+  } finally {
+    elements.renameSaveButton.disabled = false;
+  }
+});
 
 /* ---------- 杂项 ---------- */
 

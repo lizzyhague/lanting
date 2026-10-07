@@ -51,3 +51,20 @@ test("parses member settings, catalog and compaction requests", () => {
   }), "invalid_field", "r5");
   rejectsWith(JSON.stringify({ type: "agent.catalog", requestId: "r6", groupId, agent: "Claude" }), "invalid_field", "r6");
 });
+
+test("parses rename and trash requests", () => {
+  const groupId = "00000000-0000-4000-8000-000000000000";
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({ type: "group.rename", requestId: "r1", groupId, title: "plan" })),
+    { type: "group.rename", requestId: "r1", groupId, title: "plan" },
+  );
+  for (const type of ["groups.trash", "groups.restore", "groups.purge"]) {
+    assert.deepEqual(
+      parseBrowserRequest(JSON.stringify({ type, requestId: "r2", groupIds: [groupId] })),
+      { type, requestId: "r2", groupIds: [groupId] },
+    );
+  }
+  rejectsWith(JSON.stringify({ type: "groups.trash", requestId: "r3", groupIds: [] }), "invalid_field", "r3");
+  rejectsWith(JSON.stringify({ type: "groups.purge", requestId: "r4", groupIds: ["x"] }), "invalid_field", "r4");
+  rejectsWith(JSON.stringify({ type: "group.rename", requestId: "r5", groupId, title: "" }), "invalid_field", "r5");
+});

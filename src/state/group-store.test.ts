@@ -97,3 +97,29 @@ test("a corrupt group file stops the store from opening instead of being overwri
   await assert.rejects(GroupStore.open(directory), /群数据损坏/u);
   assert.deepEqual(await readdir(path.join(directory, "groups", group.id)), ["group.json", "transcript.json"]);
 });
+
+test("removing a group deletes its directory and it stays gone after reopening", async (t) => {
+  const directory = await scratch(t);
+  const store = await GroupStore.open(directory);
+  const group = await store.create(NEW_GROUP);
+  const kept = await store.create(NEW_GROUP);
+  await store.remove(group.id);
+  assert.equal(store.get(group.id), null);
+  assert.deepEqual(await readdir(path.join(directory, "groups")), [kept.id]);
+  const reopened = await GroupStore.open(directory);
+  assert.deepEqual(reopened.list().map((item) => item.id), [kept.id]);
+});
+
+test("groups saved before the trash existed open as not trashed", async (t) => {
+  const directory = await scratch(t);
+  const store = await GroupStore.open(directory);
+  const group = await store.create(NEW_GROUP);
+  const groupFile = path.join(directory, "groups", group.id, "group.json");
+  const saved = JSON.parse(await readFile(groupFile, "utf8"));
+  delete saved.group.trashedAt;
+  delete saved.group.deletingAt;
+  await writeFile(groupFile, JSON.stringify(saved));
+  const reopened = await GroupStore.open(directory);
+  assert.equal(reopened.get(group.id)?.trashedAt, null);
+  assert.equal(reopened.get(group.id)?.deletingAt, null);
+});

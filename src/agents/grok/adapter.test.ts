@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -142,4 +142,22 @@ test("Grok settings are applied when the session opens, and always-approve answe
   await session.compact();
   const after = await collect(session.send("state"));
   assert.equal(JSON.parse((after.at(-1) as { text: string }).text).compacted, 1);
+});
+
+test("deleting a Grok session removes its directory under any session group", async (t) => {
+  const grokHome = await mkdtemp(path.join(tmpdir(), "lanting-grok-home-"));
+  t.after(() => rm(grokHome, { recursive: true, force: true }));
+  const sessionDir = path.join(grokHome, "sessions", "some-group", "grok-1");
+  const otherDir = path.join(grokHome, "sessions", "some-group", "grok-2");
+  await mkdir(sessionDir, { recursive: true });
+  await mkdir(otherDir, { recursive: true });
+  await writeFile(path.join(sessionDir, "updates.jsonl"), "{}\n");
+  const adapter = new GrokAdapter({ executable: "/nonexistent/grok", grokHome });
+
+  await adapter.deleteSession("grok-1");
+  await assert.rejects(stat(sessionDir), { code: "ENOENT" });
+  assert.ok((await stat(otherDir)).isDirectory());
+  await adapter.deleteSession("grok-1");
+  await assert.rejects(adapter.deleteSession("../grok-2"), /格式不对/u);
+  assert.ok((await stat(otherDir)).isDirectory());
 });

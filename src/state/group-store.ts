@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readdir } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { DEFAULT_AGENT_SETTINGS, type AgentSettings } from "../agents/types.ts";
@@ -84,6 +84,8 @@ export class GroupStore {
       callOrder: [...(input.callOrder ?? [])],
       agents,
       createdAt: new Date().toISOString(),
+      trashedAt: null,
+      deletingAt: null,
     };
     await this.#writeTranscript(id, []);
     await this.#writeGroup(group);
@@ -114,6 +116,14 @@ export class GroupStore {
       await this.#writeTranscript(id, next);
       record.transcript = next;
       return full;
+    });
+  }
+
+  /** 删掉群目录（群的数据和群聊记录），之后这个群就不存在了。 */
+  remove(id: string): Promise<void> {
+    return this.#enqueue(id, async () => {
+      await rm(path.join(this.#root, id), { recursive: true, force: true });
+      this.#records.delete(id);
     });
   }
 
@@ -177,6 +187,11 @@ function parseGroup(value: unknown, id: string): Group {
   for (const key of ["title", "cwd", "username", "createdAt"] as const) {
     if (typeof group[key] !== "string") fail(`${key} 不对`);
   }
+  // 第 6 步之前建的群没有这两个字段，按不在回收站处理。
+  for (const key of ["trashedAt", "deletingAt"] as const) {
+    const value = group[key];
+    if (value !== undefined && value !== null && typeof value !== "string") fail(`${key} 不对`);
+  }
   return {
     id,
     title: group.title as string,
@@ -186,6 +201,8 @@ function parseGroup(value: unknown, id: string): Group {
     callOrder,
     agents,
     createdAt: group.createdAt as string,
+    trashedAt: (group.trashedAt as string | null | undefined) ?? null,
+    deletingAt: (group.deletingAt as string | null | undefined) ?? null,
   };
 }
 

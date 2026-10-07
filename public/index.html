@@ -38,8 +38,26 @@
           <button id="create-button" type="submit" disabled>新建</button>
           <p id="create-status" class="form-status" aria-live="polite"></p>
         </form>
+        <div class="list-heading">
+          <button id="list-back-button" class="quiet small" type="button" hidden>← 群</button>
+          <strong id="list-title">群</strong>
+          <button id="select-button" class="quiet small" type="button">选择</button>
+        </div>
+        <div id="selection-heading" class="list-heading" hidden>
+          <button id="cancel-selection-button" class="quiet small" type="button">取消</button>
+          <strong id="selection-count">已选择 0 项</strong>
+          <button id="select-all-button" class="quiet small" type="button">全选</button>
+        </div>
         <div id="group-list" class="group-list">
           <p class="empty-hint">还没有群</p>
+        </div>
+        <p id="list-status" class="form-status list-status" aria-live="polite"></p>
+        <div class="list-footer">
+          <button id="trash-view-button" class="quiet" type="button">回收站</button>
+          <div id="bulk-actions" class="bulk-actions" hidden>
+            <button id="bulk-restore-button" type="button" hidden>恢复</button>
+            <button id="bulk-delete-button" class="danger" type="button">删除</button>
+          </div>
         </div>
       </aside>
 
@@ -74,6 +92,18 @@
         </section>
       </main>
     </div>
+
+    <dialog id="rename-dialog" class="rename-dialog">
+      <form id="rename-form" method="dialog">
+        <h2>重命名</h2>
+        <input id="rename-input" type="text" maxlength="100" aria-label="群名" required>
+        <p id="rename-status" class="form-status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button id="rename-cancel-button" type="button">取消</button>
+          <button id="rename-save-button" class="primary" type="submit">保存</button>
+        </div>
+      </form>
+    </dialog>
 
     <script src="/boot.js"></script>
     <script type="module" src="/app.js"></script>

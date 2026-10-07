@@ -52,6 +52,16 @@ export class FakeAdapter implements AgentAdapter {
     return Promise.resolve(session);
   }
 
+  /** 删掉的原生会话 id；deleteError 不为 null 时删除失败。 */
+  readonly deleted: string[] = [];
+  deleteError: Error | null = null;
+
+  deleteSession(nativeId: string): Promise<void> {
+    if (this.deleteError) return Promise.reject(this.deleteError);
+    this.deleted.push(nativeId);
+    return Promise.resolve();
+  }
+
   catalog(_cwd: string): Promise<AgentCatalog> {
     return Promise.resolve(structuredClone(this.catalogValue));
   }

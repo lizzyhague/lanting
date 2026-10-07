@@ -4,6 +4,8 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const AGENT_ID_PATTERN = /^[a-z][a-z0-9]{0,15}$/u;
 /** 模型、思考强度、权限的 id 由各家 CLI 给出，这里只限制长度。 */
 const MAX_SETTING_LENGTH = 200;
+/** 一次多选操作最多处理的群数。 */
+const MAX_BATCH_GROUPS = 500;
 
 export type BrowserRequest =
   | { type: "connection.ready"; requestId: string }
@@ -25,7 +27,9 @@ export type BrowserRequest =
     effort: string | null;
     permission: string | null;
   }
-  | { type: "group.compact"; requestId: string; groupId: string; agents: string[] };
+  | { type: "group.compact"; requestId: string; groupId: string; agents: string[] }
+  | { type: "group.rename"; requestId: string; groupId: string; title: string }
+  | { type: "groups.trash" | "groups.restore" | "groups.purge"; requestId: string; groupIds: string[] };
 
 export type BrowserEvent = Record<string, unknown> & { type: string };
 
@@ -136,6 +140,26 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         groupId: requireUuid(value.groupId, "群 ID", requestId),
         agents: requireAgentList(value.agents, "要压缩的 AI", requestId),
       };
+    case "group.rename":
+      return {
+        type: "group.rename",
+        requestId,
+        groupId: requireUuid(value.groupId, "群 ID", requestId),
+        title: requireString(value.title, "群名", requestId, 200),
+      };
+    case "groups.trash":
+    case "groups.restore":
+    case "groups.purge": {
+      const ids = value.groupIds;
+      if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_BATCH_GROUPS) {
+        throw new ProtocolError("invalid_field", "要处理的群不能为空或过多。", requestId);
+      }
+      return {
+        type: value.type,
+        requestId,
+        groupIds: ids.map((id) => requireUuid(id, "群 ID", requestId)),
+      };
+    }
     default:
       throw new ProtocolError("unknown_type", `不认识的消息类型：${value.type}`, requestId);
   }

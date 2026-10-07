@@ -148,6 +148,23 @@ export class BrowserConnection implements EventSink {
         this.#respondOk(request.requestId, {});
         return;
       }
+      case "group.rename": {
+        const group = await groups.rename(request.groupId, request.title);
+        this.#respondOk(request.requestId, { group });
+        return;
+      }
+      case "groups.trash": {
+        this.#respondOk(request.requestId, await groups.trash(request.groupIds));
+        return;
+      }
+      case "groups.restore": {
+        this.#respondOk(request.requestId, await groups.restore(request.groupIds));
+        return;
+      }
+      case "groups.purge": {
+        this.#respondOk(request.requestId, await groups.purge(request.groupIds));
+        return;
+      }
       case "approval.respond": {
         if (!groups.respondApproval(request.approvalId, request.decision)) {
           throw new RequestError("approval_settled", "这条审批已经处理过或已失效。");

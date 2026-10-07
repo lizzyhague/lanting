@@ -11,7 +11,7 @@ import type {
   PermissionOption,
   SessionOptions,
 } from "../types.ts";
-import { AppServerClient, type JsonObject, type RequestId } from "./client.ts";
+import { AppServerClient, AppServerRpcError, type JsonObject, type RequestId } from "./client.ts";
 
 export type CodexAdapterOptions = {
   executable: string;
@@ -55,6 +55,23 @@ export class CodexAdapter implements AgentAdapter {
         await client.close();
       }
     });
+  }
+
+  /** 照 Codex Remote：临时起一个 app-server 调 thread/delete；已经不存在也算删掉了。 */
+  async deleteSession(nativeId: string, cwd: string): Promise<void> {
+    const client = new AppServerClient({
+      codexBinary: this.#options.executable,
+      workingDirectory: cwd,
+      processGroup: true,
+    });
+    try {
+      await client.initialize(INITIALIZE_PARAMS);
+      await client.request("thread/delete", { threadId: nativeId });
+    } catch (error) {
+      if (!isAlreadyDeleted(error, nativeId)) throw error;
+    } finally {
+      await client.close();
+    }
   }
 
   startSession(options: SessionOptions): Promise<AgentSession> {
@@ -318,6 +335,13 @@ class CodexSession implements AgentSession {
         console.error(`Codex 审批处理出错：${error instanceof Error ? error.message : String(error)}`);
       });
   }
+}
+
+/** 照 Codex Remote 认这一条错误。 */
+function isAlreadyDeleted(error: unknown, threadId: string): boolean {
+  return error instanceof AppServerRpcError &&
+    error.code === -32600 &&
+    error.message === `no rollout found for thread id ${threadId}`;
 }
 
 /** 照 Codex Remote：模型和思考强度一起设，权限传权限档案的 id。没有要改的返回 null。 */

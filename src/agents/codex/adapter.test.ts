@@ -25,6 +25,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   } else if (m.method === "thread/resume") {
     instructions = p.developerInstructions;
     send({ id: m.id, result: { thread: { id: p.threadId } } });
+  } else if (m.method === "thread/delete") {
+    if (p.threadId === "gone") send({ id: m.id, error: { code: -32600, message: "no rollout found for thread id gone" } });
+    else if (p.threadId === "broken") send({ id: m.id, error: { code: -32603, message: "disk error" } });
+    else send({ id: m.id, result: {} });
   } else if (m.method === "thread/settings/update") {
     settings.push(p);
     send({ id: m.id, result: {} });
@@ -168,4 +172,11 @@ test("a Codex session with default settings sends no settings update", async (t)
   t.after(() => session.close());
   const events = await collect(session.send("settings"));
   assert.equal((events.at(-1) as { text: string }).text, "[]");
+});
+
+test("deleting a Codex thread treats an already missing thread as deleted", async (t) => {
+  const { adapter, options } = await setup(t);
+  await adapter.deleteSession("thread-1", options.cwd);
+  await adapter.deleteSession("gone", options.cwd);
+  await assert.rejects(adapter.deleteSession("broken", options.cwd), /disk error/u);
 });

@@ -2,7 +2,7 @@
  * AI 接入的统一接口。群核心只认这里的类型，不关心对面是哪家 CLI。
  * 接入新的 AI，就是新写一个 AgentAdapter 并登记到 AgentRegistry。
  *
- * 改会话名、删除会话等操作，到用上的那一步再加进来。
+ * 原生会话名不改：群主只在 lanting 里找群，永久删除时原生会话一起删掉。
  */
 
 /**
@@ -116,4 +116,9 @@ export interface AgentAdapter {
   resumeSession(nativeId: string, options: SessionOptions): Promise<AgentSession>;
   /** 可选的模型和权限。可能要临时启动一次 CLI（不开会话、不发消息），适配自己缓存。 */
   catalog(cwd: string): Promise<AgentCatalog>;
+  /**
+   * 永久删除原生会话。会话已经不存在也算成功；其他失败时 reject，由调用方稍后重试。
+   * 调用前群核心已经关掉了这个会话的进程。
+   */
+  deleteSession(nativeId: string, cwd: string): Promise<void>;
 }
