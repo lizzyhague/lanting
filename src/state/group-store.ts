@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 
-import type { AgentState, Group, ReplyStatus, Speaker, TranscriptEntry } from "../group/types.ts";
+import type { Activity, AgentState, Group, ReplyStatus, Speaker, TranscriptEntry } from "../group/types.ts";
 import {
   ensurePrivateDirectory,
   readJsonIfPresent,
@@ -201,6 +201,11 @@ function parseTranscript(value: unknown, id: string): TranscriptEntry[] {
     const status = entry.status;
     if (status !== undefined && !isReplyStatus(status)) fail(`第 ${expected} 条的状态不对`);
     if (entry.error !== undefined && typeof entry.error !== "string") fail(`第 ${expected} 条的错误信息不对`);
+    const activities = entry.activities;
+    if (activities !== undefined && !(Array.isArray(activities) &&
+        activities.every((item) => isObject(item) && typeof item.kind === "string"))) {
+      fail(`第 ${expected} 条的过程信息不对`);
+    }
     entries.push({
       seq: expected,
       at: entry.at as string,
@@ -208,6 +213,7 @@ function parseTranscript(value: unknown, id: string): TranscriptEntry[] {
       text: entry.text as string,
       ...(status === undefined ? {} : { status: status as ReplyStatus }),
       ...(entry.error === undefined ? {} : { error: entry.error as string }),
+      ...(activities === undefined ? {} : { activities: activities as Activity[] }),
     });
   }
   return entries;

@@ -1,7 +1,17 @@
 export const MAX_BROWSER_MESSAGE_BYTES = 2_097_152;
+const MAX_MESSAGE_TEXT_LENGTH = 524_288;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+const AGENT_ID_PATTERN = /^[a-z][a-z0-9]{0,15}$/u;
 
 export type BrowserRequest =
-  | { type: "connection.ready"; requestId: string };
+  | { type: "connection.ready"; requestId: string }
+  | { type: "app.state"; requestId: string }
+  | { type: "group.create"; requestId: string; directory: string; members: string[]; title: string }
+  | { type: "group.subscribe"; requestId: string; groupId: string }
+  | { type: "group.unsubscribe"; requestId: string; groupId: string }
+  | { type: "round.start"; requestId: string; groupId: string; text: string; order: string[] }
+  | { type: "round.interrupt"; requestId: string; groupId: string }
+  | { type: "approval.respond"; requestId: string; approvalId: string; decision: "allow" | "deny" };
 
 export type BrowserEvent = Record<string, unknown> & { type: string };
 
@@ -48,7 +58,39 @@ export function parseBrowserRequest(source: string): BrowserRequest {
 
   switch (value.type) {
     case "connection.ready":
-      return { type: "connection.ready", requestId };
+    case "app.state":
+      return { type: value.type, requestId };
+    case "group.create":
+      return {
+        type: "group.create",
+        requestId,
+        directory: requireString(value.directory, "工作目录", requestId, 255),
+        members: requireAgentList(value.members, "成员", requestId),
+        title: optionalString(value.title, "群名", requestId, 200) ?? "",
+      };
+    case "group.subscribe":
+    case "group.unsubscribe":
+    case "round.interrupt":
+      return { type: value.type, requestId, groupId: requireUuid(value.groupId, "群 ID", requestId) };
+    case "round.start":
+      return {
+        type: "round.start",
+        requestId,
+        groupId: requireUuid(value.groupId, "群 ID", requestId),
+        text: requireString(value.text, "消息", requestId, MAX_MESSAGE_TEXT_LENGTH),
+        order: requireAgentList(value.order, "点名", requestId),
+      };
+    case "approval.respond": {
+      if (value.decision !== "allow" && value.decision !== "deny") {
+        throw new ProtocolError("invalid_field", "审批结果只能是 allow 或 deny。", requestId);
+      }
+      return {
+        type: "approval.respond",
+        requestId,
+        approvalId: requireUuid(value.approvalId, "审批 ID", requestId),
+        decision: value.decision,
+      };
+    }
     default:
       throw new ProtocolError("unknown_type", `不认识的消息类型：${value.type}`, requestId);
   }
@@ -64,6 +106,34 @@ function requireString(
     throw new ProtocolError("invalid_field", `${label}不能为空或过长。`, requestId);
   }
   return value;
+}
+
+function optionalString(
+  value: unknown,
+  label: string,
+  requestId: string,
+  maxLength: number,
+): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || value.length > maxLength) {
+    throw new ProtocolError("invalid_field", `${label}格式不对或过长。`, requestId);
+  }
+  return value;
+}
+
+function requireUuid(value: unknown, label: string, requestId: string): string {
+  if (typeof value !== "string" || !UUID_PATTERN.test(value)) {
+    throw new ProtocolError("invalid_field", `${label}格式不对。`, requestId);
+  }
+  return value;
+}
+
+function requireAgentList(value: unknown, label: string, requestId: string): string[] {
+  if (!Array.isArray(value) || value.length > 16 ||
+      !value.every((item) => typeof item === "string" && AGENT_ID_PATTERN.test(item))) {
+    throw new ProtocolError("invalid_field", `${label}格式不对。`, requestId);
+  }
+  return [...value];
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

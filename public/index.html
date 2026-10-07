@@ -21,18 +21,52 @@
       </form>
     </section>
 
-    <div id="app-view" class="app-view" hidden>
+    <div id="app-view" class="app-view" data-pane="list" hidden>
       <aside id="group-sidebar" class="group-sidebar" aria-label="群列表">
         <div class="sidebar-heading">
           <strong class="sidebar-brand">lanting</strong>
           <span id="connection-status" class="connection-status" data-state="connecting">正在连接</span>
         </div>
+        <form id="create-form" class="create-form">
+          <label>
+            <span class="visually-hidden">工作目录</span>
+            <select id="directory-select" aria-label="工作目录" required>
+              <option value="">选择工作目录</option>
+            </select>
+          </label>
+          <div id="member-picks" class="member-picks" role="group" aria-label="拉哪些 AI 进群"></div>
+          <button id="create-button" type="submit" disabled>新建</button>
+          <p id="create-status" class="form-status" aria-live="polite"></p>
+        </form>
         <div id="group-list" class="group-list">
           <p class="empty-hint">还没有群</p>
         </div>
       </aside>
-      <main class="main-pane">
-        <p class="empty-hint">从左侧选择一个群</p>
+
+      <main id="group-pane" class="group-pane">
+        <div id="group-empty" class="pane-empty">
+          <p class="empty-hint">从左侧选择一个群</p>
+        </div>
+        <section id="group-view" class="group-view" hidden>
+          <header class="group-header">
+            <button id="back-button" class="quiet small back-button" type="button" aria-label="返回群列表">‹</button>
+            <div class="group-heading">
+              <strong id="group-title"></strong>
+              <span id="group-meta" class="group-meta"></span>
+            </div>
+          </header>
+          <div id="timeline" class="timeline" aria-live="polite"></div>
+          <div id="approval-list" class="approval-list"></div>
+          <form id="composer" class="composer">
+            <textarea id="message-input" rows="3" placeholder="发给群里的消息" aria-label="消息"></textarea>
+            <div class="composer-row">
+              <div id="call-picks" class="call-picks" role="group" aria-label="点名"></div>
+              <button id="interrupt-button" class="danger" type="button" hidden>打断</button>
+              <button id="send-button" class="primary" type="submit">发送</button>
+            </div>
+            <p id="composer-status" class="form-status" aria-live="polite"></p>
+          </form>
+        </section>
       </main>
     </div>
 

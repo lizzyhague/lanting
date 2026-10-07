@@ -1,10 +1,15 @@
-import { readFile, realpath, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
 export type AppConfig = {
   /** 新建群时，工作目录从这个目录下的第一层文件夹里选。 */
   projectRoot: string;
+  /** 各 AI 的 CLI。没有配置的 AI 不接入。 */
+  agents: {
+    claude?: { executable: string };
+  };
 };
 
 export async function loadConfig(configPath: string): Promise<AppConfig> {
@@ -36,7 +41,30 @@ export async function loadConfig(configPath: string): Promise<AppConfig> {
     throw new Error(`项目根目录不是文件夹：${configuredRoot}`);
   }
 
-  return { projectRoot };
+  const agents: AppConfig["agents"] = {};
+  if (value.agents !== undefined) {
+    const configured = requireObject(value.agents, "agents");
+    if (configured.claude !== undefined) {
+      const claude = requireObject(configured.claude, "agents.claude");
+      agents.claude = { executable: await requireExecutable(claude.executable, "agents.claude.executable") };
+    }
+  }
+
+  return { projectRoot, agents };
+}
+
+async function requireExecutable(value: unknown, label: string): Promise<string> {
+  const executable = expandHome(requireString(value, label));
+  if (!path.isAbsolute(executable)) throw new Error(`${label} 必须是绝对路径或 ~/ 开头的路径。`);
+  await access(executable, constants.X_OK).catch((error: unknown) => {
+    throw new Error(`${label} 不存在或不可执行：${executable}`, { cause: error });
+  });
+  return executable;
+}
+
+function requireObject(value: unknown, label: string): Record<string, unknown> {
+  if (!isObject(value)) throw new Error(`${label} 必须是 JSON 对象。`);
+  return value;
 }
 
 function expandHome(value: string): string {

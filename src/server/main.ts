@@ -1,9 +1,12 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { ClaudeAdapter } from "../agents/claude/adapter.ts";
 import { AgentRegistry } from "../agents/registry.ts";
+import type { AgentAdapter } from "../agents/types.ts";
 import { loadConfig } from "../config/load.ts";
 import { GroupRuntime } from "../group/runtime.ts";
+import { GroupService } from "../group/service.ts";
 import { GroupStore } from "../state/group-store.ts";
 import { ConnectionHub } from "./hub.ts";
 import { WebServer } from "./http-server.ts";
@@ -15,28 +18,39 @@ export async function main(): Promise<void> {
   if (!token || token.length < 32) throw new Error("请设置至少 32 个字符的 ACCESS_TOKEN。");
 
   const configPath = path.resolve(process.env.CONFIG_PATH ?? "config.json");
-  // 第 1 步还用不到配置，但启动时就校验，免得配置错误拖到建群时才暴露。
-  await loadConfig(configPath);
+  const config = await loadConfig(configPath);
   const dataDirectory = path.resolve(process.env.DATA_DIR ?? "data");
 
   // 群数据读不动或校验不过时直接退出，绝不能用空状态覆盖原文件。
   const store = await GroupStore.open(dataDirectory);
-  // AI 适配从第 3 步开始登记。
-  const groups = new GroupRuntime({ store, agents: new AgentRegistry([]) });
+  const adapters: AgentAdapter[] = [];
+  if (config.agents.claude) {
+    adapters.push(new ClaudeAdapter({ pathToClaudeCodeExecutable: config.agents.claude.executable }));
+  }
+  const agents = new AgentRegistry(adapters);
+  const runtime = new GroupRuntime({ store, agents });
+  const groups = new GroupService({ projectRoot: config.projectRoot, store, runtime, agents });
   const hub = new ConnectionHub();
+  groups.onEvent((event) => {
+    hub.handle(event.scope === "global"
+      ? { target: "global", payload: event.payload }
+      : { target: "group", groupId: event.groupId, payload: event.payload });
+  });
   const server = new WebServer({
     token,
-    services: { hub },
+    services: { hub, groups },
     allowedOrigins: readAllowedOrigins(process.env.ALLOWED_ORIGINS),
   });
 
   try {
     const address = await server.listen(readPort(process.env.PORT ?? DEFAULT_PORT));
     console.log(`服务正在监听 http://${address.host}:${address.port}/`);
+    console.log(`已接入的 AI：${agents.ids.join("、") || "无"}`);
+    runtime.startIdleSweeper();
     await waitForShutdownSignal();
   } finally {
     await server.close();
-    await groups.shutdown();
+    await runtime.shutdown();
   }
 }
 

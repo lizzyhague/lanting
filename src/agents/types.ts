@@ -5,10 +5,24 @@
  * 改会话名、compact、切模型和权限、审批、删除会话等操作，到用上的那一步再加进来。
  */
 
+export type ApprovalAsk = {
+  toolName: string;
+  /** 一行摘要，比如命令或文件路径。 */
+  detail: string;
+};
+
+export type ApprovalAnswer = {
+  decision: "allow" | "deny";
+  /** 拒绝时交给 AI 的说明。 */
+  message: string;
+};
+
 export type SessionOptions = {
   cwd: string;
   /** 追加在 CLI 自己的系统提示词之后，内容见 group/system-prompt.ts。 */
   systemPrompt: string;
+  /** AI 要调用需要确认的工具时调用，由群主在网页上批准或拒绝。 */
+  requestApproval: (ask: ApprovalAsk) => Promise<ApprovalAnswer>;
 };
 
 export type AgentEvent =
@@ -30,6 +44,8 @@ export type AgentEvent =
 export interface AgentSession {
   /** CLI 自己的会话 id。有的 CLI 要等第一条消息之后才知道，之前为 null。 */
   readonly nativeId: string | null;
+  /** CLI 进程已经退出时为 false；群核心会丢掉它，下次用原生会话 id 恢复。 */
+  readonly alive: boolean;
   /** 把一条 user 消息送进原生会话，同一会话同一时间只会有一个 send 在进行。 */
   send(text: string): AsyncIterable<AgentEvent>;
   /** 打断正在进行的发言；send 的迭代随后应以 interrupted 结束。 */

@@ -1,7 +1,9 @@
 import type { BrowserEvent } from "./protocol.ts";
 
-/** 推给浏览器的事件。global 发给所有已鉴权连接；按群推送的事件到第 2 步再加。 */
-export type EmittedEvent = { target: "global"; payload: BrowserEvent };
+/** 推给浏览器的事件。global 发给所有已鉴权连接；group 只发给订阅了这个群的连接。 */
+export type EmittedEvent =
+  | { target: "global"; payload: BrowserEvent }
+  | { target: "group"; groupId: string; payload: BrowserEvent };
 
 export type EventSink = {
   deliver(event: EmittedEvent): void;

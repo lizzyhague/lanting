@@ -36,4 +36,9 @@ export type TranscriptEntry = {
   /** 只有 AI 的发言有。只有 completed 的回复会转给其他 AI。 */
   status?: ReplyStatus;
   error?: string;
+  /** 这次发言的过程信息（工具调用等），只给群主看，不转给其他 AI。 */
+  activities?: Activity[];
 };
+
+/** 由各家适配决定内容，至少带 kind。 */
+export type Activity = Record<string, unknown> & { kind: string };

@@ -1,3 +1,6 @@
 {
-  "projectRoot": "/absolute/path/to/projects"
+  "projectRoot": "/absolute/path/to/projects",
+  "agents": {
+    "claude": { "executable": "/absolute/path/to/claude" }
+  }
 }

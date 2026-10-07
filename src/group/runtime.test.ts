@@ -172,3 +172,74 @@ test("after a restart the group is still there and agents resume their native se
   ].join("\n\n")]);
   assert.equal(adapters.claude!.received.length, 1);
 });
+
+test("approvals are tagged with the group and agent, and their outcome is recorded as activity", async (t) => {
+  const { adapters, store, runtime, groupId } = await setup(t, ["claude"]);
+  adapters.claude!.script = () => [
+    { type: "ask", toolName: "Bash" },
+    { type: "end", outcome: "completed", text: "done" },
+  ];
+  runtime.approvals.onEvent((event) => {
+    if (event.type !== "approval.requested") return;
+    assert.equal(event.approval.groupId, groupId);
+    assert.equal(event.approval.agent, "claude");
+    runtime.approvals.respond(event.approval.approvalId, "allow");
+  });
+  assert.equal(await runtime.startRound(groupId, "q", ["claude"]).done, "completed");
+  assert.deepEqual(store.transcript(groupId).at(-1)?.activities, [{ kind: "approval", decision: "allow" }]);
+});
+
+test("interrupting denies the pending approval", async (t) => {
+  const { adapters, store, runtime, groupId } = await setup(t, ["claude", "codex"]);
+  adapters.claude!.script = () => [
+    { type: "ask", toolName: "Bash" },
+    { type: "end", outcome: "interrupted", text: "" },
+  ];
+  const round = runtime.startRound(groupId, "q", ["claude", "codex"]);
+  while (runtime.approvals.pending(groupId).length === 0) await new Promise((r) => setImmediate(r));
+  const snapshot = runtime.round(groupId);
+  assert.equal(snapshot?.speaking, "claude");
+  await runtime.interrupt(groupId);
+  assert.equal(await round.done, "interrupted");
+  assert.deepEqual(store.transcript(groupId).at(-1)?.activities, [{ kind: "approval", decision: "deny" }]);
+  assert.equal(runtime.approvals.pending(groupId).length, 0);
+  assert.equal(runtime.round(groupId), null);
+});
+
+test("the live round snapshot tracks streamed text and resets it when activity arrives", async (t) => {
+  const { adapters, runtime, events, groupId } = await setup(t, ["claude"]);
+  adapters.claude!.script = () => [
+    { type: "text", delta: "Let me look" },
+    { type: "activity", activity: { kind: "tool", toolName: "Read" } },
+    { type: "text", delta: "Answer" },
+    { type: "end", outcome: "completed", text: "Answer" },
+  ];
+  const snapshots: (string | undefined)[] = [];
+  runtime.onEvent((event) => {
+    if (event.type === "agent.text" || event.type === "agent.activity") snapshots.push(runtime.round(groupId)?.text);
+  });
+  await runtime.startRound(groupId, "q", ["claude"]).done;
+  assert.deepEqual(snapshots, ["Let me look", "", "Answer"]);
+  assert.ok(events.some((event) => event.type === "agent.activity"));
+});
+
+test("a dead session is replaced by resuming the native session", async (t) => {
+  const { adapters, runtime, groupId } = await setup(t, ["claude"]);
+  await runtime.startRound(groupId, "q1", ["claude"]).done;
+  await adapters.claude!.sessions[0]!.close();
+  await runtime.startRound(groupId, "q2", ["claude"]).done;
+  assert.deepEqual(adapters.claude!.calls.map((call) => [call.kind, call.nativeId]), [
+    ["start", null],
+    ["resume", "claude-session-1"],
+  ]);
+});
+
+test("idle sessions are closed and resumed on the next call", async (t) => {
+  const { adapters, runtime, groupId } = await setup(t, ["claude"]);
+  await runtime.startRound(groupId, "q1", ["claude"]).done;
+  assert.equal(await runtime.closeIdleSessions(Date.now()), 0);
+  assert.equal(await runtime.closeIdleSessions(Date.now() + 16 * 60_000), 1);
+  assert.equal(adapters.claude!.sessions[0]!.closed, true);
+  await runtime.startRound(groupId, "q2", ["claude"]).done;
+  assert.equal(adapters.claude!.calls.at(-1)?.kind, "resume");
+});

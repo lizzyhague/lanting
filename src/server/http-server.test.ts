@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { WebSocket } from "ws";
 
+import { FakeAdapter } from "../agents/fake-adapter.test-support.ts";
+import { AgentRegistry } from "../agents/registry.ts";
+import { GroupRuntime } from "../group/runtime.ts";
+import { GroupService } from "../group/service.ts";
+import { GroupStore } from "../state/group-store.ts";
 import { COOKIE_NAME } from "./auth.ts";
 import { ConnectionHub } from "./hub.ts";
 import { WebServer } from "./http-server.ts";
@@ -20,14 +25,27 @@ async function startServer(t: test.TestContext) {
   await writeFile(path.join(webRoot, "app.js"), "console.log('app');\n");
   await writeFile(path.join(webRoot, "boot.js"), "");
   await writeFile(path.join(webRoot, "styles.css"), "");
+  const projectRoot = path.join(webRoot, "projects");
+  await mkdir(path.join(projectRoot, "demo"), { recursive: true });
+  const store = await GroupStore.open(path.join(webRoot, "data"));
+  const claude = new FakeAdapter("claude");
+  const agents = new AgentRegistry([claude]);
+  const runtime = new GroupRuntime({ store, agents });
+  const groups = new GroupService({ projectRoot, store, runtime, agents });
   const hub = new ConnectionHub();
-  const server = new WebServer({ token: TOKEN, services: { hub }, webRoot });
+  groups.onEvent((event) => {
+    hub.handle(event.scope === "global"
+      ? { target: "global", payload: event.payload }
+      : { target: "group", groupId: event.groupId, payload: event.payload });
+  });
+  const server = new WebServer({ token: TOKEN, services: { hub, groups }, webRoot });
   const { port } = await server.listen(0);
   t.after(async () => {
     await server.close();
+    await runtime.shutdown();
     await rm(webRoot, { recursive: true, force: true });
   });
-  return { base: `http://127.0.0.1:${port}`, port, hub };
+  return { base: `http://127.0.0.1:${port}`, port, hub, claude };
 }
 
 async function login(base: string, token = TOKEN): Promise<Response> {
@@ -131,4 +149,75 @@ test("websocket requires login and answers connection.ready", async (t) => {
     requestId: null,
     error: { code: "invalid_json", message: "消息不是有效的 JSON。" },
   });
+});
+
+test("a browser can create a group, run a round, and answer an approval over the websocket", async (t) => {
+  const { base, port, claude } = await startServer(t);
+  claude.script = () => [
+    { type: "text", delta: "thinking" },
+    { type: "ask", toolName: "Bash" },
+    { type: "end", outcome: "completed", text: "final answer" },
+  ];
+  const cookie = cookieFrom(await login(base));
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { cookie } });
+  t.after(() => socket.terminate());
+  await once(socket, "open");
+
+  const inbox: { type: string; requestId?: string; event?: { type: string; [key: string]: unknown }; [key: string]: unknown }[] = [];
+  socket.on("message", (data) => inbox.push(JSON.parse(String(data))));
+  const waitFor = async <T>(pick: () => T | undefined): Promise<T> => {
+    for (;;) {
+      const found = pick();
+      if (found !== undefined) return found;
+      await once(socket, "message");
+    }
+  };
+  let nextId = 0;
+  const call = async (type: string, fields: Record<string, unknown> = {}) => {
+    const requestId = `r${++nextId}`;
+    socket.send(JSON.stringify({ ...fields, type, requestId }));
+    const response = await waitFor(() => inbox.find((message) => message.requestId === requestId));
+    assert.equal(response.ok, true, JSON.stringify(response));
+    return response.data as Record<string, unknown>;
+  };
+  const event = (type: string) => waitFor(() => inbox.find((message) => message.event?.type === type)?.event);
+
+  await call("connection.ready");
+  const state = await call("app.state");
+  assert.deepEqual(state.agents, [{ id: "claude", displayName: "Claude" }]);
+  assert.deepEqual(state.directories, ["demo"]);
+
+  const { group } = await call("group.create", { directory: "demo", members: ["claude"], title: "" }) as {
+    group: { id: string; title: string; directory: string };
+  };
+  assert.equal(group.title, "demo");
+  assert.equal(group.directory, "demo");
+  await event("group.created");
+
+  const snapshot = await call("group.subscribe", { groupId: group.id });
+  assert.deepEqual(snapshot.transcript, []);
+  await call("round.start", { groupId: group.id, text: "hello", order: ["claude"] });
+
+  const requested = await event("approval.requested") as unknown as { approval: { approvalId: string; agent: string } };
+  assert.equal(requested.approval.agent, "claude");
+  const midRound = await call("group.subscribe", { groupId: group.id }) as {
+    round: { speaking: string; text: string };
+    approvals: unknown[];
+  };
+  assert.equal(midRound.round.speaking, "claude");
+  assert.equal(midRound.round.text, "thinking");
+  assert.equal(midRound.approvals.length, 1);
+  await call("approval.respond", { approvalId: requested.approval.approvalId, decision: "allow" });
+
+  const ended = await event("round.ended");
+  assert.equal(ended.outcome, "completed");
+  const final = await call("group.subscribe", { groupId: group.id }) as {
+    transcript: { text: string; status?: string }[];
+    group: { busy: boolean };
+  };
+  assert.deepEqual(final.transcript.map((entry) => [entry.text, entry.status]), [
+    ["hello", undefined],
+    ["final answer", "completed"],
+  ]);
+  assert.equal(final.group.busy, false);
 });

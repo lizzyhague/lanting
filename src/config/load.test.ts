@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,7 +20,21 @@ test("loads the project root and drops unknown fields", async (t) => {
   await writeFile(configPath, JSON.stringify({ projectRoot: projects, extra: true }));
 
   const config = await loadConfig(configPath);
-  assert.deepEqual(config, { projectRoot: projects });
+  assert.deepEqual(config, { projectRoot: projects, agents: {} });
+});
+
+test("loads an executable Claude Code path and rejects a non-executable one", async (t) => {
+  const directory = await scratch(t);
+  const projects = path.join(directory, "projects");
+  const claude = path.join(directory, "claude");
+  const configPath = path.join(directory, "config.json");
+  await mkdir(projects);
+  await writeFile(claude, "#!/bin/sh\n", { mode: 0o700 });
+  await writeFile(configPath, JSON.stringify({ projectRoot: projects, agents: { claude: { executable: claude } } }));
+  assert.deepEqual((await loadConfig(configPath)).agents, { claude: { executable: claude } });
+
+  await chmod(claude, 0o600);
+  await assert.rejects(loadConfig(configPath), /不存在或不可执行/u);
 });
 
 test("rejects a relative, missing, or non-directory project root", async (t) => {
