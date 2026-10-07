@@ -36,6 +36,9 @@ const elements = {
   composer: byId("composer"),
   messageInput: byId("message-input"),
   callPicks: byId("call-picks"),
+  plusButton: byId("plus-button"),
+  plusMenu: byId("plus-menu"),
+  agentPanel: byId("agent-panel"),
   interruptButton: byId("interrupt-button"),
   sendButton: byId("send-button"),
   composerStatus: byId("composer-status"),
@@ -60,7 +63,7 @@ const state = {
   createBusy: false,
 
   currentGroupId: null,
-  /** 当前打开的群：{ group, transcript, round, approvals: Map } */
+  /** 当前打开的群：{ group, transcript, round, compaction, approvals: Map } */
   current: null,
   /** 当前群的点名顺序（勾选的先后），以后端保存的为准。 */
   callOrder: [],
@@ -69,6 +72,14 @@ const state = {
   /** 点名正在保存：多选框和发送按钮都锁住。 */
   savingOrder: false,
   sending: false,
+  /** 成员面板用的模型和权限列表，按 “群 id:AI” 存；值为 { catalog } 或 { error }。 */
+  catalogs: new Map(),
+  /** 正在保存设置的 AI，它的下拉框锁住。 */
+  savingSettings: new Set(),
+  /** 点名那一排里点开了设置框的 AI。 */
+  openAgent: null,
+  /** + 菜单当前在哪一级：root 或 compact。 */
+  plusLevel: "root",
 };
 
 /* ---------- 登录与连接 ---------- */
@@ -262,6 +273,7 @@ function handleEvent(event) {
         }
         renderHeader();
         renderComposer();
+        renderAgentPanel();
       }
       return;
   }
@@ -310,6 +322,21 @@ function handleEvent(event) {
       renderLive();
       renderComposer();
       if (event.outcome === "failed") elements.composerStatus.textContent = "这一轮因为出错提前结束了。";
+      return;
+    case "compact.started":
+      current.compaction = { agents: event.agents, current: null };
+      renderLive();
+      renderComposer();
+      return;
+    case "compact.progress":
+      if (!current.compaction) return;
+      current.compaction.current = event.agent;
+      renderLive();
+      return;
+    case "compact.ended":
+      current.compaction = null;
+      renderLive();
+      renderComposer();
       return;
     case "approval.requested":
       current.approvals.set(event.approval.approvalId, event.approval);
@@ -458,6 +485,7 @@ async function openGroup(groupId, { keepPane = false } = {}) {
     group: snapshot.group,
     transcript: [...snapshot.transcript],
     round: snapshot.round,
+    compaction: snapshot.compaction,
     approvals: new Map(snapshot.approvals.map((approval) => [approval.approvalId, approval])),
   };
   state.groups.set(groupId, snapshot.group);
@@ -465,6 +493,7 @@ async function openGroup(groupId, { keepPane = false } = {}) {
   if (switched) {
     state.selectAllOn = false;
     elements.composerStatus.textContent = "";
+    closePopovers();
   }
 
   elements.groupEmpty.hidden = true;
@@ -515,6 +544,12 @@ function appendEntry(entry) {
 
 function entryElement(entry) {
   const article = document.createElement("article");
+  if (entry.from.role === "notice") {
+    article.className = "notice";
+    article.dataset.agent = entry.from.agent;
+    article.append(agentDot(entry.from.agent), document.createTextNode(entry.text));
+    return article;
+  }
   if (entry.from.role === "host") {
     article.className = "message host";
     const body = document.createElement("pre");
@@ -590,7 +625,17 @@ function renderLive() {
   const live = document.getElementById("timeline-live");
   if (!live) return;
   const round = state.current?.round;
+  const compaction = state.current?.compaction;
   keepBottom(() => {
+    if (!round && compaction) {
+      const waiting = document.createElement("p");
+      waiting.className = "live-waiting";
+      waiting.textContent = compaction.current
+        ? `正在压缩 ${agentName(compaction.current)} 的上下文……`
+        : "准备压缩上下文……";
+      live.replaceChildren(waiting);
+      return;
+    }
     if (!round) {
       live.replaceChildren();
       return;
@@ -686,20 +731,30 @@ function renderCallPicks() {
   });
   all.append(allInput, document.createTextNode("全选"));
 
+  // 复选框管点名；名字是按钮，点开这个 AI 的设置框。
   elements.callPicks.replaceChildren(all, ...group.members.map((member) => {
-    const label = document.createElement("label");
-    label.className = "pick";
-    label.dataset.agent = member;
+    const pick = document.createElement("span");
+    pick.className = "pick";
+    pick.dataset.agent = member;
     const input = document.createElement("input");
     input.type = "checkbox";
     input.checked = state.callOrder.includes(member);
     input.disabled = state.savingOrder;
+    input.setAttribute("aria-label", `点名 ${agentName(member)}`);
     input.addEventListener("change", () => {
       void saveCallOrder(toggleMember(state.callOrder, member, input.checked), state.selectAllOn);
     });
-    label.append(input, document.createTextNode(agentName(member)));
-    return label;
+    const name = document.createElement("button");
+    name.type = "button";
+    name.className = "pick-name";
+    name.textContent = agentName(member);
+    name.setAttribute("aria-haspopup", "true");
+    name.setAttribute("aria-expanded", String(state.openAgent === member));
+    name.addEventListener("click", () => toggleAgentPanel(member));
+    pick.append(input, name);
+    return pick;
   }));
+  positionAgentPanel();
 }
 
 /** 每次勾选变化都存到后端；保存期间锁住多选框和发送，失败时恢复成后端的状态。 */
@@ -733,8 +788,11 @@ async function saveCallOrder(order, selectAllOn) {
 }
 
 function renderComposer() {
-  const busy = Boolean(state.current?.group.busy || state.current?.round);
-  elements.interruptButton.hidden = !busy;
+  renderPlusMenu();
+  const current = state.current;
+  const busy = Boolean(current?.group.busy || current?.round || current?.compaction);
+  // 压缩一旦开始不打断，只有发言能打断。
+  elements.interruptButton.hidden = !busy || Boolean(current?.compaction && !current?.round);
   elements.sendButton.disabled = busy || state.sending || state.savingOrder || !state.authenticated ||
     state.callOrder.length === 0;
 }
@@ -781,6 +839,282 @@ elements.interruptButton.addEventListener("click", async () => {
     elements.interruptButton.disabled = false;
   }
 });
+
+/* ---------- + 菜单与成员设置框 ---------- */
+
+function closePopovers() {
+  elements.plusMenu.hidden = true;
+  elements.plusButton.setAttribute("aria-expanded", "false");
+  state.plusLevel = "root";
+  closeAgentPanel();
+}
+
+elements.plusButton.addEventListener("click", () => {
+  const open = elements.plusMenu.hidden;
+  closePopovers();
+  if (!open) return;
+  elements.plusMenu.hidden = false;
+  elements.plusButton.setAttribute("aria-expanded", "true");
+  renderPlusMenu();
+});
+
+document.addEventListener("click", (event) => {
+  if (!(event.target instanceof Element)) return;
+  if (event.target.closest(".menu-anchor, .agent-panel, .pick-name")) return;
+  closePopovers();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closePopovers();
+});
+
+window.addEventListener("resize", () => positionAgentPanel());
+
+function groupBusy() {
+  const current = state.current;
+  return Boolean(current?.group.busy || current?.round || current?.compaction);
+}
+
+/** + 菜单：群级的共用操作，分两级。压缩上下文点开后再选某个 AI 或全部。 */
+function renderPlusMenu() {
+  const group = state.current?.group;
+  if (!group || elements.plusMenu.hidden) return;
+  if (state.plusLevel === "root") {
+    const item = menuItem("压缩上下文", null, false, () => {
+      state.plusLevel = "compact";
+      renderPlusMenu();
+    });
+    item.classList.add("has-submenu");
+    elements.plusMenu.replaceChildren(item);
+    return;
+  }
+  const back = menuItem("‹ 压缩上下文", null, false, () => {
+    state.plusLevel = "root";
+    renderPlusMenu();
+  });
+  back.classList.add("menu-back");
+  const disabled = groupBusy() || !state.authenticated;
+  const choices = [
+    ...group.members.map((member) => menuItem(agentName(member), member, disabled, () => {
+      closePopovers();
+      void compact([member]);
+    })),
+    menuItem("全部", null, disabled, () => {
+      closePopovers();
+      void compact([...group.members]);
+    }),
+  ];
+  elements.plusMenu.replaceChildren(back, ...choices);
+}
+
+function menuItem(label, agent, disabled, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "menu-item";
+  if (agent) {
+    button.dataset.agent = agent;
+    button.append(agentDot(agent));
+  }
+  button.append(document.createTextNode(label));
+  button.disabled = disabled;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+async function compact(agents) {
+  const current = state.current;
+  if (!current) return;
+  elements.composerStatus.textContent = "";
+  try {
+    await request("group.compact", { groupId: current.group.id, agents });
+  } catch (error) {
+    elements.composerStatus.textContent = `没有开始压缩：${errorMessage(error)}`;
+  }
+}
+
+function catalogKey(groupId, agent) {
+  return `${groupId}:${agent}`;
+}
+
+/** 每次点开都重新问一次；后端有缓存，不会每次都启动 CLI。 */
+async function loadCatalog(agent) {
+  const current = state.current;
+  if (!current) return;
+  const groupId = current.group.id;
+  const key = catalogKey(groupId, agent);
+  try {
+    const catalog = await request("agent.catalog", { groupId, agent });
+    state.catalogs.set(key, { catalog });
+  } catch (error) {
+    state.catalogs.set(key, { error: errorMessage(error) });
+  }
+  if (state.current === current && state.openAgent === agent) renderAgentPanel();
+}
+
+function toggleAgentPanel(agent) {
+  const opening = state.openAgent !== agent;
+  closePopovers();
+  if (!opening) return;
+  state.openAgent = agent;
+  elements.agentPanel.hidden = false;
+  setNameExpanded(agent, true);
+  renderAgentPanel();
+  void loadCatalog(agent);
+}
+
+function closeAgentPanel() {
+  if (state.openAgent) setNameExpanded(state.openAgent, false);
+  state.openAgent = null;
+  elements.agentPanel.hidden = true;
+}
+
+function setNameExpanded(agent, expanded) {
+  const name = elements.callPicks.querySelector(`.pick[data-agent="${agent}"] .pick-name`);
+  name?.setAttribute("aria-expanded", String(expanded));
+}
+
+/** 设置框从被点的名字那里往上弹出，靠窗口边时往里收。 */
+function positionAgentPanel() {
+  const agent = state.openAgent;
+  if (!agent || elements.agentPanel.hidden) return;
+  const pick = elements.callPicks.querySelector(`.pick[data-agent="${agent}"]`);
+  const row = elements.agentPanel.offsetParent;
+  if (!pick || !(row instanceof HTMLElement)) return;
+  const rowBox = row.getBoundingClientRect();
+  const pickBox = pick.getBoundingClientRect();
+  const width = elements.agentPanel.offsetWidth;
+  const left = Math.max(0, Math.min(pickBox.left - rowBox.left, rowBox.width - width));
+  elements.agentPanel.style.left = `${left}px`;
+}
+
+/** 一个 AI 的设置框：模型、思考强度、权限，加单独压缩。只影响这个群。 */
+function renderAgentPanel() {
+  const group = state.current?.group;
+  const agent = state.openAgent;
+  if (!group || !agent || elements.agentPanel.hidden) return;
+  if (!group.members.includes(agent)) {
+    closeAgentPanel();
+    return;
+  }
+  // 下拉框正打开时重画会把它收起来，等用户选完再画。
+  if (elements.agentPanel.contains(document.activeElement) && document.activeElement?.tagName === "SELECT") return;
+  elements.agentPanel.dataset.agent = agent;
+  elements.agentPanel.replaceChildren(memberRow(group, agent));
+  positionAgentPanel();
+}
+
+function memberRow(group, agent) {
+  const row = document.createElement("div");
+  row.className = "member-row";
+  row.dataset.agent = agent;
+  const name = document.createElement("div");
+  name.className = "member-name";
+  name.append(agentDot(agent), document.createTextNode(agentName(agent)));
+  const compactButton = document.createElement("button");
+  compactButton.type = "button";
+  compactButton.className = "small";
+  compactButton.textContent = "压缩";
+  compactButton.disabled = groupBusy() || !state.authenticated;
+  compactButton.addEventListener("click", () => {
+    closePopovers();
+    void compact([agent]);
+  });
+  name.append(compactButton);
+  row.append(name);
+
+  const entry = state.catalogs.get(catalogKey(group.id, agent));
+  if (!entry) {
+    row.append(statusLine("正在读取可选的模型和权限……"));
+    return row;
+  }
+  if (entry.error) {
+    row.append(statusLine(`读取失败：${entry.error}`, true));
+    return row;
+  }
+  const { catalog } = entry;
+  const settings = group.settings?.[agent] ?? { model: null, effort: null, permission: null };
+  const locked = state.savingSettings.has(agent) || !state.authenticated;
+  const model = catalog.models.find((item) => item.id === settings.model) ?? null;
+
+  const modelSelect = settingSelect("模型", settings.model, catalog.models.map((item) => ({
+    value: item.id,
+    label: item.label,
+    title: item.description,
+  })), locked);
+  const effortSelect = settingSelect("思考强度", settings.effort, (model?.efforts ?? []).map((effort) => ({
+    value: effort,
+    label: effort,
+  })), locked || !model || model.efforts.length === 0);
+  const permissionSelect = settingSelect("权限", settings.permission, catalog.permissions.map((item) => ({
+    value: item.id,
+    label: item.danger ? `${item.label} ⚠` : item.label,
+    title: item.description,
+  })), locked);
+
+  modelSelect.select.addEventListener("change", () => {
+    const nextModel = modelSelect.select.value || null;
+    const efforts = catalog.models.find((item) => item.id === nextModel)?.efforts ?? [];
+    // 新模型不支持原来的思考强度时，回到默认。
+    const effort = nextModel && efforts.includes(settings.effort) ? settings.effort : null;
+    void saveSettings(agent, { ...settings, model: nextModel, effort });
+  });
+  effortSelect.select.addEventListener("change", () => {
+    void saveSettings(agent, { ...settings, effort: effortSelect.select.value || null });
+  });
+  permissionSelect.select.addEventListener("change", () => {
+    void saveSettings(agent, { ...settings, permission: permissionSelect.select.value || null });
+  });
+  row.append(modelSelect.label, effortSelect.label, permissionSelect.label);
+  const description = catalog.permissions.find((item) => item.id === settings.permission)?.description;
+  if (description) row.append(statusLine(description));
+  row.append(statusLine("只影响这个群，下次发言时生效。"));
+  return row;
+}
+
+/** 第一项是“默认”（不指定，跟随 CLI）；当前值不在列表里时也照样显示出来。 */
+function settingSelect(labelText, value, options, disabled) {
+  const label = document.createElement("label");
+  label.className = "setting";
+  const caption = document.createElement("span");
+  caption.textContent = labelText;
+  const select = document.createElement("select");
+  select.add(new Option("默认", ""));
+  for (const option of options) {
+    const element = new Option(option.label, option.value);
+    if (option.title) element.title = option.title;
+    select.add(element);
+  }
+  if (value && !options.some((option) => option.value === value)) select.add(new Option(`${value}（不在列表里）`, value));
+  select.value = value ?? "";
+  select.disabled = disabled;
+  label.append(caption, select);
+  return { label, select };
+}
+
+function statusLine(text, error = false) {
+  const line = document.createElement("p");
+  line.className = error ? "member-note error" : "member-note";
+  line.textContent = text;
+  return line;
+}
+
+async function saveSettings(agent, settings) {
+  const current = state.current;
+  if (!current || state.savingSettings.has(agent)) return;
+  state.savingSettings.add(agent);
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  renderAgentPanel();
+  try {
+    const { group } = await request("agent.settings", { groupId: current.group.id, agent, ...settings });
+    if (state.current === current) current.group = group;
+    elements.composerStatus.textContent = "";
+  } catch (error) {
+    elements.composerStatus.textContent = `${agentName(agent)} 的设置没有保存：${errorMessage(error)}`;
+  } finally {
+    state.savingSettings.delete(agent);
+    renderAgentPanel();
+  }
+}
 
 /* ---------- 杂项 ---------- */
 

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 
+import { DEFAULT_AGENT_SETTINGS, type AgentSettings } from "../agents/types.ts";
 import type { Activity, AgentState, Group, ReplyStatus, Speaker, TranscriptEntry } from "../group/types.ts";
 import {
   ensurePrivateDirectory,
@@ -71,7 +72,9 @@ export class GroupStore {
   async create(input: NewGroup): Promise<Group> {
     const id = randomUUID();
     const agents: Group["agents"] = {};
-    for (const member of input.members) agents[member] = { nativeSessionId: null, cursor: 0 };
+    for (const member of input.members) {
+      agents[member] = { nativeSessionId: null, cursor: 0, settings: { ...DEFAULT_AGENT_SETTINGS } };
+    }
     const group: Group = {
       id,
       title: input.title,
@@ -164,8 +167,12 @@ function parseGroup(value: unknown, id: string): Group {
         !Number.isSafeInteger(state.cursor) || (state.cursor as number) < 0) {
       fail(`agents.${member} 不对`);
     }
-    const valid = state as { nativeSessionId: string | null; cursor: number };
-    agents[member] = { nativeSessionId: valid.nativeSessionId, cursor: valid.cursor };
+    const valid = state as { nativeSessionId: string | null; cursor: number; settings?: unknown };
+    // 第 5 步之前建的群没有 settings，按跟随默认处理。
+    const settings = valid.settings === undefined
+      ? { ...DEFAULT_AGENT_SETTINGS }
+      : parseSettings(valid.settings) ?? fail(`agents.${member}.settings 不对`);
+    agents[member] = { nativeSessionId: valid.nativeSessionId, cursor: valid.cursor, settings };
   }
   for (const key of ["title", "cwd", "username", "createdAt"] as const) {
     if (typeof group[key] !== "string") fail(`${key} 不对`);
@@ -220,11 +227,24 @@ function parseTranscript(value: unknown, id: string): TranscriptEntry[] {
   return entries;
 }
 
+function parseSettings(value: unknown): AgentSettings | null {
+  if (!isObject(value)) return null;
+  const field = (key: keyof AgentSettings) => {
+    const item = value[key];
+    return item === null || typeof item === "string" ? item : undefined;
+  };
+  const model = field("model");
+  const effort = field("effort");
+  const permission = field("permission");
+  if (model === undefined || effort === undefined || permission === undefined) return null;
+  return { model, effort, permission };
+}
+
 function parseSpeaker(value: unknown): Speaker | null {
   if (!isObject(value)) return null;
   if (value.role === "host") return { role: "host" };
-  if (value.role === "agent" && typeof value.agent === "string") {
-    return { role: "agent", agent: value.agent };
+  if ((value.role === "agent" || value.role === "notice") && typeof value.agent === "string") {
+    return { role: value.role, agent: value.agent };
   }
   return null;
 }

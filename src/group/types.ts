@@ -1,3 +1,5 @@
+import type { AgentSettings } from "../agents/types.ts";
+
 export type AgentState = {
   /** CLI 的原生会话 id；还没开过会话时为 null。 */
   nativeSessionId: string | null;
@@ -6,6 +8,8 @@ export type AgentState = {
    * 第一次被点名时会收到开群以来的全部内容。
    */
   cursor: number;
+  /** 这个群里给它选的模型、思考强度和权限，只影响这个群。 */
+  settings: AgentSettings;
 };
 
 export type Group = {
@@ -23,7 +27,11 @@ export type Group = {
   createdAt: string;
 };
 
-export type Speaker = { role: "host" } | { role: "agent"; agent: string };
+export type Speaker =
+  | { role: "host" }
+  | { role: "agent"; agent: string }
+  /** 群里的提示（比如压缩了谁的上下文），只给群主看，不转给任何 AI。 */
+  | { role: "notice"; agent: string };
 
 export type ReplyStatus = "completed" | "interrupted" | "failed";
 

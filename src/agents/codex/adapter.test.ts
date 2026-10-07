@@ -13,6 +13,7 @@ import { createInterface } from "node:readline";
 const send = (message) => console.log(JSON.stringify(message));
 let instructions = null;
 let turn = 0;
+const settings = [];
 createInterface({ input: process.stdin }).on("line", (line) => {
   const m = JSON.parse(line);
   const p = m.params ?? {};
@@ -24,6 +25,35 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   } else if (m.method === "thread/resume") {
     instructions = p.developerInstructions;
     send({ id: m.id, result: { thread: { id: p.threadId } } });
+  } else if (m.method === "thread/settings/update") {
+    settings.push(p);
+    send({ id: m.id, result: {} });
+  } else if (m.method === "model/list") {
+    send({ id: m.id, result: { nextCursor: null, data: [
+      { id: "gpt-a", displayName: "GPT A", description: "fast", hidden: false, defaultReasoningEffort: "medium",
+        supportedReasoningEfforts: [{ reasoningEffort: "low", description: "" }, { reasoningEffort: "medium", description: "" }] },
+      { id: "gpt-hidden", displayName: "Hidden", description: "", hidden: true, supportedReasoningEfforts: [] },
+    ] } });
+  } else if (m.method === "permissionProfile/list") {
+    send({ id: m.id, result: { nextCursor: null, data: [
+      { id: ":read-only", description: null, allowed: true },
+      { id: ":workspace", description: "project only", allowed: true },
+      { id: ":danger-full-access", description: null, allowed: true },
+      { id: ":locked", description: null, allowed: false },
+    ] } });
+  } else if (m.method === "thread/compact/start") {
+    turn += 1;
+    const turnId = "turn-" + turn;
+    send({ id: m.id, result: {} });
+    send({ method: "turn/started", params: { threadId: "thread-1", turn: { id: turnId } } });
+    send({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: turnId, status: "completed", error: null } } });
+  } else if (m.method === "turn/start" && p.input[0].text === "settings") {
+    turn += 1;
+    const turnId = "turn-" + turn;
+    send({ id: m.id, result: { turn: { id: turnId } } });
+    const text = JSON.stringify(settings);
+    send({ method: "item/completed", params: { threadId: "thread-1", turnId, item: { type: "agentMessage", id: "s", text } } });
+    send({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: turnId, status: "completed", error: null } } });
   } else if (m.method === "turn/start") {
     turn += 1;
     const turnId = "turn-" + turn;
@@ -62,6 +92,7 @@ async function setup(t: test.TestContext) {
   const options: SessionOptions = {
     cwd: directory,
     systemPrompt: "group rules",
+    settings: { model: null, effort: null, permission: null },
     requestApproval: async (ask) => {
       asks.push(ask);
       return { decision: "allow", message: "" };
@@ -104,4 +135,37 @@ test("interrupting a Codex turn ends it as interrupted, and resume keeps the thr
   assert.equal(session.alive, true);
   await session.close();
   assert.equal(session.alive, false);
+});
+
+test("the Codex catalog lists visible models and the allowed permission profiles", async (t) => {
+  const { adapter, options } = await setup(t);
+  const catalog = await adapter.catalog(options.cwd);
+  assert.deepEqual(catalog.models.map((model) => [model.id, model.label, model.efforts]), [
+    ["gpt-a", "GPT A", ["low", "medium"]],
+  ]);
+  assert.deepEqual(catalog.permissions.map((item) => [item.id, item.label, item.danger ?? false]), [
+    [":read-only", "只读", false],
+    [":workspace", "自动（可修改项目）", false],
+    [":danger-full-access", "完全访问", true],
+  ]);
+});
+
+test("Codex settings are applied after the thread opens, and compaction waits for its turn to finish", async (t) => {
+  const { adapter, options } = await setup(t);
+  const settings = { model: "gpt-a", effort: "low", permission: ":workspace" };
+  const session = await adapter.resumeSession("thread-1", { ...options, settings });
+  t.after(() => session.close());
+  await session.compact();
+  const events = await collect(session.send("settings"));
+  assert.deepEqual(JSON.parse((events.at(-1) as { text: string }).text), [
+    { threadId: "thread-1", model: "gpt-a", effort: "low", permissions: ":workspace" },
+  ]);
+});
+
+test("a Codex session with default settings sends no settings update", async (t) => {
+  const { adapter, options } = await setup(t);
+  const session = await adapter.startSession(options);
+  t.after(() => session.close());
+  const events = await collect(session.send("settings"));
+  assert.equal((events.at(-1) as { text: string }).text, "[]");
 });

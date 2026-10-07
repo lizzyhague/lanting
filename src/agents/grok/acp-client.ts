@@ -143,6 +143,11 @@ export class AcpClient extends EventEmitter {
     }) as { stopReason?: string };
   }
 
+  /** 请求返回时压缩已经完成。 */
+  async sessionCompact(sessionId: string): Promise<void> {
+    await this.request("_x.ai/compact_conversation", { sessionId });
+  }
+
   sessionCancel(sessionId: string): void {
     this.notify("session/cancel", { sessionId });
   }

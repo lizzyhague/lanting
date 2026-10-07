@@ -1,4 +1,4 @@
-import type { AgentAdapter, AgentEvent, AgentSession, SessionOptions } from "./types.ts";
+import type { AgentAdapter, AgentCatalog, AgentEvent, AgentSession, SessionOptions } from "./types.ts";
 
 /** 剧本里的一步：普通事件，或者向群主申请审批（结果作为 activity 发出）。 */
 export type FakeStep = AgentEvent | { type: "ask"; toolName: string };
@@ -21,6 +21,19 @@ export class FakeAdapter implements AgentAdapter {
   readonly received: string[] = [];
   readonly sessions: FakeSession[] = [];
   script: Script;
+  catalogValue: AgentCatalog = {
+    models: [
+      { id: "small", label: "Small", description: "", efforts: [] },
+      { id: "large", label: "Large", description: "", efforts: ["low", "high"] },
+    ],
+    permissions: [
+      { id: "ask", label: "Ask", description: "" },
+      { id: "yolo", label: "Yolo", description: "", danger: true },
+    ],
+  };
+  /** 每次压缩的会话 id；compactError 不为 null 时压缩失败。 */
+  readonly compacted: string[] = [];
+  compactError: Error | null = null;
   #nextSession = 1;
 
   constructor(id: string, script?: Script) {
@@ -37,6 +50,10 @@ export class FakeAdapter implements AgentAdapter {
     const session = new FakeSession(this, `${this.id}-session-${this.#nextSession++}`, options);
     this.sessions.push(session);
     return Promise.resolve(session);
+  }
+
+  catalog(_cwd: string): Promise<AgentCatalog> {
+    return Promise.resolve(structuredClone(this.catalogValue));
   }
 
   resumeSession(nativeId: string, options: SessionOptions): Promise<AgentSession> {
@@ -80,6 +97,11 @@ export class FakeSession implements AgentSession {
         yield step;
       }
     }
+  }
+
+  compact(): Promise<void> {
+    this.#adapter.compacted.push(this.nativeId);
+    return this.#adapter.compactError ? Promise.reject(this.#adapter.compactError) : Promise.resolve();
   }
 
   interrupt(): Promise<void> {

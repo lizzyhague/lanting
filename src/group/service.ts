@@ -1,10 +1,17 @@
 import path from "node:path";
 
 import type { AgentRegistry } from "../agents/registry.ts";
+import type { AgentCatalog, AgentSettings } from "../agents/types.ts";
 import type { ApprovalEvent, ApprovalRequest } from "../approvals/registry.ts";
 import type { GroupStore } from "../state/group-store.ts";
 import { listDirectories, resolveDirectory } from "./directories.ts";
-import { GroupError, type GroupEvent, type GroupRuntime, type RoundSnapshot } from "./runtime.ts";
+import {
+  GroupError,
+  type CompactionSnapshot,
+  type GroupEvent,
+  type GroupRuntime,
+  type RoundSnapshot,
+} from "./runtime.ts";
 import type { Group, TranscriptEntry } from "./types.ts";
 
 /** 用户名设置到第 7 步才做，之前新建的群都用默认值。 */
@@ -18,6 +25,8 @@ export type GroupSummary = {
   directory: string;
   members: string[];
   callOrder: string[];
+  /** 每个成员在这个群里的模型、思考强度和权限。 */
+  settings: Record<string, AgentSettings>;
   createdAt: string;
   busy: boolean;
 };
@@ -26,6 +35,7 @@ export type GroupSnapshot = {
   group: GroupSummary;
   transcript: readonly TranscriptEntry[];
   round: RoundSnapshot | null;
+  compaction: CompactionSnapshot | null;
   approvals: ApprovalRequest[];
 };
 
@@ -54,7 +64,10 @@ export class GroupService {
 
     this.#runtime.onEvent((event) => {
       this.#emit({ scope: "group", groupId: event.groupId, payload: event });
-      if (event.type === "round.started" || event.type === "round.ended") this.#emitUpdated(event.groupId);
+      if (event.type === "round.started" || event.type === "round.ended" ||
+          event.type === "compact.started" || event.type === "compact.ended") {
+        this.#emitUpdated(event.groupId);
+      }
     });
     this.#runtime.approvals.onEvent((event) => {
       this.#emit({ scope: "group", groupId: event.approval.groupId, payload: event });
@@ -106,6 +119,7 @@ export class GroupService {
       group: this.#summary(group),
       transcript: this.#store.transcript(groupId),
       round: this.#runtime.round(groupId),
+      compaction: this.#runtime.compaction(groupId),
       approvals: this.#runtime.approvals.pending(groupId),
     };
   }
@@ -123,6 +137,46 @@ export class GroupService {
     const summary = this.#summary(updated);
     this.#emit({ scope: "global", payload: { type: "group.updated", group: summary } });
     return summary;
+  }
+
+  /** 成员面板里这个 AI 能选的模型和权限。 */
+  async catalog(groupId: string, agent: string): Promise<AgentCatalog> {
+    const group = this.#requireGroup(groupId);
+    this.#requireMember(group, agent);
+    return this.#agents.get(agent).catalog(group.cwd);
+  }
+
+  /**
+   * 改这个群里某个 AI 的设置，按它的 CLI 给出的列表校验。
+   * 随时都能改，这个 AI 下次发言或压缩时生效。
+   */
+  async setAgentSettings(groupId: string, agent: string, settings: AgentSettings): Promise<GroupSummary> {
+    const group = this.#requireGroup(groupId);
+    this.#requireMember(group, agent);
+    const catalog = await this.#agents.get(agent).catalog(group.cwd);
+    const model = settings.model === null ? null : catalog.models.find((item) => item.id === settings.model);
+    if (model === undefined) throw new GroupError("invalid_settings", `${agent} 没有这个模型：${settings.model}`);
+    if (settings.effort !== null) {
+      if (!model) throw new GroupError("invalid_settings", "要先选模型，才能选思考强度。");
+      if (!model.efforts.includes(settings.effort)) {
+        throw new GroupError("invalid_settings", `${model.label} 不支持思考强度 ${settings.effort}。`);
+      }
+    }
+    if (settings.permission !== null && !catalog.permissions.some((item) => item.id === settings.permission)) {
+      throw new GroupError("invalid_settings", `${agent} 没有这个权限选项：${settings.permission}`);
+    }
+    const updated = await this.#store.update(groupId, (next) => {
+      const state = next.agents[agent];
+      if (state) state.settings = { ...settings };
+    });
+    const summary = this.#summary(updated);
+    this.#emit({ scope: "global", payload: { type: "group.updated", group: summary } });
+    return summary;
+  }
+
+  /** 压缩在后台进行，结果写进群聊记录。 */
+  compact(groupId: string, agents: string[]): void {
+    void this.#runtime.compact(groupId, agents).done;
   }
 
   startRound(groupId: string, text: string, order: string[]): { roundId: string } {
@@ -145,6 +199,11 @@ export class GroupService {
     return group;
   }
 
+  #requireMember(group: Group, agent: string): void {
+    if (!group.members.includes(agent)) throw new GroupError("invalid_agent", `${agent} 不是这个群的成员。`);
+    if (!this.#agents.has(agent)) throw new GroupError("agent_unavailable", `${agent} 目前没有接入。`);
+  }
+
   #summary(group: Group): GroupSummary {
     return {
       id: group.id,
@@ -152,6 +211,7 @@ export class GroupService {
       directory: path.basename(group.cwd),
       members: group.members,
       callOrder: group.callOrder,
+      settings: Object.fromEntries(group.members.map((member) => [member, group.agents[member]!.settings])),
       createdAt: group.createdAt,
       busy: this.#runtime.isBusy(group.id),
     };

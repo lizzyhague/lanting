@@ -2,6 +2,8 @@ export const MAX_BROWSER_MESSAGE_BYTES = 2_097_152;
 const MAX_MESSAGE_TEXT_LENGTH = 524_288;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const AGENT_ID_PATTERN = /^[a-z][a-z0-9]{0,15}$/u;
+/** 模型、思考强度、权限的 id 由各家 CLI 给出，这里只限制长度。 */
+const MAX_SETTING_LENGTH = 200;
 
 export type BrowserRequest =
   | { type: "connection.ready"; requestId: string }
@@ -12,7 +14,18 @@ export type BrowserRequest =
   | { type: "group.callOrder"; requestId: string; groupId: string; order: string[] }
   | { type: "round.start"; requestId: string; groupId: string; text: string; order: string[] }
   | { type: "round.interrupt"; requestId: string; groupId: string }
-  | { type: "approval.respond"; requestId: string; approvalId: string; decision: "allow" | "deny" };
+  | { type: "approval.respond"; requestId: string; approvalId: string; decision: "allow" | "deny" }
+  | { type: "agent.catalog"; requestId: string; groupId: string; agent: string }
+  | {
+    type: "agent.settings";
+    requestId: string;
+    groupId: string;
+    agent: string;
+    model: string | null;
+    effort: string | null;
+    permission: string | null;
+  }
+  | { type: "group.compact"; requestId: string; groupId: string; agents: string[] };
 
 export type BrowserEvent = Record<string, unknown> & { type: string };
 
@@ -99,6 +112,30 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         decision: value.decision,
       };
     }
+    case "agent.catalog":
+      return {
+        type: "agent.catalog",
+        requestId,
+        groupId: requireUuid(value.groupId, "群 ID", requestId),
+        agent: requireAgent(value.agent, requestId),
+      };
+    case "agent.settings":
+      return {
+        type: "agent.settings",
+        requestId,
+        groupId: requireUuid(value.groupId, "群 ID", requestId),
+        agent: requireAgent(value.agent, requestId),
+        model: nullableSetting(value.model, "模型", requestId),
+        effort: nullableSetting(value.effort, "思考强度", requestId),
+        permission: nullableSetting(value.permission, "权限", requestId),
+      };
+    case "group.compact":
+      return {
+        type: "group.compact",
+        requestId,
+        groupId: requireUuid(value.groupId, "群 ID", requestId),
+        agents: requireAgentList(value.agents, "要压缩的 AI", requestId),
+      };
     default:
       throw new ProtocolError("unknown_type", `不认识的消息类型：${value.type}`, requestId);
   }
@@ -131,6 +168,22 @@ function optionalString(
 
 function requireUuid(value: unknown, label: string, requestId: string): string {
   if (typeof value !== "string" || !UUID_PATTERN.test(value)) {
+    throw new ProtocolError("invalid_field", `${label}格式不对。`, requestId);
+  }
+  return value;
+}
+
+function requireAgent(value: unknown, requestId: string): string {
+  if (typeof value !== "string" || !AGENT_ID_PATTERN.test(value)) {
+    throw new ProtocolError("invalid_field", "AI 格式不对。", requestId);
+  }
+  return value;
+}
+
+/** null 表示跟随 CLI 的默认值；空字符串不接受。 */
+function nullableSetting(value: unknown, label: string, requestId: string): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || !value || value.length > MAX_SETTING_LENGTH) {
     throw new ProtocolError("invalid_field", `${label}格式不对。`, requestId);
   }
   return value;

@@ -1,6 +1,9 @@
 import {
   query,
+  type EffortLevel,
+  type ModelInfo,
   type Options,
+  type PermissionMode,
   type PermissionResult,
   type Query,
   type SDKAssistantMessage,
@@ -16,7 +19,7 @@ import { createPreToolUseHook } from "./tool-policy.ts";
 
 /*
  * Claude Code 的底层运行时，搬自 Relayu `src/claude/session-runtime.ts`，去掉了 Relayu 自己的
- * 产品功能（伴、routine、rewind、用量查询等），只留启动、发消息、打断、关闭。
+ * 产品功能（伴、routine、rewind、用量查询等），只留启动、发消息、打断、compact、关闭。
  */
 
 export type RuntimeEvent =
@@ -36,10 +39,16 @@ export type ClaudeRuntimeOptions = {
   sessionId: string;
   /** 新会话用 sessionId 创建，老会话用 resume 接回。 */
   resume: boolean;
+  /** 只用来查询模型列表：不写会话文件，也不会发消息。 */
+  ephemeral?: boolean;
   cwd: string;
   /** 追加在 Claude Code 预设系统提示词之后。 */
   appendSystemPrompt: string;
   pathToClaudeCodeExecutable: string;
+  permissionMode: PermissionMode;
+  /** null 表示不指定，跟随 Claude Code 的默认值。 */
+  model: string | null;
+  effort: EffortLevel | null;
   onEvent: (event: RuntimeEvent) => void;
   requestApproval: (ask: ApprovalAsk) => Promise<ApprovalAnswer>;
 };
@@ -77,6 +86,11 @@ export function claudeCodeEnvironment(
 type Turn = {
   result: SDKResultMessage | null;
   interrupted: boolean;
+  /** `/compact` 这一轮：没有收到压缩成功的信号时按失败结算。 */
+  expectCompaction: boolean;
+  compactResult: "success" | "failed" | null;
+  compactError: string | null;
+  compactBoundary: boolean;
 };
 
 /**
@@ -137,6 +151,7 @@ export class ClaudeRuntime {
       ...(this.#options.resume
         ? { resume: this.#options.sessionId }
         : { sessionId: this.#options.sessionId }),
+      ...(this.#options.ephemeral ? { persistSession: false } : {}),
       pathToClaudeCodeExecutable: this.#options.pathToClaudeCodeExecutable,
       // 自己接管 spawn，才能让 CLI 连同它的工具子进程落在同一个独立进程组里。
       spawnClaudeCodeProcess: processGroup.spawn,
@@ -144,7 +159,9 @@ export class ClaudeRuntime {
       settingSources: ["user", "project"],
       // 手机可能几分钟后才处理审批；SDK 内部期限显式关闭，超时由审批登记处负责。
       settings: { dialogExpiry: "never" },
-      permissionMode: "default",
+      permissionMode: this.#options.permissionMode,
+      // 只让 SDK 接受 bypassPermissions；读取秘密文件等仍由 PreToolUse 硬拒绝。
+      allowDangerouslySkipPermissions: true,
       disallowedTools: DISALLOWED_TOOLS,
       includePartialMessages: true,
       env: claudeCodeEnvironment(),
@@ -166,6 +183,15 @@ export class ClaudeRuntime {
     this.#readLoop = this.#read(conversation);
     // 长驻会话的启动门槛是 initializationResult()，不是对话流里的 system/init。
     await conversation.initializationResult();
+    // 照 Relayu：模型和思考强度不作为启动参数，就绪后再设，新开和恢复走同一条路径。
+    if (this.#options.model) await conversation.setModel(this.#options.model);
+    if (this.#options.effort) await conversation.applyFlagSettings({ effortLevel: this.#options.effort });
+  }
+
+  /** 账号实际可用的模型。 */
+  async listModels(): Promise<ModelInfo[]> {
+    if (!this.#query) throw new Error("运行时尚未就绪。");
+    return this.#query.supportedModels();
   }
 
   async #canUseTool(toolName: string, input: Record<string, unknown>): Promise<PermissionResult> {
@@ -173,6 +199,7 @@ export class ClaudeRuntime {
     if (!this.#turn || this.#turn.interrupted) {
       return { behavior: "deny", message: "当前没有进行中的发言，已拒绝这次工具调用。" };
     }
+    if (this.#options.permissionMode === "bypassPermissions") return { behavior: "allow" };
     const answer = await this.#options.requestApproval({
       toolName,
       detail: describeToolInput(input),
@@ -182,11 +209,21 @@ export class ClaudeRuntime {
       : { behavior: "deny", message: answer.message || "群主拒绝了这次工具调用。" };
   }
 
-  /** resolve 时消息已经交给 SDK 的输入队列。 */
-  async startTurn(text: string): Promise<void> {
+  /**
+   * resolve 时消息已经交给 SDK 的输入队列。
+   * expectCompaction 用于 `/compact`：照 Relayu，把它当作一轮内部消息发进去。
+   */
+  async startTurn(text: string, expectCompaction = false): Promise<void> {
     if (this.closed) throw new Error("运行时已关闭。");
     if (this.#turn) throw new Error("会话仍在处理上一轮。");
-    this.#turn = { result: null, interrupted: false };
+    this.#turn = {
+      result: null,
+      interrupted: false,
+      expectCompaction,
+      compactResult: null,
+      compactError: null,
+      compactBoundary: false,
+    };
     try {
       await this.#input.push({
         type: "user",
@@ -283,6 +320,17 @@ export class ClaudeRuntime {
       this.#options.onEvent({ type: "tool.denied", toolName: message.tool_name, message: message.message });
       return;
     }
+    if (message.type === "system" && message.subtype === "compact_boundary") {
+      if (this.#turn) this.#turn.compactBoundary = true;
+      return;
+    }
+    if (message.type === "system" && message.subtype === "status" && message.compact_result) {
+      if (this.#turn) {
+        this.#turn.compactResult = message.compact_result;
+        this.#turn.compactError = message.compact_error ?? null;
+      }
+      return;
+    }
     if (message.type === "system" && message.subtype === "session_state_changed") {
       // 恢复运行时时会收到上一轮遗留的 idle：没有本轮 result 就必须忽略。
       if (message.state === "idle" && this.#turn?.result) {
@@ -329,9 +377,12 @@ export class ClaudeRuntime {
     this.#turnEndWaiters = [];
     for (const waiter of waiters) waiter();
     const result = turn.result;
+    const final = turn.expectCompaction && outcome.status === "completed"
+      ? compactionOutcome(turn)
+      : outcome;
     this.#options.onEvent({
       type: "turn.ended",
-      outcome: turn.interrupted && outcome.status !== "failed" ? { status: "interrupted" } : outcome,
+      outcome: turn.interrupted && final.status !== "failed" ? { status: "interrupted" } : final,
       // SDK 偶尔不发 Claude 的文字回答，只把它留在 result 里，由调用方兜底。
       resultText: result?.subtype === "success" ? result.result : "",
     });
@@ -396,6 +447,15 @@ class InputQueue {
       yield item.message;
     }
   }
+}
+
+/** 显式失败优先；短会话里 result 仍可能是 success，所以要看压缩自己的信号。 */
+function compactionOutcome(turn: Turn): TurnOutcome {
+  if (turn.compactResult === "failed") {
+    return { status: "failed", message: turn.compactError || "Claude Code 未能压缩上下文。" };
+  }
+  if (turn.compactBoundary || turn.compactResult === "success") return { status: "completed" };
+  return { status: "failed", message: "这一轮结束了，但没有确认压缩成功。" };
 }
 
 function outcomeOf(result: SDKResultMessage, interrupted: boolean): TurnOutcome {

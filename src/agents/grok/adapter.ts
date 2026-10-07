@@ -1,7 +1,17 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
+import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
-import type { AgentAdapter, AgentEvent, AgentSession, ApprovalAnswer, SessionOptions } from "../types.ts";
+import type {
+  AgentAdapter,
+  AgentCatalog,
+  AgentEvent,
+  AgentSession,
+  ApprovalAnswer,
+  ModelOption,
+  PermissionOption,
+  SessionOptions,
+} from "../types.ts";
 import { AcpClient, type AcpPermissionRequest, type AcpUpdate } from "./acp-client.ts";
 
 export type GrokAdapterOptions = {
@@ -15,15 +25,47 @@ const EXIT_WAIT_MS = 8_000;
 /** Grok 要直接问用户问题的工具。群聊里有问题写在回复里，这类请求一律取消。 */
 const HUMAN_TOOL_NAMES = new Set(["ask_user_question", "ask_user", "request_user_input", "elicitation"]);
 
+/**
+ * 照 Grok Remote 只有两档。always-approve 时开会话带 yoloMode，
+ * 仍然送到 lanting 的审批（直接提问的除外）也自动放行。
+ */
+export const GROK_PERMISSIONS: readonly PermissionOption[] = [
+  { id: "ask", label: "逐次确认", description: "需要确认的工具调用都由群主在网页上批准。" },
+  {
+    id: "always-approve",
+    label: "Always approve",
+    description: "工具调用不再逐次确认，直接放行。",
+    danger: true,
+  },
+];
+
+const ALWAYS_APPROVE = "always-approve";
+
 export class GrokAdapter implements AgentAdapter {
   readonly id = "grok";
   readonly displayName = "Grok";
   /** 照 Grok Remote：每轮结束就关掉 Grok 进程。 */
   readonly closeAfterTurn = true;
   readonly #options: GrokAdapterOptions;
+  readonly #catalogs = new CatalogCache();
 
   constructor(options: GrokAdapterOptions) {
     this.#options = options;
+  }
+
+  /** 照 Grok Remote：模型列表在 initialize 的返回里，不用开会话。 */
+  catalog(cwd: string): Promise<AgentCatalog> {
+    return this.#catalogs.get("", async () => {
+      const child = spawnGrok(this.#options.executable, cwd);
+      const client = new AcpClient(child);
+      try {
+        if (child.pid === undefined) throw new Error("无法启动 Grok。");
+        return { models: modelOptions(await client.initialize()), permissions: [...GROK_PERMISSIONS] };
+      } finally {
+        await client.close();
+        await terminateGroup(child);
+      }
+    });
   }
 
   startSession(options: SessionOptions): Promise<AgentSession> {
@@ -78,23 +120,20 @@ class GrokSession implements AgentSession {
     options: SessionOptions,
     adapter: GrokAdapterOptions,
   ): Promise<GrokSession> {
-    const child = spawn(adapter.executable, ["agent", "--no-leader", "stdio"], {
-      cwd: options.cwd,
-      env: withoutWebLoginToken(process.env),
-      stdio: ["pipe", "pipe", "pipe"],
-      detached: true,
-      windowsHide: true,
-    }) as ChildProcessWithoutNullStreams;
+    const child = spawnGrok(adapter.executable, options.cwd);
     const session = new GrokSession(child, options);
+    const yolo = options.settings.permission === ALWAYS_APPROVE;
     try {
       if (child.pid === undefined) throw new Error("无法启动 Grok。");
       await session.#client.initialize();
       if (sessionId) {
-        await session.#client.sessionResume(sessionId, options.cwd, false);
+        await session.#client.sessionResume(sessionId, options.cwd, yolo);
         session.#sessionId = sessionId;
       } else {
-        session.#sessionId = await session.#client.sessionNew(options.cwd, false, options.systemPrompt);
+        session.#sessionId = await session.#client.sessionNew(options.cwd, yolo, options.systemPrompt);
       }
+      const { model, effort } = options.settings;
+      if (model) await session.#client.sessionSetModel(session.#sessionId, model, effort);
       return session;
     } catch (error) {
       if (session.#stderrTail.trim()) console.error(`Grok stderr：${session.#stderrTail.trim()}`);
@@ -137,6 +176,12 @@ class GrokSession implements AgentSession {
       },
     );
     yield* turn.channel;
+  }
+
+  async compact(): Promise<void> {
+    if (!this.alive) throw new Error("Grok 进程已关闭。");
+    if (this.#turn) throw new Error("Grok 还在处理上一轮。");
+    await this.#client.sessionCompact(this.#sessionId);
   }
 
   async interrupt(): Promise<void> {
@@ -208,6 +253,10 @@ class GrokSession implements AgentSession {
       });
       return;
     }
+    if (this.#options.settings.permission === ALWAYS_APPROVE) {
+      this.#client.respondPermission(request.rpcId, permissionOutcome(request, { decision: "allow", message: "" }));
+      return;
+    }
     const controller = new AbortController();
     this.#approvals.add(controller);
     const tool = toolActivity(request.toolCall);
@@ -219,6 +268,39 @@ class GrokSession implements AgentSession {
       this.#client.respondPermission(request.rpcId, permissionOutcome(request, answer));
     });
   }
+}
+
+function spawnGrok(executable: string, cwd: string): ChildProcessWithoutNullStreams {
+  const child = spawn(executable, ["agent", "--no-leader", "stdio"], {
+    cwd,
+    env: withoutWebLoginToken(process.env),
+    stdio: ["pipe", "pipe", "pipe"],
+    detached: true,
+    windowsHide: true,
+  }) as ChildProcessWithoutNullStreams;
+  // 启动失败（比如路径不对）时 pid 为空，调用方会报“无法启动 Grok”；
+  // 不接住 error 事件的话，整个服务会因为未处理的 error 退出。
+  child.on("error", (error) => console.error(`Grok 进程出错：${error.message}`));
+  return child;
+}
+
+/** initialize 返回的 `_meta.modelState.availableModels`，照 Grok Remote 读取。 */
+export function modelOptions(initialize: unknown): ModelOption[] {
+  const models = objectField(objectField(objectField(initialize)._meta).modelState).availableModels;
+  if (!Array.isArray(models)) return [];
+  return models.flatMap((entry) => {
+    const model = objectField(entry);
+    if (typeof model.modelId !== "string" || !model.modelId) return [];
+    const efforts = objectField(model._meta).reasoningEfforts;
+    return [{
+      id: model.modelId,
+      label: typeof model.name === "string" && model.name ? model.name : model.modelId,
+      description: typeof model.description === "string" ? model.description : "",
+      efforts: Array.isArray(efforts)
+        ? efforts.map((effort) => objectField(effort).id).filter((id): id is string => typeof id === "string" && !!id)
+        : [],
+    }];
+  });
 }
 
 function permissionOutcome(

@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentRegistry } from "../agents/registry.ts";
-import type { AgentEvent, AgentSession, SessionOptions } from "../agents/types.ts";
+import {
+  DEFAULT_AGENT_SETTINGS,
+  type AgentEvent,
+  type AgentSession,
+  type AgentSettings,
+  type SessionOptions,
+} from "../agents/types.ts";
 import { ApprovalRegistry } from "../approvals/registry.ts";
 import type { GroupStore } from "../state/group-store.ts";
 import { assembleMessage } from "./assemble.ts";
@@ -16,7 +22,17 @@ export type GroupEvent =
   | { type: "agent.started"; groupId: string; roundId: string; agent: string }
   | { type: "agent.text"; groupId: string; roundId: string; agent: string; delta: string }
   | { type: "agent.activity"; groupId: string; roundId: string; agent: string; activity: Activity }
-  | { type: "round.ended"; groupId: string; roundId: string; outcome: RoundOutcome };
+  | { type: "round.ended"; groupId: string; roundId: string; outcome: RoundOutcome }
+  | { type: "compact.started"; groupId: string; agents: string[] }
+  | { type: "compact.progress"; groupId: string; agent: string }
+  | { type: "compact.ended"; groupId: string };
+
+/** 进行中的压缩，供页面刷新或换设备后接着显示。 */
+export type CompactionSnapshot = {
+  agents: string[];
+  /** 正在压缩的 AI。 */
+  current: string | null;
+};
 
 /** 进行中的一轮，供页面刷新或换设备后接着显示。 */
 export type RoundSnapshot = {
@@ -49,7 +65,8 @@ type ActiveRound = {
   activities: Activity[];
 };
 
-type CachedSession = { session: AgentSession; lastUsedAt: number };
+/** settings 是开这个会话时用的设置；群里的设置变了就关掉重开。 */
+type CachedSession = { session: AgentSession; settings: AgentSettings; lastUsedAt: number };
 
 type FinalEvent = Extract<AgentEvent, { type: "end" }>;
 
@@ -74,6 +91,7 @@ export class GroupRuntime {
   readonly #listeners = new Set<(event: GroupEvent) => void>();
   readonly #rounds = new Map<string, ActiveRound>();
   readonly #sessions = new Map<string, CachedSession>();
+  readonly #compactions = new Map<string, CompactionSnapshot>();
   #sweeper: NodeJS.Timeout | null = null;
 
   constructor(options: {
@@ -97,8 +115,14 @@ export class GroupRuntime {
     return () => this.#listeners.delete(listener);
   }
 
+  /** 有一轮在进行，或正在压缩上下文。 */
   isBusy(groupId: string): boolean {
-    return this.#rounds.has(groupId);
+    return this.#rounds.has(groupId) || this.#compactions.has(groupId);
+  }
+
+  compaction(groupId: string): CompactionSnapshot | null {
+    const compaction = this.#compactions.get(groupId);
+    return compaction ? { agents: [...compaction.agents], current: compaction.current } : null;
   }
 
   round(groupId: string): RoundSnapshot | null {
@@ -134,6 +158,7 @@ export class GroupRuntime {
       }
     }
     if (this.#rounds.has(groupId)) throw new GroupError("busy", "这个群还有一轮没有结束。");
+    if (this.#compactions.has(groupId)) throw new GroupError("busy", "这个群正在压缩上下文，请等压缩结束。");
 
     const round: ActiveRound = {
       id: randomUUID(),
@@ -147,6 +172,26 @@ export class GroupRuntime {
     this.#rounds.set(groupId, round);
     this.#emit({ type: "round.started", groupId, roundId: round.id, order: [...order] });
     return { roundId: round.id, done: this.#run(groupId, round, text) };
+  }
+
+  /**
+   * 依次压缩几个 AI 的上下文。只能在群空闲时做；压缩一旦开始不打断。
+   * 每个 AI 的结果写成一条提示进群聊记录，只给群主看。还没有原生会话的 AI 跳过。
+   * 参数不对或群正忙时同步抛 GroupError；done 不会 reject。
+   */
+  compact(groupId: string, agents: readonly string[]): { done: Promise<void> } {
+    const group = this.#requireGroup(groupId);
+    if (agents.length === 0) throw new GroupError("no_agent", "至少要选一个 AI。");
+    if (new Set(agents).size !== agents.length) throw new GroupError("invalid_agents", "有重复的 AI。");
+    for (const agent of agents) {
+      if (!group.members.includes(agent)) throw new GroupError("invalid_agents", `${agent} 不是这个群的成员。`);
+      if (!this.#agents.has(agent)) throw new GroupError("agent_unavailable", `${agent} 目前没有接入。`);
+    }
+    if (this.isBusy(groupId)) throw new GroupError("busy", "这个群正忙，请等这一轮或这次压缩结束。");
+    const compaction: CompactionSnapshot = { agents: [...agents], current: null };
+    this.#compactions.set(groupId, compaction);
+    this.#emit({ type: "compact.started", groupId, agents: [...agents] });
+    return { done: this.#runCompaction(groupId, compaction) };
   }
 
   /** 打断这个群正在进行的一轮。没有进行中的一轮时返回 false。 */
@@ -170,7 +215,7 @@ export class GroupRuntime {
     const closing: AgentSession[] = [];
     for (const [key, cached] of this.#sessions) {
       const groupId = key.split("\0")[0]!;
-      if (this.#rounds.has(groupId)) continue;
+      if (this.isBusy(groupId)) continue;
       if (now - cached.lastUsedAt < this.#idleCloseMs && cached.session.alive) continue;
       this.#sessions.delete(key);
       closing.push(cached.session);
@@ -218,6 +263,45 @@ export class GroupRuntime {
     }
     this.#emit({ type: "round.ended", groupId, roundId: round.id, outcome });
     return outcome;
+  }
+
+  async #runCompaction(groupId: string, compaction: CompactionSnapshot): Promise<void> {
+    try {
+      for (const agent of compaction.agents) {
+        compaction.current = agent;
+        this.#emit({ type: "compact.progress", groupId, agent });
+        const text = await this.#compactOne(groupId, agent);
+        const entry = await this.#store.append(groupId, { from: { role: "notice", agent }, text });
+        this.#emit({ type: "entry.appended", groupId, entry });
+      }
+    } catch (error) {
+      console.error(`群 ${groupId} 压缩上下文出错：${errorMessage(error)}`);
+    } finally {
+      this.#compactions.delete(groupId);
+      this.#emit({ type: "compact.ended", groupId });
+    }
+  }
+
+  /** 返回写进群聊记录的提示。 */
+  async #compactOne(groupId: string, agent: string): Promise<string> {
+    const group = this.#requireGroup(groupId);
+    const name = this.#agents.get(agent).displayName;
+    if (!group.agents[agent]?.nativeSessionId) return `${name} 还没有发过言，没有可压缩的上下文。`;
+    let session: AgentSession | null = null;
+    let failed = false;
+    try {
+      session = await this.#session(group, agent);
+      await session.compact();
+      return `已压缩 ${name} 的上下文。`;
+    } catch (error) {
+      failed = true;
+      return `${name} 的上下文没有压缩成功：${errorMessage(error)}`;
+    } finally {
+      this.#touch(groupId, agent);
+      if (session && (failed || this.#agents.get(agent).closeAfterTurn)) {
+        await this.#dropSession(groupId, agent, session);
+      }
+    }
   }
 
   async #speak(groupId: string, round: ActiveRound, agent: string): Promise<ReplyStatus> {
@@ -292,8 +376,10 @@ export class GroupRuntime {
 
   async #session(group: Group, agent: string): Promise<AgentSession> {
     const key = sessionKey(group.id, agent);
+    const settings = group.agents[agent]?.settings ?? DEFAULT_AGENT_SETTINGS;
     const cached = this.#sessions.get(key);
-    if (cached?.session.alive) {
+    // 设置变了就关掉重开，用新设置恢复会话：三家的设置都在开会话时应用，路径只有一条。
+    if (cached?.session.alive && sameSettings(cached.settings, settings)) {
       cached.lastUsedAt = Date.now();
       return cached.session;
     }
@@ -302,6 +388,7 @@ export class GroupRuntime {
     const adapter = this.#agents.get(agent);
     const options: SessionOptions = {
       cwd: group.cwd,
+      settings: { ...settings },
       systemPrompt: buildSystemPrompt({
         username: group.username,
         cwd: group.cwd,
@@ -315,7 +402,7 @@ export class GroupRuntime {
     const session = nativeId
       ? await adapter.resumeSession(nativeId, options)
       : await adapter.startSession(options);
-    this.#sessions.set(key, { session, lastUsedAt: Date.now() });
+    this.#sessions.set(key, { session, settings: { ...settings }, lastUsedAt: Date.now() });
     if (!nativeId && session.nativeId) {
       const id = session.nativeId;
       await this.#store.update(group.id, (next) => {
@@ -355,6 +442,10 @@ export class GroupRuntime {
       }
     }
   }
+}
+
+function sameSettings(a: AgentSettings, b: AgentSettings): boolean {
+  return a.model === b.model && a.effort === b.effort && a.permission === b.permission;
 }
 
 function toActivity(value: Record<string, unknown>): Activity {

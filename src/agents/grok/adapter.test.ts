@@ -13,17 +13,32 @@ import { createInterface } from "node:readline";
 const send = (message) => console.log(JSON.stringify({ jsonrpc: "2.0", ...message }));
 let rules = null;
 let promptId = null;
+const state = { yolo: null, model: null, effort: null, compacted: 0 };
 const update = (u) => send({ method: "session/update", params: { sessionId: "grok-1", update: u } });
 createInterface({ input: process.stdin }).on("line", (line) => {
   const m = JSON.parse(line);
   const p = m.params ?? {};
-  if (m.method === "initialize") send({ id: m.id, result: {} });
-  else if (m.method === "session/new") { rules = p._meta.rules; send({ id: m.id, result: { sessionId: "grok-1" } }); }
-  else if (m.method === "session/resume") send({ id: m.id, result: {} });
+  if (m.method === "initialize") send({ id: m.id, result: { _meta: { modelState: { availableModels: [
+    { modelId: "grok-fast", name: "Grok Fast", _meta: { reasoningEfforts: [{ id: "low" }, { id: "high", default: true }] } },
+    { modelId: "grok-plain" },
+  ] } } } });
+  else if (m.method === "session/new") {
+    rules = p._meta.rules; state.yolo = p._meta.yoloMode; send({ id: m.id, result: { sessionId: "grok-1" } });
+  }
+  else if (m.method === "session/resume") { state.yolo = p._meta.yoloMode; send({ id: m.id, result: {} }); }
+  else if (m.method === "session/set_model") {
+    state.model = p.modelId; state.effort = p._meta?.reasoningEffort ?? null; send({ id: m.id, result: {} });
+  }
+  else if (m.method === "_x.ai/compact_conversation") { state.compacted += 1; send({ id: m.id, result: {} }); }
   else if (m.method === "session/close") send({ id: m.id, result: {} });
   else if (m.method === "session/prompt") {
     promptId = m.id;
     if (p.prompt[0].text === "hang") return;
+    if (p.prompt[0].text === "state") {
+      update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: JSON.stringify(state) } });
+      send({ id: promptId, result: { stopReason: "end_turn" } });
+      return;
+    }
     update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Let me look" } });
     update({ sessionUpdate: "tool_call", toolCallId: "t1", title: "Run", kind: "execute", rawInput: { command: "ls" } });
     send({ id: "perm-1", method: "session/request_permission", params: { sessionId: "grok-1",
@@ -52,6 +67,7 @@ async function setup(t: test.TestContext, decision: "allow" | "deny" = "allow") 
   const options: SessionOptions = {
     cwd: directory,
     systemPrompt: "group rules",
+    settings: { model: null, effort: null, permission: null },
     requestApproval: async (ask) => {
       asks.push(ask);
       return { decision, message: "" };
@@ -98,4 +114,32 @@ test("interrupting a Grok turn ends it as interrupted and close stops the proces
   assert.deepEqual((await collected).at(-1), { type: "end", outcome: "interrupted", text: "" });
   await session.close();
   assert.equal(session.alive, false);
+});
+
+test("the Grok catalog lists models from initialize and the two permission modes", async (t) => {
+  const { adapter, options } = await setup(t);
+  const catalog = await adapter.catalog(options.cwd);
+  assert.deepEqual(catalog.models.map((model) => [model.id, model.label, model.efforts]), [
+    ["grok-fast", "Grok Fast", ["low", "high"]],
+    ["grok-plain", "grok-plain", []],
+  ]);
+  assert.deepEqual(catalog.permissions.map((item) => item.id), ["ask", "always-approve"]);
+});
+
+test("Grok settings are applied when the session opens, and always-approve answers permissions itself", async (t) => {
+  const { adapter, options, asks } = await setup(t);
+  const settings = { model: "grok-fast", effort: "low", permission: "always-approve" };
+  const session = await adapter.resumeSession("grok-1", { ...options, settings });
+  t.after(() => session.close());
+  const state = await collect(session.send("state"));
+  assert.deepEqual(JSON.parse((state.at(-1) as { text: string }).text),
+    { yolo: true, model: "grok-fast", effort: "low", compacted: 0 });
+
+  const events = await collect(session.send("hello"));
+  assert.deepEqual(asks, []);
+  assert.match((events.at(-1) as { text: string }).text, /^allow-once\|/u);
+
+  await session.compact();
+  const after = await collect(session.send("state"));
+  assert.equal(JSON.parse((after.at(-1) as { text: string }).text).compacted, 1);
 });

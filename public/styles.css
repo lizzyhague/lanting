@@ -537,6 +537,7 @@ button.primary {
 }
 
 .composer-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.6rem;
@@ -693,6 +694,145 @@ button.primary {
 }
 
 /* ---------- 窄屏：列表和群二选一 ---------- */
+
+/* ---------- 群里的提示 ---------- */
+
+.notice {
+  margin: 0 auto 1rem;
+  width: fit-content;
+  max-width: 88%;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* ---------- + 菜单与成员面板 ---------- */
+
+.menu-anchor {
+  position: relative;
+  flex: none;
+}
+
+.plus-button {
+  min-width: 34px;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.popover {
+  position: absolute;
+  bottom: calc(100% + 0.4rem);
+  z-index: 10;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 35%);
+}
+
+.plus-menu {
+  left: 0;
+  min-width: 180px;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.agent-panel {
+  left: 0;
+  width: min(100%, 360px);
+  max-height: 70dvh;
+  overflow-y: auto;
+  border-top: 3px solid var(--agent);
+}
+
+.pick-name {
+  min-height: 0;
+  padding: 0.15rem 0.3rem;
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: 0.9rem;
+}
+
+.pick-name:hover,
+.pick-name[aria-expanded="true"] {
+  border-color: var(--border);
+  background: var(--surface-3);
+}
+
+.popover-heading {
+  margin: 0 0 0.2rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.menu-item {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.menu-item:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.menu-item.has-submenu::after {
+  content: "›";
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.menu-back {
+  color: var(--muted);
+}
+
+.member-row {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.member-name {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 600;
+}
+
+.member-name button {
+  margin-left: auto;
+}
+
+.setting {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.setting select {
+  min-height: 34px;
+  padding: 0 0.4rem;
+  min-width: 0;
+}
+
+.member-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.member-note.error {
+  color: var(--danger);
+}
 
 @media (max-width: 720px) {
   .app-view {

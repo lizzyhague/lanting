@@ -1,10 +1,14 @@
+import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
 import type {
   AgentAdapter,
+  AgentCatalog,
   AgentEvent,
   AgentSession,
   ApprovalAnswer,
   ApprovalAsk,
+  ModelOption,
+  PermissionOption,
   SessionOptions,
 } from "../types.ts";
 import { AppServerClient, type JsonObject, type RequestId } from "./client.ts";
@@ -27,9 +31,30 @@ export class CodexAdapter implements AgentAdapter {
   /** 照 Codex Remote：每轮结束就关掉 app-server。 */
   readonly closeAfterTurn = true;
   readonly #options: CodexAdapterOptions;
+  readonly #catalogs = new CatalogCache();
 
   constructor(options: CodexAdapterOptions) {
     this.#options = options;
+  }
+
+  /** 权限档案会读项目里的配置，所以按工作目录分别缓存。 */
+  catalog(cwd: string): Promise<AgentCatalog> {
+    return this.#catalogs.get(cwd, async () => {
+      const client = new AppServerClient({
+        codexBinary: this.#options.executable,
+        workingDirectory: cwd,
+        processGroup: true,
+      });
+      try {
+        await client.initialize(INITIALIZE_PARAMS);
+        return {
+          models: await listModels(client),
+          permissions: await listPermissions(client, cwd),
+        };
+      } finally {
+        await client.close();
+      }
+    });
   }
 
   startSession(options: SessionOptions): Promise<AgentSession> {
@@ -103,6 +128,8 @@ class CodexSession implements AgentSession {
       const id = readThreadId(response);
       if (threadId && id !== threadId) throw new Error("Codex 返回了错误的会话。");
       session.#threadId = id;
+      const settings = settingsUpdate(options);
+      if (settings) await client.request("thread/settings/update", { threadId: id, ...settings });
       return session;
     } catch (error) {
       await client.close();
@@ -118,7 +145,25 @@ class CodexSession implements AgentSession {
     return !this.#exited && !this.#client.closed;
   }
 
-  async *send(text: string): AsyncIterable<AgentEvent> {
+  /** 照 Codex Remote：压缩也是一轮，等它的 turn/completed。 */
+  async compact(): Promise<void> {
+    for await (const event of this.#run(() =>
+      this.#client.request("thread/compact/start", { threadId: this.#threadId }).then(() => null)
+    )) {
+      if (event.type !== "end") continue;
+      if (event.outcome !== "completed") throw new Error(event.error ?? "压缩被打断了。");
+    }
+  }
+
+  send(text: string): AsyncIterable<AgentEvent> {
+    return this.#run(async () => readTurnId(await this.#client.request("turn/start", {
+      threadId: this.#threadId,
+      input: [{ type: "text", text, text_elements: [] }],
+    })));
+  }
+
+  /** start 发出这一轮的请求，返回 turn id；不在响应里给 id 的返回 null，等 turn/started。 */
+  async *#run(start: () => Promise<string | null>): AsyncIterable<AgentEvent> {
     if (!this.alive) throw new Error("codex app-server 已关闭。");
     if (this.#turn) throw new Error("Codex 还在处理上一轮。");
     const turn: Turn = {
@@ -130,13 +175,9 @@ class CodexSession implements AgentSession {
     };
     this.#turn = turn;
     try {
-      const response = await this.#client.request("turn/start", {
-        threadId: this.#threadId,
-        input: [{ type: "text", text, text_elements: [] }],
-      });
-      const turnId = readTurnId(response);
+      const turnId = await start();
       // turn/started 通知可能先到，也可能这一轮在响应之前就已经结束。
-      if (this.#turn === turn) {
+      if (this.#turn === turn && turnId) {
         turn.id ??= turnId;
         if (turn.interruptRequested) void this.interrupt();
       }
@@ -277,6 +318,94 @@ class CodexSession implements AgentSession {
         console.error(`Codex 审批处理出错：${error instanceof Error ? error.message : String(error)}`);
       });
   }
+}
+
+/** 照 Codex Remote：模型和思考强度一起设，权限传权限档案的 id。没有要改的返回 null。 */
+function settingsUpdate(options: SessionOptions): JsonObject | null {
+  const { model, effort, permission } = options.settings;
+  const update: JsonObject = {};
+  if (model) {
+    update.model = model;
+    if (effort) update.effort = effort;
+  }
+  if (permission) update.permissions = permission;
+  return Object.keys(update).length > 0 ? update : null;
+}
+
+async function listModels(client: AppServerClient): Promise<ModelOption[]> {
+  const models: ModelOption[] = [];
+  let cursor: string | null = null;
+  const seen = new Set<string>();
+  do {
+    const response = asObject(await client.request("model/list", { cursor, limit: 100, includeHidden: false }));
+    if (!response || !Array.isArray(response.data)) throw new Error("Codex 返回了无法识别的模型列表。");
+    for (const value of response.data) {
+      const model = asObject(value);
+      if (!model || typeof model.id !== "string" || model.hidden === true) continue;
+      const efforts = Array.isArray(model.supportedReasoningEfforts)
+        ? model.supportedReasoningEfforts
+          .map((option) => asObject(option)?.reasoningEffort)
+          .filter((effort): effort is string => typeof effort === "string")
+        : [];
+      const defaultEffort = typeof model.defaultReasoningEffort === "string" ? model.defaultReasoningEffort : "";
+      models.push({
+        id: model.id,
+        label: typeof model.displayName === "string" && model.displayName ? model.displayName : model.id,
+        description: [
+          typeof model.description === "string" ? model.description : "",
+          defaultEffort ? `默认思考强度：${defaultEffort}` : "",
+        ].filter(Boolean).join(" · "),
+        efforts,
+      });
+    }
+    const next: unknown = response.nextCursor;
+    cursor = typeof next === "string" && !seen.has(next) ? next : null;
+    if (cursor) seen.add(cursor);
+  } while (cursor);
+  return models;
+}
+
+/** 权限档案只有 id 和说明，照 Codex Remote 按名字给出中文标签。不可选的档案不列出。 */
+async function listPermissions(client: AppServerClient, cwd: string): Promise<PermissionOption[]> {
+  const response = asObject(await client.request("permissionProfile/list", { cursor: null, limit: 100, cwd }));
+  if (!response || !Array.isArray(response.data)) throw new Error("Codex 返回了无法识别的权限列表。");
+  return response.data.flatMap((value) => {
+    const profile = asObject(value);
+    if (!profile || typeof profile.id !== "string" || profile.allowed !== true) return [];
+    const id = profile.id;
+    const danger = isFullAccessProfile(id);
+    return [{
+      id,
+      label: permissionLabel(id),
+      description: typeof profile.description === "string" && profile.description
+        ? profile.description
+        : permissionDescription(id),
+      ...(danger ? { danger } : {}),
+    }];
+  });
+}
+
+function permissionLabel(id: string): string {
+  if (isFullAccessProfile(id)) return "完全访问";
+  const normalized = id.toLowerCase();
+  if (normalized.includes("read")) return "只读";
+  if (normalized.includes("workspace") || normalized.includes("auto")) return "自动（可修改项目）";
+  return id;
+}
+
+function permissionDescription(id: string): string {
+  if (isFullAccessProfile(id)) return "可以不受沙箱限制地操作主机；请谨慎选择。";
+  const normalized = id.toLowerCase();
+  if (normalized.includes("read")) return "可以阅读和分析；修改文件或执行高权限操作前会受限。";
+  if (normalized.includes("workspace") || normalized.includes("auto")) {
+    return "可在项目目录内工作，超出范围或敏感操作仍会询问。";
+  }
+  return "由当前 Codex 配置提供的权限方案。";
+}
+
+function isFullAccessProfile(id: string): boolean {
+  const normalized = id.toLowerCase();
+  return normalized.includes("full") || normalized.includes("danger");
 }
 
 type ParsedApproval = {

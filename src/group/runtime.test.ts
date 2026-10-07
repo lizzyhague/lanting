@@ -256,3 +256,87 @@ test("agents that close after each turn are resumed for every call", async (t) =
   ]);
   assert.equal(adapters.codex!.sessions[1]!.closed, true);
 });
+
+test("changed settings take effect on the agent's next call by reopening its session", async (t) => {
+  const { adapters, store, runtime, groupId } = await setup(t, ["claude", "codex"]);
+  await runtime.startRound(groupId, "q1", ["claude"]).done;
+  assert.deepEqual(adapters.claude!.calls[0]!.options.settings, { model: null, effort: null, permission: null });
+
+  // 第二轮里 claude 说完之后、codex 发言之前改 codex 的设置：codex 这一轮就用上新设置。
+  adapters.claude!.script = (_, call) => [{ type: "end", outcome: "completed", text: `claude ${call}` }];
+  runtime.onEvent((event) => {
+    if (event.type === "entry.appended" && event.entry.from.role === "agent" && event.entry.from.agent === "claude") {
+      void store.update(groupId, (group) => {
+        group.agents.codex!.settings = { model: "large", effort: "high", permission: "yolo" };
+      });
+    }
+  });
+  await runtime.startRound(groupId, "q2", ["claude", "codex"]).done;
+  assert.deepEqual(adapters.codex!.calls[0]!.options.settings, { model: "large", effort: "high", permission: "yolo" });
+
+  // claude 的设置没变，会话接着用；变了以后关掉旧会话，用新设置恢复。
+  assert.equal(adapters.claude!.calls.length, 1);
+  await store.update(groupId, (group) => {
+    group.agents.claude!.settings = { model: "small", effort: null, permission: null };
+  });
+  await runtime.startRound(groupId, "q3", ["claude"]).done;
+  assert.equal(adapters.claude!.sessions[0]!.closed, true);
+  assert.deepEqual(adapters.claude!.calls.map((call) => [call.kind, call.nativeId, call.options.settings.model]), [
+    ["start", null, null],
+    ["resume", "claude-session-1", "small"],
+  ]);
+});
+
+test("compaction runs agents in order, skips agents without a session, and only notifies the host", async (t) => {
+  const { adapters, store, runtime, events, groupId } = await setup(t);
+  adapters.codex!.closeAfterTurn = true;
+  await runtime.startRound(groupId, "q1", ["claude", "codex"]).done;
+
+  const compaction = runtime.compact(groupId, ["codex", "grok", "claude"]);
+  assert.equal(runtime.isBusy(groupId), true);
+  assert.deepEqual(runtime.compaction(groupId)?.agents, ["codex", "grok", "claude"]);
+  assert.throws(() => runtime.startRound(groupId, "q", ["claude"]), /正在压缩/u);
+  assert.throws(() => runtime.compact(groupId, ["claude"]), /正忙/u);
+  await compaction.done;
+
+  assert.equal(runtime.isBusy(groupId), false);
+  assert.deepEqual(adapters.codex!.compacted, ["codex-session-1"]);
+  assert.deepEqual(adapters.claude!.compacted, ["claude-session-1"]);
+  assert.deepEqual(adapters.grok!.calls, []);
+  // codex 每次用完就关进程，压缩也一样；claude 的会话留着复用。
+  assert.equal(adapters.codex!.sessions.at(-1)!.closed, true);
+  assert.equal(adapters.claude!.sessions.length, 1);
+  assert.deepEqual(store.transcript(groupId).slice(-3).map((entry) => [entry.from, entry.text]), [
+    [{ role: "notice", agent: "codex" }, "已压缩 Codex 的上下文。"],
+    [{ role: "notice", agent: "grok" }, "Grok 还没有发过言，没有可压缩的上下文。"],
+    [{ role: "notice", agent: "claude" }, "已压缩 Claude 的上下文。"],
+  ]);
+  assert.deepEqual(events.filter((event) => event.type.startsWith("compact.")).map((event) => event.type), [
+    "compact.started",
+    "compact.progress",
+    "compact.progress",
+    "compact.progress",
+    "compact.ended",
+  ]);
+
+  // 提示不转给任何 AI。
+  await runtime.startRound(groupId, "q2", ["grok"]).done;
+  assert.ok(!adapters.grok!.received[0]!.includes("压缩"));
+});
+
+test("a failed compaction is reported and the session is reopened next time", async (t) => {
+  const { adapters, store, runtime, groupId } = await setup(t, ["claude"]);
+  await runtime.startRound(groupId, "q1", ["claude"]).done;
+  adapters.claude!.compactError = new Error("context too small");
+  await runtime.compact(groupId, ["claude"]).done;
+  assert.equal(store.transcript(groupId).at(-1)?.text, "Claude 的上下文没有压缩成功：context too small");
+  assert.equal(adapters.claude!.sessions[0]!.closed, true);
+  await runtime.startRound(groupId, "q2", ["claude"]).done;
+  assert.equal(adapters.claude!.calls.at(-1)?.kind, "resume");
+});
+
+test("compaction rejects agents outside the group", async (t) => {
+  const { runtime, groupId } = await setup(t, ["claude"]);
+  assert.throws(() => runtime.compact(groupId, []), /至少要选一个/u);
+  assert.throws(() => runtime.compact(groupId, ["codex"]), /不是这个群的成员/u);
+});

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,9 +18,10 @@ test("groups and transcripts survive reopening the store", async (t) => {
   const directory = await scratch(t);
   const store = await GroupStore.open(directory);
   const group = await store.create(NEW_GROUP);
+  const settings = { model: null, effort: null, permission: null };
   assert.deepEqual(group.agents, {
-    claude: { nativeSessionId: null, cursor: 0 },
-    codex: { nativeSessionId: null, cursor: 0 },
+    claude: { nativeSessionId: null, cursor: 0, settings },
+    codex: { nativeSessionId: null, cursor: 0, settings },
   });
   await store.append(group.id, { from: { role: "host" }, text: "hello" });
   await store.append(group.id, { from: { role: "agent", agent: "claude" }, text: "hi", status: "completed" });
@@ -28,6 +29,7 @@ test("groups and transcripts survive reopening the store", async (t) => {
     next.callOrder = ["claude"];
     next.agents.claude!.nativeSessionId = "native-1";
     next.agents.claude!.cursor = 2;
+    next.agents.codex!.settings = { model: "gpt", effort: "high", permission: ":workspace" };
   });
 
   const reopened = await GroupStore.open(directory);
@@ -37,6 +39,29 @@ test("groups and transcripts survive reopening the store", async (t) => {
     [2, "hi"],
   ]);
   assert.equal(reopened.get(group.id)?.agents.claude?.nativeSessionId, "native-1");
+  assert.deepEqual(reopened.get(group.id)?.agents.codex?.settings, { model: "gpt", effort: "high", permission: ":workspace" });
+});
+
+test("groups saved before per-agent settings existed open with default settings", async (t) => {
+  const directory = await scratch(t);
+  const store = await GroupStore.open(directory);
+  const group = await store.create(NEW_GROUP);
+  const groupFile = path.join(directory, "groups", group.id, "group.json");
+  const saved = JSON.parse(await readFile(groupFile, "utf8"));
+  for (const state of Object.values(saved.group.agents) as { settings?: unknown }[]) delete state.settings;
+  await writeFile(groupFile, JSON.stringify(saved));
+
+  const reopened = await GroupStore.open(directory);
+  assert.deepEqual(reopened.get(group.id)?.agents.claude?.settings, { model: null, effort: null, permission: null });
+});
+
+test("notice entries survive reopening", async (t) => {
+  const directory = await scratch(t);
+  const store = await GroupStore.open(directory);
+  const group = await store.create(NEW_GROUP);
+  await store.append(group.id, { from: { role: "notice", agent: "codex" }, text: "compacted" });
+  const reopened = await GroupStore.open(directory);
+  assert.deepEqual(reopened.transcript(group.id)[0]?.from, { role: "notice", agent: "codex" });
 });
 
 test("returned groups are copies; changes only land through update", async (t) => {

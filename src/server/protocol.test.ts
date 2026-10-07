@@ -28,3 +28,26 @@ test("rejects malformed messages and keeps the request id when it is known", () 
   rejectsWith(JSON.stringify({ requestId: "r3", type: "nope" }), "unknown_type", "r3");
   rejectsWith(" ".repeat(MAX_BROWSER_MESSAGE_BYTES + 1), "message_too_large", null);
 });
+
+test("parses member settings, catalog and compaction requests", () => {
+  const groupId = "00000000-0000-4000-8000-000000000000";
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({ type: "agent.catalog", requestId: "r1", groupId, agent: "codex" })),
+    { type: "agent.catalog", requestId: "r1", groupId, agent: "codex" },
+  );
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({
+      type: "agent.settings", requestId: "r2", groupId, agent: "claude", model: "opus", effort: null, permission: "plan",
+    })),
+    { type: "agent.settings", requestId: "r2", groupId, agent: "claude", model: "opus", effort: null, permission: "plan" },
+  );
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({ type: "group.compact", requestId: "r3", groupId, agents: ["claude", "grok"] })),
+    { type: "group.compact", requestId: "r3", groupId, agents: ["claude", "grok"] },
+  );
+  rejectsWith(JSON.stringify({ type: "agent.settings", requestId: "r4", groupId, agent: "claude", model: "" }), "invalid_field", "r4");
+  rejectsWith(JSON.stringify({
+    type: "agent.settings", requestId: "r5", groupId, agent: "claude", model: null, effort: null,
+  }), "invalid_field", "r5");
+  rejectsWith(JSON.stringify({ type: "agent.catalog", requestId: "r6", groupId, agent: "Claude" }), "invalid_field", "r6");
+});
