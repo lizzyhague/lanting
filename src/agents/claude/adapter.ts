@@ -11,6 +11,8 @@ export type ClaudeAdapterOptions = {
 export class ClaudeAdapter implements AgentAdapter {
   readonly id = "claude";
   readonly displayName = "Claude";
+  /** 照 Relayu：Claude Code 进程常驻，空闲后回收。 */
+  readonly closeAfterTurn = false;
   readonly #options: ClaudeAdapterOptions;
 
   constructor(options: ClaudeAdapterOptions) {

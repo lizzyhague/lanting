@@ -17,6 +17,7 @@ export type NewGroup = {
   cwd: string;
   username: string;
   members: string[];
+  callOrder?: string[];
 };
 
 export type NewEntry = Omit<TranscriptEntry, "seq" | "at">;
@@ -77,7 +78,7 @@ export class GroupStore {
       cwd: input.cwd,
       username: input.username,
       members: [...input.members],
-      callOrder: [],
+      callOrder: [...(input.callOrder ?? [])],
       agents,
       createdAt: new Date().toISOString(),
     };

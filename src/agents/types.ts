@@ -21,8 +21,11 @@ export type SessionOptions = {
   cwd: string;
   /** 追加在 CLI 自己的系统提示词之后，内容见 group/system-prompt.ts。 */
   systemPrompt: string;
-  /** AI 要调用需要确认的工具时调用，由群主在网页上批准或拒绝。 */
-  requestApproval: (ask: ApprovalAsk) => Promise<ApprovalAnswer>;
+  /**
+   * AI 要调用需要确认的工具时调用，由群主在网页上批准或拒绝。
+   * CLI 自己收回请求时，适配用 signal 撤下网页上的审批。
+   */
+  requestApproval: (ask: ApprovalAsk, signal?: AbortSignal) => Promise<ApprovalAnswer>;
 };
 
 export type AgentEvent =
@@ -58,6 +61,11 @@ export interface AgentAdapter {
   readonly id: string;
   /** 写进 system prompt 的名字，比如 Codex。 */
   readonly displayName: string;
+  /**
+   * 为 true 时每次发言结束就关掉 CLI 进程，下次点名再恢复会话；
+   * 为 false 时进程留着复用，空闲一段时间后才关。照各家参照项目的做法选。
+   */
+  readonly closeAfterTurn: boolean;
   startSession(options: SessionOptions): Promise<AgentSession>;
   resumeSession(nativeId: string, options: SessionOptions): Promise<AgentSession>;
 }

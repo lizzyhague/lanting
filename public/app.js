@@ -1,3 +1,4 @@
+import { clearAll, selectAll, toggleMember } from "./call-order.js";
 import { renderMarkdown } from "./markdown.js";
 
 const RECONNECT_DELAY_MS = 3_000;
@@ -61,8 +62,12 @@ const state = {
   currentGroupId: null,
   /** 当前打开的群：{ group, transcript, round, approvals: Map } */
   current: null,
-  /** 当前群的点名顺序（勾选的先后）。 */
+  /** 当前群的点名顺序（勾选的先后），以后端保存的为准。 */
   callOrder: [],
+  /** 全选框是独立的开关，不跟着成员的勾选状态变。 */
+  selectAllOn: false,
+  /** 点名正在保存：多选框和发送按钮都锁住。 */
+  savingOrder: false,
   sending: false,
 };
 
@@ -250,6 +255,11 @@ function handleEvent(event) {
       renderGroupList();
       if (state.current && event.group.id === state.currentGroupId) {
         state.current.group = event.group;
+        // 别的设备改了点名，跟着后端走；自己正在保存时以保存结果为准。
+        if (!state.savingOrder) {
+          state.callOrder = [...event.group.callOrder];
+          renderCallPicks();
+        }
         renderHeader();
         renderComposer();
       }
@@ -451,10 +461,9 @@ async function openGroup(groupId, { keepPane = false } = {}) {
     approvals: new Map(snapshot.approvals.map((approval) => [approval.approvalId, approval])),
   };
   state.groups.set(groupId, snapshot.group);
-  if (switched || state.callOrder.length === 0) {
-    const members = snapshot.group.members;
-    const remembered = snapshot.group.callOrder.filter((agent) => members.includes(agent));
-    state.callOrder = remembered.length > 0 ? remembered : [...members];
+  state.callOrder = [...snapshot.group.callOrder];
+  if (switched) {
+    state.selectAllOn = false;
     elements.composerStatus.textContent = "";
   }
 
@@ -662,28 +671,72 @@ function renderApprovals() {
 function renderCallPicks() {
   const group = state.current?.group;
   if (!group) return;
-  elements.callPicks.replaceChildren(...group.members.map((member) => {
+  const all = document.createElement("label");
+  all.className = "pick";
+  const allInput = document.createElement("input");
+  allInput.type = "checkbox";
+  allInput.checked = state.selectAllOn;
+  allInput.disabled = state.savingOrder;
+  allInput.addEventListener("change", () => {
+    const turningOn = !state.selectAllOn;
+    void saveCallOrder(
+      turningOn ? selectAll(state.callOrder, group.members) : clearAll(),
+      turningOn,
+    );
+  });
+  all.append(allInput, document.createTextNode("全选"));
+
+  elements.callPicks.replaceChildren(all, ...group.members.map((member) => {
     const label = document.createElement("label");
     label.className = "pick";
     label.dataset.agent = member;
     const input = document.createElement("input");
     input.type = "checkbox";
     input.checked = state.callOrder.includes(member);
-    // 发言顺序就是勾选的先后：去掉的移出，重新勾上的排到最后。
+    input.disabled = state.savingOrder;
     input.addEventListener("change", () => {
-      state.callOrder = state.callOrder.filter((agent) => agent !== member);
-      if (input.checked) state.callOrder.push(member);
-      renderComposer();
+      void saveCallOrder(toggleMember(state.callOrder, member, input.checked), state.selectAllOn);
     });
     label.append(input, document.createTextNode(agentName(member)));
     return label;
   }));
 }
 
+/** 每次勾选变化都存到后端；保存期间锁住多选框和发送，失败时恢复成后端的状态。 */
+async function saveCallOrder(order, selectAllOn) {
+  const current = state.current;
+  if (!current || state.savingOrder) return;
+  const previousSelectAll = state.selectAllOn;
+  state.savingOrder = true;
+  state.callOrder = order;
+  state.selectAllOn = selectAllOn;
+  renderCallPicks();
+  renderComposer();
+  try {
+    const { group } = await request("group.callOrder", { groupId: current.group.id, order });
+    if (state.current === current) {
+      current.group = group;
+      state.callOrder = [...group.callOrder];
+    }
+    elements.composerStatus.textContent = "";
+  } catch (error) {
+    if (state.current === current) {
+      state.callOrder = [...current.group.callOrder];
+      state.selectAllOn = previousSelectAll;
+    }
+    elements.composerStatus.textContent = `点名没有保存：${errorMessage(error)}`;
+  } finally {
+    state.savingOrder = false;
+    renderCallPicks();
+    renderComposer();
+  }
+}
+
 function renderComposer() {
   const busy = Boolean(state.current?.group.busy || state.current?.round);
   elements.interruptButton.hidden = !busy;
-  elements.sendButton.disabled = busy || state.sending || !state.authenticated || state.callOrder.length === 0;
+  elements.sendButton.disabled = busy || state.sending || state.savingOrder || !state.authenticated ||
+    state.callOrder.length === 0;
 }
 
 elements.composer.addEventListener("submit", (event) => {

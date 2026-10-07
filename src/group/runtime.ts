@@ -63,7 +63,8 @@ const DEFAULT_IDLE_CLOSE_MS = 15 * 60_000;
  *
  * - 同一个群同一时间只有一轮、一个 AI 在说话。
  * - 打断或出错时这一轮结束，排在后面的 AI 不再发言。
- * - 原生会话按 (群, AI) 缓存在内存里，空闲一段时间后关掉；之后用记下的原生会话 id 恢复。
+ * - 原生会话按 (群, AI) 缓存在内存里。常驻的 AI 空闲一段时间后关掉，其余的每次发言完就关；
+ *   之后都用记下的原生会话 id 恢复。
  */
 export class GroupRuntime {
   readonly #store: GroupStore;
@@ -282,7 +283,10 @@ export class GroupRuntime {
       // 出错时不确定消息有没有送到，不推进：下次重发，宁可重复也不漏。
       if (final.outcome !== "failed") state.cursor = entry.seq;
     });
-    if (final.outcome === "failed" && session) this.#dropSession(groupId, agent, session);
+    if (session && (final.outcome === "failed" || this.#agents.get(agent).closeAfterTurn)) {
+      // 等进程确实关掉再结束这次发言，免得下一次点名时新旧两个进程同时接着同一个会话。
+      await this.#dropSession(groupId, agent, session);
+    }
     return final.outcome;
   }
 
@@ -293,7 +297,7 @@ export class GroupRuntime {
       cached.lastUsedAt = Date.now();
       return cached.session;
     }
-    if (cached) this.#dropSession(group.id, agent, cached.session);
+    if (cached) await this.#dropSession(group.id, agent, cached.session);
 
     const adapter = this.#agents.get(agent);
     const options: SessionOptions = {
@@ -305,7 +309,7 @@ export class GroupRuntime {
           .filter((member) => member !== agent && this.#agents.has(member))
           .map((member) => ({ tag: member, name: this.#agents.get(member).displayName })),
       }),
-      requestApproval: (ask) => this.#approvals.request(group.id, agent, ask),
+      requestApproval: (ask, signal) => this.#approvals.request(group.id, agent, ask, signal),
     };
     const nativeId = group.agents[agent]?.nativeSessionId ?? null;
     const session = nativeId
@@ -327,11 +331,11 @@ export class GroupRuntime {
     if (cached) cached.lastUsedAt = Date.now();
   }
 
-  #dropSession(groupId: string, agent: string, session: AgentSession): void {
+  async #dropSession(groupId: string, agent: string, session: AgentSession): Promise<void> {
     const key = sessionKey(groupId, agent);
     if (this.#sessions.get(key)?.session !== session) return;
     this.#sessions.delete(key);
-    void session.close().catch((error: unknown) => {
+    await session.close().catch((error: unknown) => {
       console.error(`关闭 ${agent} 的会话失败：${errorMessage(error)}`);
     });
   }

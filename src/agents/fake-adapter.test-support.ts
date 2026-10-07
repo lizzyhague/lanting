@@ -16,6 +16,7 @@ export type FakeCall = {
 export class FakeAdapter implements AgentAdapter {
   readonly id: string;
   readonly displayName: string;
+  closeAfterTurn = false;
   readonly calls: FakeCall[] = [];
   readonly received: string[] = [];
   readonly sessions: FakeSession[] = [];

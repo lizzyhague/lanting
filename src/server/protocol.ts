@@ -9,6 +9,7 @@ export type BrowserRequest =
   | { type: "group.create"; requestId: string; directory: string; members: string[]; title: string }
   | { type: "group.subscribe"; requestId: string; groupId: string }
   | { type: "group.unsubscribe"; requestId: string; groupId: string }
+  | { type: "group.callOrder"; requestId: string; groupId: string; order: string[] }
   | { type: "round.start"; requestId: string; groupId: string; text: string; order: string[] }
   | { type: "round.interrupt"; requestId: string; groupId: string }
   | { type: "approval.respond"; requestId: string; approvalId: string; decision: "allow" | "deny" };
@@ -72,6 +73,13 @@ export function parseBrowserRequest(source: string): BrowserRequest {
     case "group.unsubscribe":
     case "round.interrupt":
       return { type: value.type, requestId, groupId: requireUuid(value.groupId, "群 ID", requestId) };
+    case "group.callOrder":
+      return {
+        type: "group.callOrder",
+        requestId,
+        groupId: requireUuid(value.groupId, "群 ID", requestId),
+        order: requireAgentList(value.order, "点名", requestId),
+      };
     case "round.start":
       return {
         type: "round.start",

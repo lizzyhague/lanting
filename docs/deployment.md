@@ -11,6 +11,7 @@
 
 - Node.js 24 或更高版本
 - 一个项目根目录：新建群时，工作目录从它下面的第一层文件夹里选
+- 要拉进群的 AI 的 CLI，已安装并登录：Claude Code、Codex、Grok，至少一个
 - 一个至少 32 字符的随机登录令牌
 
 ## 2. 装代码和配置
@@ -32,13 +33,20 @@ chmod 600 .env config.json
 | `DATA_DIR` | 群和群聊记录的存放目录，默认 `./data` |
 | `ALLOWED_ORIGINS` | 额外允许的浏览器 Origin，逗号分隔 |
 
-`config.json` 提供项目根目录：
+`config.json` 提供项目根目录和各 AI 的 CLI 路径：
 
 ```json
 {
-  "projectRoot": "/absolute/path/to/projects"
+  "projectRoot": "/absolute/path/to/projects",
+  "agents": {
+    "claude": { "executable": "/absolute/path/to/claude" },
+    "codex": { "executable": "/absolute/path/to/codex" },
+    "grok": { "executable": "/absolute/path/to/grok" }
+  }
 }
 ```
+
+`agents` 里没有写的 AI 不接入。路径可以用 `~/` 开头。
 
 `.env`、`config.json` 和 `data/` 都是本机数据，不提交。
 

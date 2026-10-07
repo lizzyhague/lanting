@@ -196,6 +196,13 @@ test("a browser can create a group, run a round, and answer an approval over the
 
   const snapshot = await call("group.subscribe", { groupId: group.id });
   assert.deepEqual(snapshot.transcript, []);
+  assert.deepEqual((snapshot.group as { callOrder: string[] }).callOrder, ["claude"]);
+  const cleared = await call("group.callOrder", { groupId: group.id, order: [] }) as { group: { callOrder: string[] } };
+  assert.deepEqual(cleared.group.callOrder, []);
+  await event("group.updated");
+  socket.send(JSON.stringify({ type: "group.callOrder", requestId: "bad", groupId: group.id, order: ["grok"] }));
+  const rejected = await waitFor(() => inbox.find((message) => message.requestId === "bad"));
+  assert.equal(rejected.ok, false);
   await call("round.start", { groupId: group.id, text: "hello", order: ["claude"] });
 
   const requested = await event("approval.requested") as unknown as { approval: { approvalId: string; agent: string } };

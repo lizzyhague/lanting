@@ -2,6 +2,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { ClaudeAdapter } from "../agents/claude/adapter.ts";
+import { CodexAdapter } from "../agents/codex/adapter.ts";
+import { GrokAdapter } from "../agents/grok/adapter.ts";
 import { AgentRegistry } from "../agents/registry.ts";
 import type { AgentAdapter } from "../agents/types.ts";
 import { loadConfig } from "../config/load.ts";
@@ -24,9 +26,12 @@ export async function main(): Promise<void> {
   // 群数据读不动或校验不过时直接退出，绝不能用空状态覆盖原文件。
   const store = await GroupStore.open(dataDirectory);
   const adapters: AgentAdapter[] = [];
+  // 登记顺序就是界面上的排列顺序：claude、codex、grok。
   if (config.agents.claude) {
     adapters.push(new ClaudeAdapter({ pathToClaudeCodeExecutable: config.agents.claude.executable }));
   }
+  if (config.agents.codex) adapters.push(new CodexAdapter({ executable: config.agents.codex.executable }));
+  if (config.agents.grok) adapters.push(new GrokAdapter({ executable: config.agents.grok.executable }));
   const agents = new AgentRegistry(adapters);
   const runtime = new GroupRuntime({ store, agents });
   const groups = new GroupService({ projectRoot: config.projectRoot, store, runtime, agents });

@@ -9,6 +9,8 @@ export type AppConfig = {
   /** 各 AI 的 CLI。没有配置的 AI 不接入。 */
   agents: {
     claude?: { executable: string };
+    codex?: { executable: string };
+    grok?: { executable: string };
   };
 };
 
@@ -44,9 +46,10 @@ export async function loadConfig(configPath: string): Promise<AppConfig> {
   const agents: AppConfig["agents"] = {};
   if (value.agents !== undefined) {
     const configured = requireObject(value.agents, "agents");
-    if (configured.claude !== undefined) {
-      const claude = requireObject(configured.claude, "agents.claude");
-      agents.claude = { executable: await requireExecutable(claude.executable, "agents.claude.executable") };
+    for (const id of ["claude", "codex", "grok"] as const) {
+      if (configured[id] === undefined) continue;
+      const agent = requireObject(configured[id], `agents.${id}`);
+      agents[id] = { executable: await requireExecutable(agent.executable, `agents.${id}.executable`) };
     }
   }
 

@@ -43,7 +43,12 @@ export class ApprovalRegistry {
     return () => this.#listeners.delete(listener);
   }
 
-  request(groupId: string, agent: string, ask: ApprovalAsk): Promise<ApprovalAnswer> {
+  request(
+    groupId: string,
+    agent: string,
+    ask: ApprovalAsk,
+    signal?: AbortSignal,
+  ): Promise<ApprovalAnswer> {
     const now = Date.now();
     const request: ApprovalRequest = {
       ...ask,
@@ -68,6 +73,9 @@ export class ApprovalRegistry {
       timer.unref();
       this.#entries.set(request.approvalId, { request, settle, timer });
       this.#emit({ type: "approval.requested", approval: request });
+      const withdraw = () => settle({ decision: "deny", message: "AI 收回了这次申请。" }, "cancelled");
+      if (signal?.aborted) withdraw();
+      else signal?.addEventListener("abort", withdraw, { once: true });
     });
   }
 

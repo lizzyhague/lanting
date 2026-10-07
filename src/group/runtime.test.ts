@@ -243,3 +243,16 @@ test("idle sessions are closed and resumed on the next call", async (t) => {
   await runtime.startRound(groupId, "q2", ["claude"]).done;
   assert.equal(adapters.claude!.calls.at(-1)?.kind, "resume");
 });
+
+test("agents that close after each turn are resumed for every call", async (t) => {
+  const { adapters, runtime, groupId } = await setup(t, ["codex"]);
+  adapters.codex!.closeAfterTurn = true;
+  await runtime.startRound(groupId, "q1", ["codex"]).done;
+  assert.equal(adapters.codex!.sessions[0]!.closed, true);
+  await runtime.startRound(groupId, "q2", ["codex"]).done;
+  assert.deepEqual(adapters.codex!.calls.map((call) => [call.kind, call.nativeId]), [
+    ["start", null],
+    ["resume", "codex-session-1"],
+  ]);
+  assert.equal(adapters.codex!.sessions[1]!.closed, true);
+});

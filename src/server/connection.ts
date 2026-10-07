@@ -120,6 +120,11 @@ export class BrowserConnection implements EventSink {
         this.#respondOk(request.requestId, {});
         return;
       }
+      case "group.callOrder": {
+        const group = await groups.setCallOrder(request.groupId, request.order);
+        this.#respondOk(request.requestId, { group });
+        return;
+      }
       case "round.start": {
         this.#respondOk(request.requestId, groups.startRound(request.groupId, request.text, request.order));
         return;

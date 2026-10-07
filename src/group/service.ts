@@ -93,7 +93,8 @@ export class GroupService {
     // 成员按界面顺序（登记顺序）保存，和勾选先后无关。
     const members = this.#agents.ids.filter((id) => input.members.includes(id));
     const title = input.title.trim().slice(0, MAX_TITLE_LENGTH) || input.directory;
-    const group = await this.#store.create({ title, cwd, username: DEFAULT_USERNAME, members });
+    // 新群的点名默认是全部成员，按界面顺序。
+    const group = await this.#store.create({ title, cwd, username: DEFAULT_USERNAME, members, callOrder: members });
     const summary = this.#summary(group);
     this.#emit({ scope: "global", payload: { type: "group.created", group: summary } });
     return summary;
@@ -107,6 +108,21 @@ export class GroupService {
       round: this.#runtime.round(groupId),
       approvals: this.#runtime.approvals.pending(groupId),
     };
+  }
+
+  /** 点名每次变化都存到后端，换设备也能接着用。 */
+  async setCallOrder(groupId: string, order: string[]): Promise<GroupSummary> {
+    const group = this.#requireGroup(groupId);
+    if (new Set(order).size !== order.length) throw new GroupError("invalid_order", "点名里有重复的 AI。");
+    for (const agent of order) {
+      if (!group.members.includes(agent)) throw new GroupError("invalid_order", `${agent} 不是这个群的成员。`);
+    }
+    const updated = await this.#store.update(groupId, (next) => {
+      next.callOrder = [...order];
+    });
+    const summary = this.#summary(updated);
+    this.#emit({ scope: "global", payload: { type: "group.updated", group: summary } });
+    return summary;
   }
 
   startRound(groupId: string, text: string, order: string[]): { roundId: string } {

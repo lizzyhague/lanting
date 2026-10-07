@@ -44,3 +44,12 @@ test("cancel denies only the matching group and agent", async () => {
   registry.cancel("g2");
   await c;
 });
+
+test("an aborted signal withdraws the request", async () => {
+  const registry = new ApprovalRegistry();
+  const controller = new AbortController();
+  const answer = registry.request("g1", "codex", { toolName: "命令", detail: "" }, controller.signal);
+  controller.abort();
+  assert.equal((await answer).decision, "deny");
+  assert.equal(registry.pending("g1").length, 0);
+});
