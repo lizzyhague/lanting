@@ -1,7 +1,10 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { AgentRegistry } from "../agents/registry.ts";
 import { loadConfig } from "../config/load.ts";
+import { GroupRuntime } from "../group/runtime.ts";
+import { GroupStore } from "../state/group-store.ts";
 import { ConnectionHub } from "./hub.ts";
 import { WebServer } from "./http-server.ts";
 
@@ -14,7 +17,12 @@ export async function main(): Promise<void> {
   const configPath = path.resolve(process.env.CONFIG_PATH ?? "config.json");
   // 第 1 步还用不到配置，但启动时就校验，免得配置错误拖到建群时才暴露。
   await loadConfig(configPath);
+  const dataDirectory = path.resolve(process.env.DATA_DIR ?? "data");
 
+  // 群数据读不动或校验不过时直接退出，绝不能用空状态覆盖原文件。
+  const store = await GroupStore.open(dataDirectory);
+  // AI 适配从第 3 步开始登记。
+  const groups = new GroupRuntime({ store, agents: new AgentRegistry([]) });
   const hub = new ConnectionHub();
   const server = new WebServer({
     token,
@@ -28,6 +36,7 @@ export async function main(): Promise<void> {
     await waitForShutdownSignal();
   } finally {
     await server.close();
+    await groups.shutdown();
   }
 }
 

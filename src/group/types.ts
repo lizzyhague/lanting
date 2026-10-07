@@ -1,0 +1,39 @@
+export type AgentState = {
+  /** CLI 的原生会话 id；还没开过会话时为 null。 */
+  nativeSessionId: string | null;
+  /**
+   * 这个 AI 已经看到群聊记录的哪一条（seq）。0 表示什么都没看到，
+   * 第一次被点名时会收到开群以来的全部内容。
+   */
+  cursor: number;
+};
+
+export type Group = {
+  id: string;
+  title: string;
+  /** 群里所有 AI 的工作目录，绝对路径。 */
+  cwd: string;
+  /** 建群时的用户名，之后不再改变。 */
+  username: string;
+  /** 成员的 AI 标签名，按界面顺序。 */
+  members: string[];
+  /** 上一次的点名顺序。 */
+  callOrder: string[];
+  agents: Record<string, AgentState>;
+  createdAt: string;
+};
+
+export type Speaker = { role: "host" } | { role: "agent"; agent: string };
+
+export type ReplyStatus = "completed" | "interrupted" | "failed";
+
+export type TranscriptEntry = {
+  /** 从 1 开始，按追加顺序递增。 */
+  seq: number;
+  at: string;
+  from: Speaker;
+  text: string;
+  /** 只有 AI 的发言有。只有 completed 的回复会转给其他 AI。 */
+  status?: ReplyStatus;
+  error?: string;
+};
