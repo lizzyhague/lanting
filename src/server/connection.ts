@@ -1,3 +1,4 @@
+import { SharedUploadError } from "../attachments/types.ts";
 import { GroupError } from "../group/runtime.ts";
 import type { GroupService } from "../group/service.ts";
 import type { ConnectionHub, EmittedEvent, EventSink } from "./hub.ts";
@@ -77,7 +78,8 @@ export class BrowserConnection implements EventSink {
     }
 
     void this.#handle(request).catch((error: unknown) => {
-      const known = error instanceof RequestError || error instanceof GroupError;
+      const known = error instanceof RequestError || error instanceof GroupError ||
+        error instanceof SharedUploadError;
       const code = known ? error.code : "internal_error";
       if (!known) console.error(error);
       const message = error instanceof Error ? error.message : "请求处理失败。";
@@ -100,6 +102,7 @@ export class BrowserConnection implements EventSink {
           agents: groups.agents(),
           directories,
           groups: groups.groups(),
+          settings: groups.settings(),
         });
         return;
       }
@@ -126,7 +129,10 @@ export class BrowserConnection implements EventSink {
         return;
       }
       case "round.start": {
-        this.#respondOk(request.requestId, groups.startRound(request.groupId, request.text, request.order));
+        this.#respondOk(
+          request.requestId,
+          await groups.startRound(request.groupId, request.text, request.order, request.attachmentIds),
+        );
         return;
       }
       case "round.interrupt": {
@@ -151,6 +157,29 @@ export class BrowserConnection implements EventSink {
       case "group.rename": {
         const group = await groups.rename(request.groupId, request.title);
         this.#respondOk(request.requestId, { group });
+        return;
+      }
+      case "attachment.ticket": {
+        const { ticket, expiresAtMs, attachment } = await groups.createAttachmentTicket(request.groupId, {
+          originalName: request.originalName,
+          declaredMime: request.declaredMime,
+          expectedSize: request.expectedSize,
+        });
+        this.#respondOk(request.requestId, { ticket, expiresAtMs, attachment });
+        return;
+      }
+      case "settings.username": {
+        this.#respondOk(request.requestId, { settings: await groups.setUsername(request.username) });
+        return;
+      }
+      case "settings.catalog": {
+        this.#respondOk(request.requestId, await groups.settingsCatalog(request.agent));
+        return;
+      }
+      case "settings.defaults": {
+        const { model, effort, permission } = request;
+        const settings = await groups.setDefaultSettings(request.agent, { model, effort, permission });
+        this.#respondOk(request.requestId, { settings });
         return;
       }
       case "groups.trash": {

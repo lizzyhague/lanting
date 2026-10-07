@@ -5,11 +5,13 @@ import { ClaudeAdapter } from "../agents/claude/adapter.ts";
 import { CodexAdapter } from "../agents/codex/adapter.ts";
 import { GrokAdapter } from "../agents/grok/adapter.ts";
 import { AgentRegistry } from "../agents/registry.ts";
+import { SharedUploadClient } from "../attachments/shared-upload-client.ts";
 import type { AgentAdapter } from "../agents/types.ts";
 import { loadConfig } from "../config/load.ts";
 import { GroupRuntime } from "../group/runtime.ts";
 import { GroupService } from "../group/service.ts";
 import { GroupStore } from "../state/group-store.ts";
+import { SettingsStore } from "../state/settings-store.ts";
 import { ConnectionHub } from "./hub.ts";
 import { WebServer } from "./http-server.ts";
 
@@ -25,6 +27,9 @@ export async function main(): Promise<void> {
 
   // 群数据读不动或校验不过时直接退出，绝不能用空状态覆盖原文件。
   const store = await GroupStore.open(dataDirectory);
+  const settings = await SettingsStore.open(dataDirectory);
+  // socket 取 AI_REMOTE_UPLOAD_SOCKET，没设时用 ai-remote-upload 的默认位置。
+  const uploads = new SharedUploadClient();
   const adapters: AgentAdapter[] = [];
   // 登记顺序就是界面上的排列顺序：claude、codex、grok。
   if (config.agents.claude) {
@@ -34,7 +39,7 @@ export async function main(): Promise<void> {
   if (config.agents.grok) adapters.push(new GrokAdapter({ executable: config.agents.grok.executable }));
   const agents = new AgentRegistry(adapters);
   const runtime = new GroupRuntime({ store, agents });
-  const groups = new GroupService({ projectRoot: config.projectRoot, store, runtime, agents });
+  const groups = new GroupService({ projectRoot: config.projectRoot, store, runtime, agents, settings, uploads });
   const hub = new ConnectionHub();
   groups.onEvent((event) => {
     hub.handle(event.scope === "global"
@@ -44,6 +49,7 @@ export async function main(): Promise<void> {
   const server = new WebServer({
     token,
     services: { hub, groups },
+    uploads,
     allowedOrigins: readAllowedOrigins(process.env.ALLOWED_ORIGINS),
   });
 

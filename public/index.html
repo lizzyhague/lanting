@@ -26,6 +26,7 @@
         <div class="sidebar-heading">
           <strong class="sidebar-brand">lanting</strong>
           <span id="connection-status" class="connection-status" data-state="connecting">正在连接</span>
+          <button id="settings-button" class="quiet small" type="button">设置</button>
         </div>
         <form id="create-form" class="create-form">
           <label>
@@ -76,6 +77,8 @@
           <div id="timeline" class="timeline" aria-live="polite"></div>
           <div id="approval-list" class="approval-list"></div>
           <form id="composer" class="composer">
+            <div id="attachment-list" class="attachment-list" hidden></div>
+            <input id="file-input" type="file" multiple hidden>
             <textarea id="message-input" rows="3" placeholder="发给群里的消息" aria-label="消息"></textarea>
             <div class="composer-row">
               <div class="menu-anchor">
@@ -92,6 +95,27 @@
         </section>
       </main>
     </div>
+
+    <dialog id="settings-dialog" class="settings-dialog">
+      <div class="settings-body">
+        <div class="settings-heading">
+          <h2>设置</h2>
+          <button id="settings-close-button" class="quiet small" type="button">关闭</button>
+        </div>
+        <form id="username-form" class="username-form">
+          <label for="username-input">用户名</label>
+          <div class="username-row">
+            <input id="username-input" type="text" autocomplete="off" spellcheck="false">
+            <button id="username-save-button" type="submit">保存</button>
+          </div>
+          <p class="member-note">只影响以后新开的群。英文字母和数字，1～16 位，不能包含 AI 的标签名。</p>
+          <p id="username-status" class="form-status" aria-live="polite"></p>
+        </form>
+        <p class="popover-heading">每个 AI 的默认设置（新开的群用这些值）</p>
+        <div id="defaults-list" class="defaults-list"></div>
+        <p id="defaults-status" class="form-status" aria-live="polite"></p>
+      </div>
+    </dialog>
 
     <dialog id="rename-dialog" class="rename-dialog">
       <form id="rename-form" method="dialog">

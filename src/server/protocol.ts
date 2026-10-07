@@ -14,7 +14,14 @@ export type BrowserRequest =
   | { type: "group.subscribe"; requestId: string; groupId: string }
   | { type: "group.unsubscribe"; requestId: string; groupId: string }
   | { type: "group.callOrder"; requestId: string; groupId: string; order: string[] }
-  | { type: "round.start"; requestId: string; groupId: string; text: string; order: string[] }
+  | {
+    type: "round.start";
+    requestId: string;
+    groupId: string;
+    text: string;
+    order: string[];
+    attachmentIds: string[];
+  }
   | { type: "round.interrupt"; requestId: string; groupId: string }
   | { type: "approval.respond"; requestId: string; approvalId: string; decision: "allow" | "deny" }
   | { type: "agent.catalog"; requestId: string; groupId: string; agent: string }
@@ -29,6 +36,24 @@ export type BrowserRequest =
   }
   | { type: "group.compact"; requestId: string; groupId: string; agents: string[] }
   | { type: "group.rename"; requestId: string; groupId: string; title: string }
+  | {
+    type: "attachment.ticket";
+    requestId: string;
+    groupId: string;
+    originalName: string;
+    declaredMime: string;
+    expectedSize: number;
+  }
+  | { type: "settings.username"; requestId: string; username: string }
+  | { type: "settings.catalog"; requestId: string; agent: string }
+  | {
+    type: "settings.defaults";
+    requestId: string;
+    agent: string;
+    model: string | null;
+    effort: string | null;
+    permission: string | null;
+  }
   | { type: "groups.trash" | "groups.restore" | "groups.purge"; requestId: string; groupIds: string[] };
 
 export type BrowserEvent = Record<string, unknown> & { type: string };
@@ -97,14 +122,23 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         groupId: requireUuid(value.groupId, "群 ID", requestId),
         order: requireAgentList(value.order, "点名", requestId),
       };
-    case "round.start":
+    case "round.start": {
+      // 带附件时消息可以为空。
+      const attachmentIds = value.attachmentIds === undefined ? [] : value.attachmentIds;
+      if (!Array.isArray(attachmentIds) || attachmentIds.length > 100) {
+        throw new ProtocolError("invalid_field", "附件格式不对或过多。", requestId);
+      }
       return {
         type: "round.start",
         requestId,
         groupId: requireUuid(value.groupId, "群 ID", requestId),
-        text: requireString(value.text, "消息", requestId, MAX_MESSAGE_TEXT_LENGTH),
+        text: attachmentIds.length > 0
+          ? optionalString(value.text, "消息", requestId, MAX_MESSAGE_TEXT_LENGTH) ?? ""
+          : requireString(value.text, "消息", requestId, MAX_MESSAGE_TEXT_LENGTH),
         order: requireAgentList(value.order, "点名", requestId),
+        attachmentIds: attachmentIds.map((id) => requireUuid(id, "附件 ID", requestId)),
       };
+    }
     case "approval.respond": {
       if (value.decision !== "allow" && value.decision !== "deny") {
         throw new ProtocolError("invalid_field", "审批结果只能是 allow 或 deny。", requestId);
@@ -146,6 +180,37 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         requestId,
         groupId: requireUuid(value.groupId, "群 ID", requestId),
         title: requireString(value.title, "群名", requestId, 200),
+      };
+    case "attachment.ticket": {
+      const size = value.expectedSize;
+      if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) {
+        throw new ProtocolError("invalid_field", "文件大小不对。", requestId);
+      }
+      return {
+        type: "attachment.ticket",
+        requestId,
+        groupId: requireUuid(value.groupId, "群 ID", requestId),
+        originalName: requireString(value.originalName, "文件名", requestId, 1_024),
+        declaredMime: optionalString(value.declaredMime, "文件类型", requestId, 255) ?? "",
+        expectedSize: size,
+      };
+    }
+    case "settings.username":
+      // 空字符串也要交给后端，按规格给出“不能为空”的说明。
+      if (typeof value.username !== "string" || value.username.length > 200) {
+        throw new ProtocolError("invalid_field", "用户名格式不对。", requestId);
+      }
+      return { type: "settings.username", requestId, username: value.username };
+    case "settings.catalog":
+      return { type: "settings.catalog", requestId, agent: requireAgent(value.agent, requestId) };
+    case "settings.defaults":
+      return {
+        type: "settings.defaults",
+        requestId,
+        agent: requireAgent(value.agent, requestId),
+        model: nullableSetting(value.model, "模型", requestId),
+        effort: nullableSetting(value.effort, "思考强度", requestId),
+        permission: nullableSetting(value.permission, "权限", requestId),
       };
     case "groups.trash":
     case "groups.restore":

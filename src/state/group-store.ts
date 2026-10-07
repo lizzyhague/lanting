@@ -3,6 +3,7 @@ import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { DEFAULT_AGENT_SETTINGS, type AgentSettings } from "../agents/types.ts";
+import type { StoredAttachment } from "../attachments/prompt.ts";
 import type { Activity, AgentState, Group, ReplyStatus, Speaker, TranscriptEntry } from "../group/types.ts";
 import {
   ensurePrivateDirectory,
@@ -19,6 +20,8 @@ export type NewGroup = {
   username: string;
   members: string[];
   callOrder?: string[];
+  /** 每个成员一开始的设置；没给的跟随 CLI 默认。 */
+  settings?: Record<string, AgentSettings>;
 };
 
 export type NewEntry = Omit<TranscriptEntry, "seq" | "at">;
@@ -73,7 +76,8 @@ export class GroupStore {
     const id = randomUUID();
     const agents: Group["agents"] = {};
     for (const member of input.members) {
-      agents[member] = { nativeSessionId: null, cursor: 0, settings: { ...DEFAULT_AGENT_SETTINGS } };
+      const settings = input.settings?.[member] ?? DEFAULT_AGENT_SETTINGS;
+      agents[member] = { nativeSessionId: null, cursor: 0, settings: { ...settings } };
     }
     const group: Group = {
       id,
@@ -231,6 +235,12 @@ function parseTranscript(value: unknown, id: string): TranscriptEntry[] {
         activities.every((item) => isObject(item) && typeof item.kind === "string"))) {
       fail(`第 ${expected} 条的过程信息不对`);
     }
+    const attachments = entry.attachments;
+    if (attachments !== undefined && !(Array.isArray(attachments) && attachments.every(isStoredAttachment))) {
+      fail(`第 ${expected} 条的附件不对`);
+    }
+    const recipients = entry.recipients;
+    if (recipients !== undefined && stringArray(recipients) === null) fail(`第 ${expected} 条的附件收件人不对`);
     entries.push({
       seq: expected,
       at: entry.at as string,
@@ -239,9 +249,17 @@ function parseTranscript(value: unknown, id: string): TranscriptEntry[] {
       ...(status === undefined ? {} : { status: status as ReplyStatus }),
       ...(entry.error === undefined ? {} : { error: entry.error as string }),
       ...(activities === undefined ? {} : { activities: activities as Activity[] }),
+      ...(attachments === undefined ? {} : { attachments: attachments as StoredAttachment[] }),
+      ...(recipients === undefined ? {} : { recipients: recipients as string[] }),
     });
   }
   return entries;
+}
+
+function isStoredAttachment(value: unknown): boolean {
+  return isObject(value) && typeof value.id === "string" && typeof value.originalName === "string" &&
+    typeof value.mimeType === "string" && (value.kind === "image" || value.kind === "file") &&
+    typeof value.size === "number" && typeof value.path === "string";
 }
 
 function parseSettings(value: unknown): AgentSettings | null {

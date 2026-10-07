@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
+import type { SharedUploadClient } from "../attachments/shared-upload-client.ts";
+import { MAX_UPLOAD_BYTES, SharedUploadError } from "../attachments/types.ts";
 import { CookieAuth, secretsEqual } from "./auth.ts";
 import { BrowserConnection, type BrowserConnectionServices, type BrowserSocket } from "./connection.ts";
 import { MAX_BROWSER_MESSAGE_BYTES } from "./protocol.ts";
@@ -21,6 +23,8 @@ export type WebServerOptions = {
   heartbeatIntervalMs?: number;
   allowedOrigins?: string[];
   webRoot?: string;
+  /** ai-remote-upload 的客户端；没有时上传入口返回 503。 */
+  uploads?: Pick<SharedUploadClient, "upload">;
 };
 
 const DEFAULT_WEB_ROOT = fileURLToPath(new URL("../../public/", import.meta.url));
@@ -49,6 +53,7 @@ export class WebServer {
   readonly #allowedOrigins: ReadonlySet<string>;
   readonly #webRoot: string;
   readonly #webAssets: WebAssets;
+  readonly #uploads: WebServerOptions["uploads"];
   readonly #http: Server;
   readonly #webSockets: WebSocketServer;
   readonly #connections = new Map<WebSocket, BrowserConnection>();
@@ -63,6 +68,7 @@ export class WebServer {
     this.#heartbeatIntervalMs = options.heartbeatIntervalMs ?? 30_000;
     this.#allowedOrigins = new Set(options.allowedOrigins ?? []);
     this.#webRoot = options.webRoot ?? DEFAULT_WEB_ROOT;
+    this.#uploads = options.uploads;
     this.#webAssets = new WebAssets(this.#webRoot, Object.values(STATIC_FILES)
       .map((asset) => asset.file).filter((file) => /\.(js|css)$/u.test(file)));
     this.#http = createServer((request, response) => {
@@ -152,7 +158,7 @@ export class WebServer {
       await this.#login(request, response);
       return;
     }
-    if (pathname === "/auth/session") {
+    if (pathname === "/auth/session" || pathname === "/attachments/upload") {
       if (!this.#originAllowed(request)) {
         sendJson(response, 403, { error: { message: "请求来源不匹配。" } });
         return;
@@ -164,6 +170,12 @@ export class WebServer {
       }
       // 已鉴权 HTTP 请求会续期 cookie。
       response.setHeader("set-cookie", this.#auth.header(cookie));
+    }
+    if (pathname === "/attachments/upload") {
+      await this.#receiveUpload(request, response);
+      return;
+    }
+    if (pathname === "/auth/session") {
       if (request.method !== "GET") {
         response.setHeader("allow", "GET");
         sendJson(response, 405, { error: { message: "只允许 GET。" } });
@@ -249,6 +261,39 @@ export class WebServer {
     sendJson(response, 200, { authenticated: true });
   }
 
+  /** 照 Relayu：浏览器带着票据把文件传到这里，原样流式转交 ai-remote-upload，不先读进内存。 */
+  async #receiveUpload(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    if (request.method !== "POST") {
+      response.setHeader("allow", "POST");
+      sendUploadError(response, new SharedUploadError("method_not_allowed", "只允许 POST 上传。", 405));
+      return;
+    }
+    if (!this.#uploads) {
+      sendUploadError(response, new SharedUploadError("uploads_unavailable", "附件服务没有启用。", 503));
+      return;
+    }
+    const ticket = request.headers["x-upload-ticket"];
+    const contentLength = parseUploadLength(request.headers["content-length"]);
+    if (typeof ticket !== "string" || !ticket) {
+      sendUploadError(response, new SharedUploadError("missing_ticket", "请求缺少上传票据。", 401));
+      return;
+    }
+    if (contentLength === null) {
+      sendUploadError(response, new SharedUploadError("invalid_content_length", "上传必须提供有效的 Content-Length。", 411));
+      return;
+    }
+    if (contentLength > MAX_UPLOAD_BYTES) {
+      sendUploadError(response, new SharedUploadError("file_too_large", "单个文件不能超过 25 MiB。", 413));
+      return;
+    }
+    try {
+      const attachment = await this.#uploads.upload(ticket, contentLength, request);
+      sendJson(response, 201, { attachment });
+    } catch (error) {
+      sendUploadError(response, error);
+    }
+  }
+
   #originAllowed(request: IncomingMessage): boolean {
     const origin = request.headers.origin;
     if (typeof origin !== "string" || !origin) return true;
@@ -320,6 +365,21 @@ function rawDataToString(data: RawData): string {
   if (Array.isArray(data)) return Buffer.concat(data).toString("utf8");
   if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data)).toString("utf8");
   return Buffer.from(data).toString("utf8");
+}
+
+function parseUploadLength(value: string | undefined): number | null {
+  if (typeof value !== "string" || !/^\d+$/u.test(value)) return null;
+  const length = Number(value);
+  return Number.isSafeInteger(length) && length >= 0 ? length : null;
+}
+
+function sendUploadError(response: ServerResponse, error: unknown): void {
+  const normalized = error instanceof SharedUploadError
+    ? error
+    : new SharedUploadError("upload_failed", "附件上传失败。", 500);
+  // 上传没读完就回错误时，让浏览器别再继续发。
+  response.setHeader("connection", "close");
+  sendJson(response, normalized.status, { error: { code: normalized.code, message: normalized.message } });
 }
 
 function sendJson(response: ServerResponse, status: number, value: unknown): void {

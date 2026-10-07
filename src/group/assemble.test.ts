@@ -42,3 +42,22 @@ test("returns an empty string when nothing is new", () => {
   assert.equal(assembleMessage([], "codex", "host"), "");
   assert.equal(assembleMessage([agent("codex", "mine")], "codex", "host"), "");
 });
+
+test("attachments go to the agents called in that round; later agents only see a note with name and path", () => {
+  const attachment = { id: "a1", originalName: "screen.png", mimeType: "image/png", kind: "image" as const, size: 3, path: "/blobs/a1" };
+  const entries = [{
+    seq: 1,
+    at: "",
+    from: { role: "host" as const },
+    text: "look",
+    attachments: [attachment],
+    recipients: ["claude"],
+  }];
+  const forClaude = assembleMessage(entries, "claude", "host");
+  assert.match(forClaude, /^<host>\nlook\n\n\[LANTING_ATTACHMENTS_V1\]/u);
+  assert.ok(forClaude.includes('"path":"/blobs/a1"'));
+  assert.equal(
+    assembleMessage(entries, "grok", "host"),
+    "<host>\nlook\n\nhost sent an attachment: screen.png (path: /blobs/a1)\n</host>",
+  );
+});

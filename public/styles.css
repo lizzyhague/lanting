@@ -323,6 +323,115 @@ button.primary {
   color: var(--muted);
 }
 
+.settings-dialog {
+  width: min(94vw, 520px);
+  max-height: 90dvh;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  color: #faf9f5;
+}
+
+.settings-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+.settings-body {
+  padding: 1.1rem 1.25rem 1.25rem;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.settings-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-heading h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.username-form {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.username-form label {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.username-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.username-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.55rem 0.65rem;
+  background: var(--sunken);
+  color: #fff;
+}
+
+.defaults-list {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.defaults-row {
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--agent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+}
+
+.attachment-list,
+.entry-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.entry-attachments {
+  margin-top: 0.4rem;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-3);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.attachment-chip.uploading {
+  color: var(--muted);
+}
+
+.attachment-chip.failed {
+  border-color: #7f1d1d;
+  color: var(--danger);
+}
+
+.chip-remove {
+  min-height: 0;
+  padding: 0 0.2rem;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  line-height: 1;
+}
+
 .rename-dialog {
   width: min(92vw, 420px);
   padding: 1.25rem;

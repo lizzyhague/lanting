@@ -1,7 +1,7 @@
 import type { AgentAdapter, AgentCatalog, AgentEvent, AgentSession, SessionOptions } from "./types.ts";
 
 /** 剧本里的一步：普通事件，或者向群主申请审批（结果作为 activity 发出）。 */
-export type FakeStep = AgentEvent | { type: "ask"; toolName: string };
+export type FakeStep = AgentEvent | { type: "ask"; toolName: string; detail?: string };
 
 /** 每次 send 的剧本：按消息决定发出哪些事件。返回 "hang" 表示一直挂着，直到被打断。 */
 export type Script = (message: string, call: number) => FakeStep[] | "hang" | Error;
@@ -101,7 +101,7 @@ export class FakeSession implements AgentSession {
     }
     for (const step of plan) {
       if (step.type === "ask") {
-        const answer = await this.#options.requestApproval({ toolName: step.toolName, detail: "" });
+        const answer = await this.#options.requestApproval({ toolName: step.toolName, detail: step.detail ?? "" });
         yield { type: "activity", activity: { kind: "approval", decision: answer.decision } };
       } else {
         yield step;

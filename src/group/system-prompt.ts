@@ -50,7 +50,7 @@ What each participant says is wrapped in a tag. Tags are flat and never nested:
 
 ## Attachments
 
-The chat history may contain a line saying "<{username}> sent an attachment", with the file name
+The chat history may contain a line saying "{username} sent an attachment", with the file name
 and path. Whether to read it is up to you. Attachments are kept only for a limited time and the
 file may be gone; if you cannot read it, just say so.
 `;

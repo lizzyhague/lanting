@@ -12,6 +12,7 @@ import { AgentRegistry } from "../agents/registry.ts";
 import { GroupRuntime } from "../group/runtime.ts";
 import { GroupService } from "../group/service.ts";
 import { GroupStore } from "../state/group-store.ts";
+import { SettingsStore } from "../state/settings-store.ts";
 import { COOKIE_NAME } from "./auth.ts";
 import { ConnectionHub } from "./hub.ts";
 import { WebServer } from "./http-server.ts";
@@ -31,21 +32,31 @@ async function startServer(t: test.TestContext) {
   const claude = new FakeAdapter("claude");
   const agents = new AgentRegistry([claude]);
   const runtime = new GroupRuntime({ store, agents });
-  const groups = new GroupService({ projectRoot, store, runtime, agents });
+  const settings = await SettingsStore.open(path.join(webRoot, "data"));
+  const groups = new GroupService({ projectRoot, store, runtime, agents, settings });
   const hub = new ConnectionHub();
   groups.onEvent((event) => {
     hub.handle(event.scope === "global"
       ? { target: "global", payload: event.payload }
       : { target: "group", groupId: event.groupId, payload: event.payload });
   });
-  const server = new WebServer({ token: TOKEN, services: { hub, groups }, webRoot });
+  const uploaded: { ticket: string; body: string }[] = [];
+  const uploads = {
+    async upload(ticket: string, _length: number, source: AsyncIterable<Buffer>) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of source) chunks.push(Buffer.from(chunk));
+      uploaded.push({ ticket, body: Buffer.concat(chunks).toString("utf8") });
+      return { id: "attachment-1", originalName: "a.txt" } as never;
+    },
+  };
+  const server = new WebServer({ token: TOKEN, services: { hub, groups }, webRoot, uploads });
   const { port } = await server.listen(0);
   t.after(async () => {
     await server.close();
     await runtime.shutdown();
     await rm(webRoot, { recursive: true, force: true });
   });
-  return { base: `http://127.0.0.1:${port}`, port, hub, claude };
+  return { base: `http://127.0.0.1:${port}`, port, hub, claude, uploaded };
 }
 
 async function login(base: string, token = TOKEN): Promise<Response> {
@@ -227,4 +238,21 @@ test("a browser can create a group, run a round, and answer an approval over the
     ["final answer", "completed"],
   ]);
   assert.equal(final.group.busy, false);
+});
+
+test("uploads require login and are streamed to the upload service with their ticket", async (t) => {
+  const { base, uploaded } = await startServer(t);
+  const post = (headers: Record<string, string>) =>
+    fetch(`${base}/attachments/upload`, { method: "POST", headers, body: "hello" });
+  assert.equal((await post({ "x-upload-ticket": "t1" })).status, 401);
+
+  const cookie = cookieFrom(await login(base));
+  assert.equal((await post({ cookie })).status, 401);
+  assert.equal((await fetch(`${base}/attachments/upload`, { headers: { cookie } })).status, 405);
+  assert.equal((await post({ cookie, "x-upload-ticket": "t1", origin: "https://elsewhere.example" })).status, 403);
+
+  const response = await post({ cookie, "x-upload-ticket": "t1" });
+  assert.equal(response.status, 201);
+  assert.deepEqual(await response.json(), { attachment: { id: "attachment-1", originalName: "a.txt" } });
+  assert.deepEqual(uploaded, [{ ticket: "t1", body: "hello" }]);
 });

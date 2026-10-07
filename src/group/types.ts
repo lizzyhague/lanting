@@ -1,4 +1,5 @@
 import type { AgentSettings } from "../agents/types.ts";
+import type { StoredAttachment } from "../attachments/prompt.ts";
 
 export type AgentState = {
   /** CLI 的原生会话 id；还没开过会话时为 null。 */
@@ -53,6 +54,12 @@ export type TranscriptEntry = {
   error?: string;
   /** 这次发言的过程信息（工具调用等），只给群主看，不转给其他 AI。 */
   activities?: Activity[];
+  /** 群主这一条带的附件。路径只留在后端。 */
+  attachments?: StoredAttachment[];
+  /**
+   * 带附件的那一轮点了谁。这些 AI 收到附件本身；之后才被点名的 AI 只看到一行附件说明。
+   */
+  recipients?: string[];
 };
 
 /** 由各家适配决定内容，至少带 kind。 */

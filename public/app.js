@@ -5,6 +5,9 @@ const RECONNECT_DELAY_MS = 3_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 /** 离底部不到这么多像素时，新内容到来自动滚到底；用户往上翻时不打扰。 */
 const STICK_TO_BOTTOM_PX = 80;
+/** 照 ai-remote-upload 的限制。 */
+const MAX_UPLOAD_BYTES = 25 * 1_048_576;
+const MAX_MESSAGE_ATTACHMENTS = 100;
 
 function byId(id) {
   const element = document.getElementById(id);
@@ -38,6 +41,17 @@ const elements = {
   bulkActions: byId("bulk-actions"),
   bulkRestoreButton: byId("bulk-restore-button"),
   bulkDeleteButton: byId("bulk-delete-button"),
+  settingsButton: byId("settings-button"),
+  settingsDialog: byId("settings-dialog"),
+  settingsCloseButton: byId("settings-close-button"),
+  usernameForm: byId("username-form"),
+  usernameInput: byId("username-input"),
+  usernameSaveButton: byId("username-save-button"),
+  usernameStatus: byId("username-status"),
+  defaultsList: byId("defaults-list"),
+  defaultsStatus: byId("defaults-status"),
+  attachmentList: byId("attachment-list"),
+  fileInput: byId("file-input"),
   renameDialog: byId("rename-dialog"),
   renameForm: byId("rename-form"),
   renameInput: byId("rename-input"),
@@ -78,6 +92,13 @@ const state = {
   groups: new Map(),
   /** 新建群时勾选的 AI。 */
   createMembers: new Set(),
+  /** 后端的设置：{ username, defaults, createMembers } */
+  settings: null,
+  /** 设置页用的模型和权限列表，按 AI 存；值为 { catalog } 或 { error }。 */
+  settingsCatalogs: new Map(),
+  savingDefaults: new Set(),
+  /** 当前群输入框里待发的附件：{ localId, name, status: uploading|done|failed, attachment, error } */
+  drafts: [],
   createBusy: false,
   /** 侧栏显示哪一类：groups（群）或 trash（回收站）。 */
   listView: "groups",
@@ -289,6 +310,14 @@ function handleSocketMessage(data) {
 
 function handleEvent(event) {
   switch (event.type) {
+    case "settings.updated":
+      state.settings = event.settings;
+      if (event.settings.createMembers) {
+        state.createMembers = new Set(event.settings.createMembers);
+        renderCreateForm();
+      }
+      renderSettingsDialog();
+      return;
     case "group.removed":
       state.groups.delete(event.groupId);
       state.selected.delete(event.groupId);
@@ -394,8 +423,11 @@ async function loadAppState() {
   state.agents = data.agents;
   state.directories = data.directories;
   state.groups = new Map(data.groups.map((group) => [group.id, group]));
-  // 第一次默认全部勾选。记住上次选择到第 7 步再做。
-  if (firstLoad) state.createMembers = new Set(state.agents.map((agent) => agent.id));
+  state.settings = data.settings;
+  // 记住的是上次新建群时的勾选，存在后端；还没建过群时全部勾选。
+  if (firstLoad) {
+    state.createMembers = new Set(data.settings.createMembers ?? state.agents.map((agent) => agent.id));
+  }
   renderCreateForm();
   renderGroupList();
 }
@@ -651,6 +683,9 @@ async function openGroup(groupId, { keepPane = false } = {}) {
     state.selectAllOn = false;
     elements.composerStatus.textContent = "";
     closePopovers();
+    // 附件绑定在群上，换群就清掉没发出去的。
+    state.drafts = [];
+    renderDrafts();
   }
 
   elements.groupEmpty.hidden = true;
@@ -721,9 +756,22 @@ function entryElement(entry) {
   }
   if (entry.from.role === "host") {
     article.className = "message host";
-    const body = document.createElement("pre");
-    body.textContent = entry.text;
-    article.append(body);
+    if (entry.text) {
+      const body = document.createElement("pre");
+      body.textContent = entry.text;
+      article.append(body);
+    }
+    if (entry.attachments?.length) {
+      const list = document.createElement("div");
+      list.className = "entry-attachments";
+      for (const attachment of entry.attachments) {
+        const chip = document.createElement("span");
+        chip.className = "attachment-chip";
+        chip.textContent = `📎 ${attachment.originalName}`;
+        list.append(chip);
+      }
+      article.append(list);
+    }
     return article;
   }
 
@@ -963,7 +1011,7 @@ function renderComposer() {
   // 压缩一旦开始不打断，只有发言能打断。
   elements.interruptButton.hidden = !busy || Boolean(current?.compaction && !current?.round);
   elements.sendButton.disabled = busy || state.sending || state.savingOrder || !state.authenticated ||
-    state.callOrder.length === 0;
+    state.callOrder.length === 0 || state.drafts.some((draft) => draft.status === "uploading");
 }
 
 elements.composer.addEventListener("submit", (event) => {
@@ -981,13 +1029,16 @@ elements.messageInput.addEventListener("keydown", (event) => {
 async function send() {
   const current = state.current;
   const text = elements.messageInput.value;
-  if (!current || !text.trim() || elements.sendButton.disabled) return;
+  const attachmentIds = state.drafts.filter((draft) => draft.status === "done").map((draft) => draft.attachment.id);
+  if (!current || (!text.trim() && attachmentIds.length === 0) || elements.sendButton.disabled) return;
   state.sending = true;
   renderComposer();
   elements.composerStatus.textContent = "";
   try {
-    await request("round.start", { groupId: current.group.id, text, order: state.callOrder });
+    await request("round.start", { groupId: current.group.id, text, order: state.callOrder, attachmentIds });
     elements.messageInput.value = "";
+    state.drafts = state.drafts.filter((draft) => draft.status !== "done");
+    renderDrafts();
   } catch (error) {
     elements.composerStatus.textContent = errorMessage(error);
   } finally {
@@ -1061,7 +1112,11 @@ function renderPlusMenu() {
       closePopovers();
       openRenameDialog();
     });
-    elements.plusMenu.replaceChildren(compactItem, renameItem);
+    const attachItem = menuItem("添加附件", null, !state.authenticated, () => {
+      closePopovers();
+      elements.fileInput.click();
+    });
+    elements.plusMenu.replaceChildren(attachItem, compactItem, renameItem);
     return;
   }
   const back = menuItem("‹ 压缩上下文", null, false, () => {
@@ -1207,11 +1262,16 @@ function memberRow(group, agent) {
     row.append(statusLine(`读取失败：${entry.error}`, true));
     return row;
   }
-  const { catalog } = entry;
   const settings = group.settings?.[agent] ?? { model: null, effort: null, permission: null };
   const locked = state.savingSettings.has(agent) || !state.authenticated;
-  const model = catalog.models.find((item) => item.id === settings.model) ?? null;
+  row.append(...settingControls(entry.catalog, settings, locked, (next) => void saveSettings(agent, next)));
+  row.append(statusLine("只影响这个群，下次发言时生效。"));
+  return row;
+}
 
+/** 模型、思考强度、权限三个下拉框，加当前权限的说明。成员设置框和设置页共用。 */
+function settingControls(catalog, settings, locked, save) {
+  const model = catalog.models.find((item) => item.id === settings.model) ?? null;
   const modelSelect = settingSelect("模型", settings.model, catalog.models.map((item) => ({
     value: item.id,
     label: item.label,
@@ -1232,19 +1292,18 @@ function memberRow(group, agent) {
     const efforts = catalog.models.find((item) => item.id === nextModel)?.efforts ?? [];
     // 新模型不支持原来的思考强度时，回到默认。
     const effort = nextModel && efforts.includes(settings.effort) ? settings.effort : null;
-    void saveSettings(agent, { ...settings, model: nextModel, effort });
+    save({ ...settings, model: nextModel, effort });
   });
   effortSelect.select.addEventListener("change", () => {
-    void saveSettings(agent, { ...settings, effort: effortSelect.select.value || null });
+    save({ ...settings, effort: effortSelect.select.value || null });
   });
   permissionSelect.select.addEventListener("change", () => {
-    void saveSettings(agent, { ...settings, permission: permissionSelect.select.value || null });
+    save({ ...settings, permission: permissionSelect.select.value || null });
   });
-  row.append(modelSelect.label, effortSelect.label, permissionSelect.label);
+  const controls = [modelSelect.label, effortSelect.label, permissionSelect.label];
   const description = catalog.permissions.find((item) => item.id === settings.permission)?.description;
-  if (description) row.append(statusLine(description));
-  row.append(statusLine("只影响这个群，下次发言时生效。"));
-  return row;
+  if (description) controls.push(statusLine(description));
+  return controls;
 }
 
 /** 第一项是“默认”（不指定，跟随 CLI）；当前值不在列表里时也照样显示出来。 */
@@ -1290,6 +1349,163 @@ async function saveSettings(agent, settings) {
     state.savingSettings.delete(agent);
     renderAgentPanel();
   }
+}
+
+/* ---------- 设置 ---------- */
+
+elements.settingsButton.addEventListener("click", () => {
+  if (!state.settings) return;
+  elements.usernameInput.value = state.settings.username;
+  elements.usernameStatus.textContent = "";
+  elements.defaultsStatus.textContent = "";
+  elements.settingsDialog.showModal();
+  renderSettingsDialog();
+  for (const agent of state.agents) void loadSettingsCatalog(agent.id);
+});
+
+elements.settingsCloseButton.addEventListener("click", () => elements.settingsDialog.close());
+
+elements.usernameForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  elements.usernameSaveButton.disabled = true;
+  elements.usernameStatus.textContent = "";
+  try {
+    const { settings } = await request("settings.username", { username: elements.usernameInput.value });
+    state.settings = settings;
+    elements.usernameStatus.textContent = "";
+    elements.usernameSaveButton.textContent = "已保存";
+    setTimeout(() => { elements.usernameSaveButton.textContent = "保存"; }, 1_500);
+  } catch (error) {
+    elements.usernameStatus.textContent = errorMessage(error);
+  } finally {
+    elements.usernameSaveButton.disabled = false;
+  }
+});
+
+async function loadSettingsCatalog(agent) {
+  try {
+    state.settingsCatalogs.set(agent, { catalog: await request("settings.catalog", { agent }) });
+  } catch (error) {
+    state.settingsCatalogs.set(agent, { error: errorMessage(error) });
+  }
+  renderSettingsDialog();
+}
+
+/** 设置页里每个 AI 一行默认设置。 */
+function renderSettingsDialog() {
+  if (!elements.settingsDialog.open || !state.settings) return;
+  if (elements.defaultsList.contains(document.activeElement) && document.activeElement?.tagName === "SELECT") return;
+  elements.defaultsList.replaceChildren(...state.agents.map(({ id: agent }) => {
+    const row = document.createElement("div");
+    row.className = "member-row defaults-row";
+    row.dataset.agent = agent;
+    const name = document.createElement("div");
+    name.className = "member-name";
+    name.append(agentDot(agent), document.createTextNode(agentName(agent)));
+    row.append(name);
+    const entry = state.settingsCatalogs.get(agent);
+    if (!entry) row.append(statusLine("正在读取可选的模型和权限……"));
+    else if (entry.error) row.append(statusLine(`读取失败：${entry.error}`, true));
+    else {
+      const settings = state.settings.defaults[agent] ?? { model: null, effort: null, permission: null };
+      const locked = state.savingDefaults.has(agent) || !state.authenticated;
+      row.append(...settingControls(entry.catalog, settings, locked, (next) => void saveDefaults(agent, next)));
+    }
+    return row;
+  }));
+}
+
+async function saveDefaults(agent, settings) {
+  if (state.savingDefaults.has(agent)) return;
+  state.savingDefaults.add(agent);
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  elements.defaultsStatus.textContent = "";
+  renderSettingsDialog();
+  try {
+    const { settings: saved } = await request("settings.defaults", { agent, ...settings });
+    state.settings = saved;
+  } catch (error) {
+    elements.defaultsStatus.textContent = `${agentName(agent)} 的默认设置没有保存：${errorMessage(error)}`;
+  } finally {
+    state.savingDefaults.delete(agent);
+    renderSettingsDialog();
+  }
+}
+
+/* ---------- 附件 ---------- */
+
+let nextDraftId = 1;
+
+elements.fileInput.addEventListener("change", () => {
+  const files = [...(elements.fileInput.files ?? [])];
+  elements.fileInput.value = "";
+  const current = state.current;
+  if (!current) return;
+  for (const file of files) {
+    if (state.drafts.length >= MAX_MESSAGE_ATTACHMENTS) {
+      elements.composerStatus.textContent = `一条消息最多 ${MAX_MESSAGE_ATTACHMENTS} 个附件。`;
+      break;
+    }
+    const draft = { localId: nextDraftId++, name: file.name, status: "uploading", attachment: null, error: "" };
+    state.drafts.push(draft);
+    void upload(current, draft, file);
+  }
+  renderDrafts();
+  renderComposer();
+});
+
+/** 先在 WebSocket 上要一张票据，再把文件原样传给后端，由后端转交 ai-remote-upload。 */
+async function upload(current, draft, file) {
+  try {
+    if (file.size > MAX_UPLOAD_BYTES) throw new Error("单个文件不能超过 25 MiB。");
+    const { ticket } = await request("attachment.ticket", {
+      groupId: current.group.id,
+      originalName: file.name,
+      declaredMime: file.type,
+      expectedSize: file.size,
+    });
+    const response = await fetch("/attachments/upload", {
+      method: "POST",
+      headers: { "x-upload-ticket": ticket, "content-type": "application/octet-stream" },
+      body: file,
+      cache: "no-store",
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error?.message ?? "上传失败。");
+    draft.status = "done";
+    draft.attachment = result.attachment;
+  } catch (error) {
+    draft.status = "failed";
+    draft.error = errorMessage(error);
+  }
+  if (state.current !== current) return;
+  renderDrafts();
+  renderComposer();
+}
+
+function renderDrafts() {
+  elements.attachmentList.hidden = state.drafts.length === 0;
+  elements.attachmentList.replaceChildren(...state.drafts.map((draft) => {
+    const chip = document.createElement("span");
+    chip.className = `attachment-chip draft ${draft.status}`;
+    const label = { uploading: "上传中", done: "", failed: "失败" }[draft.status];
+    chip.textContent = label ? `${draft.name}（${label}）` : draft.name;
+    if (draft.error) chip.title = draft.error;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "chip-remove";
+    remove.textContent = "×";
+    remove.setAttribute("aria-label", `移除 ${draft.name}`);
+    remove.addEventListener("click", () => {
+      state.drafts = state.drafts.filter((item) => item !== draft);
+      renderDrafts();
+      renderComposer();
+    });
+    chip.append(remove);
+    return chip;
+  }));
+  const failed = state.drafts.find((draft) => draft.status === "failed");
+  if (failed) elements.composerStatus.textContent = `${failed.name} 上传失败：${failed.error}`;
 }
 
 /* ---------- 重命名 ---------- */

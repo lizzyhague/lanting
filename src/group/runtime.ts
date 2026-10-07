@@ -9,6 +9,8 @@ import {
   type SessionOptions,
 } from "../agents/types.ts";
 import { ApprovalRegistry } from "../approvals/registry.ts";
+import type { StoredAttachment } from "../attachments/prompt.ts";
+import { PathRedactor } from "../attachments/redact.ts";
 import type { GroupStore } from "../state/group-store.ts";
 import { assembleMessage } from "./assemble.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
@@ -139,14 +141,20 @@ export class GroupRuntime {
 
   /**
    * 开始一轮。参数不对或群正忙时同步抛 GroupError；之后的结果从 done 拿，done 不会 reject。
+   * attachments 只交给这一轮被点名的 AI，路径由调用方从 ai-remote-upload 的租约里取得。
    */
-  startRound(groupId: string, text: string, order: readonly string[]): {
+  startRound(
+    groupId: string,
+    text: string,
+    order: readonly string[],
+    attachments: readonly StoredAttachment[] = [],
+  ): {
     roundId: string;
     done: Promise<RoundOutcome>;
   } {
     const group = this.#store.get(groupId);
     if (!group) throw new GroupError("group_not_found", "群不存在。");
-    if (!text.trim()) throw new GroupError("empty_message", "消息不能为空。");
+    if (!text.trim() && attachments.length === 0) throw new GroupError("empty_message", "消息不能为空。");
     if (order.length === 0) throw new GroupError("no_speaker", "至少要点名一个 AI。");
     if (new Set(order).size !== order.length) throw new GroupError("invalid_order", "点名里有重复的 AI。");
     for (const agent of order) {
@@ -171,7 +179,7 @@ export class GroupRuntime {
     };
     this.#rounds.set(groupId, round);
     this.#emit({ type: "round.started", groupId, roundId: round.id, order: [...order] });
-    return { roundId: round.id, done: this.#run(groupId, round, text) };
+    return { roundId: round.id, done: this.#run(groupId, round, text, [...attachments]) };
   }
 
   /**
@@ -246,10 +254,19 @@ export class GroupRuntime {
     await Promise.allSettled(sessions.map((session) => session.close()));
   }
 
-  async #run(groupId: string, round: ActiveRound, text: string): Promise<RoundOutcome> {
+  async #run(
+    groupId: string,
+    round: ActiveRound,
+    text: string,
+    attachments: StoredAttachment[],
+  ): Promise<RoundOutcome> {
     let outcome: RoundOutcome = "completed";
     try {
-      const entry = await this.#store.append(groupId, { from: { role: "host" }, text });
+      const entry = await this.#store.append(groupId, {
+        from: { role: "host" },
+        text,
+        ...(attachments.length > 0 ? { attachments, recipients: [...round.order] } : {}),
+      });
       this.#emit({ type: "entry.appended", groupId, entry });
       await this.#store.update(groupId, (group) => {
         group.callOrder = [...round.order];
@@ -325,6 +342,12 @@ export class GroupRuntime {
       group.username,
     );
 
+    // 附件路径不给浏览器看：回复和过程信息里出现的路径换成文件名。
+    const redactor = new PathRedactor(new Map(this.#store.transcript(groupId).flatMap((entry) =>
+      (entry.attachments ?? []).map((attachment) => [attachment.path, attachment.originalName] as const)
+    )));
+    let stream = redactor.stream();
+
     round.speakingAgent = agent;
     round.text = "";
     round.activities = [];
@@ -337,12 +360,15 @@ export class GroupRuntime {
       round.speaking = session;
       for await (const event of session.send(message)) {
         if (event.type === "text") {
-          round.text += event.delta;
-          this.#emit({ type: "agent.text", groupId, roundId: round.id, agent, delta: event.delta });
+          const delta = stream.push(event.delta);
+          if (!delta) continue;
+          round.text += delta;
+          this.#emit({ type: "agent.text", groupId, roundId: round.id, agent, delta });
         } else if (event.type === "activity") {
-          const activity = toActivity(event.activity);
+          const activity = toActivity(redactor.redactDeep(event.activity));
           // 过程信息出现时，之前流出的文字已经归入过程信息，正文重新开始。
           round.text = "";
+          stream = redactor.stream();
           if (round.activities.length < MAX_ACTIVITIES) round.activities.push(activity);
           this.#emit({ type: "agent.activity", groupId, roundId: round.id, agent, activity });
         } else {
@@ -361,9 +387,9 @@ export class GroupRuntime {
 
     const entry = await this.#store.append(groupId, {
       from: { role: "agent", agent },
-      text: final.text,
+      text: redactor.redact(final.text),
       status: final.outcome,
-      ...(final.error === undefined ? {} : { error: final.error }),
+      ...(final.error === undefined ? {} : { error: redactor.redact(final.error) }),
       ...(round.activities.length > 0 ? { activities: round.activities } : {}),
     });
     round.speakingAgent = null;

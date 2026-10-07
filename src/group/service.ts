@@ -1,9 +1,23 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import type { AgentRegistry } from "../agents/registry.ts";
 import type { AgentCatalog, AgentSettings } from "../agents/types.ts";
 import type { ApprovalEvent, ApprovalRequest } from "../approvals/registry.ts";
+import { publicAttachment, type StoredAttachment } from "../attachments/prompt.ts";
+import { PathRedactor } from "../attachments/redact.ts";
+import type { SharedUploadClient } from "../attachments/shared-upload-client.ts";
+import {
+  ATTACHMENT_LEASE_RENEW_INTERVAL_MS,
+  MAX_MESSAGE_ATTACHMENTS,
+  MAX_UPLOAD_BYTES,
+  SharedUploadError,
+  UPLOAD_CALLER,
+  type AttachmentBinding,
+  type UploadTicket,
+} from "../attachments/types.ts";
 import type { GroupStore } from "../state/group-store.ts";
+import type { Settings, SettingsStore } from "../state/settings-store.ts";
 import { listDirectories, resolveDirectory } from "./directories.ts";
 import {
   GroupError,
@@ -13,10 +27,11 @@ import {
   type RoundSnapshot,
 } from "./runtime.ts";
 import type { Group, TranscriptEntry } from "./types.ts";
+import { usernameProblem } from "./username.ts";
 
-/** 用户名设置到第 7 步才做，之前新建的群都用默认值。 */
-const DEFAULT_USERNAME = "host";
 const MAX_TITLE_LENGTH = 100;
+
+type UploadClient = Pick<SharedUploadClient, "createTicket" | "createLease" | "renewLease" | "releaseLease">;
 /** 回收站保留 30 天，从移入时起算；常量只放这一处，页面拿到的是推出来的到期时间。 */
 export const TRASH_RETENTION_MS = 30 * 24 * 60 * 60_000;
 /** 到期扫描的间隔。启动时先扫一次，补上停机期间到期的群。 */
@@ -41,9 +56,14 @@ export type GroupSummary = {
   deleting: boolean;
 };
 
+/** 发给浏览器的群聊记录：附件去掉路径。 */
+export type PublicEntry = Omit<TranscriptEntry, "attachments"> & {
+  attachments?: Omit<StoredAttachment, "path">[];
+};
+
 export type GroupSnapshot = {
   group: GroupSummary;
-  transcript: readonly TranscriptEntry[];
+  transcript: PublicEntry[];
   round: RoundSnapshot | null;
   compaction: CompactionSnapshot | null;
   approvals: ApprovalRequest[];
@@ -58,7 +78,13 @@ export type BatchResult = {
 export type ServiceEvent =
   | { scope: "global"; payload: { type: "group.created" | "group.updated"; group: GroupSummary } }
   | { scope: "global"; payload: { type: "group.removed"; groupId: string } }
-  | { scope: "group"; groupId: string; payload: GroupEvent | ApprovalEvent };
+  | { scope: "global"; payload: { type: "settings.updated"; settings: Settings } }
+  | { scope: "group"; groupId: string; payload: PublicGroupEvent | ApprovalEvent };
+
+/** 群事件发给浏览器前，群聊记录里的附件去掉路径。 */
+export type PublicGroupEvent =
+  | Exclude<GroupEvent, { type: "entry.appended" }>
+  | { type: "entry.appended"; groupId: string; entry: PublicEntry };
 
 /** 浏览器连接用到的群操作。把存储、调度、审批和 AI 登记表收在一处。 */
 export class GroupService {
@@ -66,6 +92,8 @@ export class GroupService {
   readonly #store: GroupStore;
   readonly #runtime: GroupRuntime;
   readonly #agents: AgentRegistry;
+  readonly #settings: SettingsStore;
+  readonly #uploads: UploadClient | null;
   readonly #listeners = new Set<(event: ServiceEvent) => void>();
   /** 正在移入回收站或永久删除的群，这期间不能开始新的一轮或压缩。 */
   readonly #locked = new Set<string>();
@@ -76,21 +104,28 @@ export class GroupService {
     store: GroupStore;
     runtime: GroupRuntime;
     agents: AgentRegistry;
+    settings: SettingsStore;
+    /** ai-remote-upload 的客户端；没有时不能发附件。 */
+    uploads?: UploadClient | null;
   }) {
     this.#projectRoot = options.projectRoot;
     this.#store = options.store;
     this.#runtime = options.runtime;
     this.#agents = options.agents;
+    this.#settings = options.settings;
+    this.#uploads = options.uploads ?? null;
 
     this.#runtime.onEvent((event) => {
-      this.#emit({ scope: "group", groupId: event.groupId, payload: event });
+      const payload = event.type === "entry.appended" ? { ...event, entry: publicEntry(event.entry) } : event;
+      this.#emit({ scope: "group", groupId: event.groupId, payload });
       if (event.type === "round.started" || event.type === "round.ended" ||
           event.type === "compact.started" || event.type === "compact.ended") {
         this.#emitUpdated(event.groupId);
       }
     });
     this.#runtime.approvals.onEvent((event) => {
-      this.#emit({ scope: "group", groupId: event.approval.groupId, payload: event });
+      const groupId = event.approval.groupId;
+      this.#emit({ scope: "group", groupId, payload: publicApprovalEvent(event, this.#attachmentRedactor(groupId)) });
     });
   }
 
@@ -101,6 +136,43 @@ export class GroupService {
 
   agents(): { id: string; displayName: string }[] {
     return this.#agents.ids.map((id) => ({ id, displayName: this.#agents.get(id).displayName }));
+  }
+
+  /** 页面用的设置：只列已接入的 AI 的默认设置。 */
+  settings(): Settings {
+    const settings = this.#settings.get();
+    return {
+      ...settings,
+      defaults: Object.fromEntries(this.#agents.ids.map((id) => [id, this.#settings.defaultsFor(id)])),
+      createMembers: settings.createMembers === null
+        ? null
+        : this.#agents.ids.filter((id) => settings.createMembers!.includes(id)),
+    };
+  }
+
+  /** 改用户名只影响以后新开的群。 */
+  async setUsername(username: string): Promise<Settings> {
+    const problem = usernameProblem(username, this.#agents.ids);
+    if (problem) throw new GroupError("invalid_username", problem);
+    await this.#settings.update((next) => {
+      next.username = username;
+    });
+    return this.#emitSettings();
+  }
+
+  /** 设置页里这个 AI 能选的模型和权限，按项目根目录查。 */
+  async settingsCatalog(agent: string): Promise<AgentCatalog> {
+    if (!this.#agents.has(agent)) throw new GroupError("agent_unavailable", `${agent} 目前没有接入。`);
+    return this.#agents.get(agent).catalog(this.#projectRoot);
+  }
+
+  /** 每个 AI 的默认设置，新开的群复制一份；已经开的群不受影响。 */
+  async setDefaultSettings(agent: string, settings: AgentSettings): Promise<Settings> {
+    this.#checkSettings(agent, await this.settingsCatalog(agent), settings);
+    await this.#settings.update((next) => {
+      next.defaults[agent] = { ...settings };
+    });
+    return this.#emitSettings();
   }
 
   directories(): Promise<string[]> {
@@ -126,10 +198,24 @@ export class GroupService {
     // 成员按界面顺序（登记顺序）保存，和勾选先后无关。
     const members = this.#agents.ids.filter((id) => input.members.includes(id));
     const title = input.title.trim().slice(0, MAX_TITLE_LENGTH) || input.directory;
+    // 用户名和每个 AI 的设置从当前设置复制一份，之后改设置不影响这个群。
     // 新群的点名默认是全部成员，按界面顺序。
-    const group = await this.#store.create({ title, cwd, username: DEFAULT_USERNAME, members, callOrder: members });
+    const settings = this.#settings.get();
+    const group = await this.#store.create({
+      title,
+      cwd,
+      username: settings.username,
+      members,
+      callOrder: members,
+      settings: Object.fromEntries(members.map((member) => [member, this.#settings.defaultsFor(member)])),
+    });
     const summary = this.#summary(group);
     this.#emit({ scope: "global", payload: { type: "group.created", group: summary } });
+    // 记住这次勾了哪些 AI，下次新建时照这个勾，换设备也一样。
+    await this.#settings.update((next) => {
+      next.createMembers = [...members];
+    });
+    this.#emitSettings();
     return summary;
   }
 
@@ -137,10 +223,11 @@ export class GroupService {
     const group = this.#requireActive(groupId);
     return {
       group: this.#summary(group),
-      transcript: this.#store.transcript(groupId),
+      transcript: this.#store.transcript(groupId).map(publicEntry),
       round: this.#runtime.round(groupId),
       compaction: this.#runtime.compaction(groupId),
-      approvals: this.#runtime.approvals.pending(groupId),
+      approvals: this.#runtime.approvals.pending(groupId)
+        .map((approval) => publicApproval(approval, this.#attachmentRedactor(groupId))),
     };
   }
 
@@ -173,18 +260,7 @@ export class GroupService {
   async setAgentSettings(groupId: string, agent: string, settings: AgentSettings): Promise<GroupSummary> {
     const group = this.#requireActive(groupId);
     this.#requireMember(group, agent);
-    const catalog = await this.#agents.get(agent).catalog(group.cwd);
-    const model = settings.model === null ? null : catalog.models.find((item) => item.id === settings.model);
-    if (model === undefined) throw new GroupError("invalid_settings", `${agent} 没有这个模型：${settings.model}`);
-    if (settings.effort !== null) {
-      if (!model) throw new GroupError("invalid_settings", "要先选模型，才能选思考强度。");
-      if (!model.efforts.includes(settings.effort)) {
-        throw new GroupError("invalid_settings", `${model.label} 不支持思考强度 ${settings.effort}。`);
-      }
-    }
-    if (settings.permission !== null && !catalog.permissions.some((item) => item.id === settings.permission)) {
-      throw new GroupError("invalid_settings", `${agent} 没有这个权限选项：${settings.permission}`);
-    }
+    this.#checkSettings(agent, await this.#agents.get(agent).catalog(group.cwd), settings);
     const updated = await this.#store.update(groupId, (next) => {
       const state = next.agents[agent];
       if (state) state.settings = { ...settings };
@@ -341,10 +417,71 @@ export class GroupService {
     return result;
   }
 
-  startRound(groupId: string, text: string, order: string[]): { roundId: string } {
-    this.#requireActive(groupId);
-    const { roundId } = this.#runtime.startRound(groupId, text, order);
-    return { roundId };
+  /** 浏览器上传附件前先要一张一次性的票据，绑定到这个群。 */
+  async createAttachmentTicket(groupId: string, file: {
+    originalName: string;
+    declaredMime: string;
+    expectedSize: number;
+  }): Promise<UploadTicket> {
+    const group = this.#requireActive(groupId);
+    const uploads = this.#requireUploads();
+    if (file.expectedSize > MAX_UPLOAD_BYTES) {
+      throw new SharedUploadError("file_too_large", "单个文件不能超过 25 MiB。", 413);
+    }
+    return uploads.createTicket({ ...binding(group), ...file });
+  }
+
+  /**
+   * 带附件时先向 ai-remote-upload 申请这一轮的租约，拿到路径再开始；租约每 5 分钟续一次，
+   * 这一轮结束就释放。
+   */
+  async startRound(
+    groupId: string,
+    text: string,
+    order: string[],
+    attachmentIds: string[] = [],
+  ): Promise<{ roundId: string }> {
+    const group = this.#requireActive(groupId);
+    if (attachmentIds.length === 0) {
+      const { roundId } = this.#runtime.startRound(groupId, text, order);
+      return { roundId };
+    }
+    if (attachmentIds.length > MAX_MESSAGE_ATTACHMENTS) {
+      throw new GroupError("too_many_attachments", `一条消息最多 ${MAX_MESSAGE_ATTACHMENTS} 个附件。`);
+    }
+    if (this.#runtime.isBusy(groupId)) throw new GroupError("busy", "这个群还有一轮没有结束。");
+    const uploads = this.#requireUploads();
+    const ownerId = randomUUID();
+    const lease = await uploads.createLease(binding(group), ownerId, [...new Set(attachmentIds)]);
+    const release = () => uploads.releaseLease(lease.leaseId, ownerId).catch((error: unknown) => {
+      console.error(`释放附件租约失败：${error instanceof Error ? error.message : String(error)}`);
+    });
+    let started;
+    try {
+      this.#requireActive(groupId);
+      started = this.#runtime.startRound(groupId, text, order, lease.attachments.map((attachment) => ({
+        id: attachment.id,
+        originalName: attachment.originalName,
+        mimeType: attachment.detectedMime,
+        kind: attachment.kind,
+        size: attachment.size,
+        path: attachment.path,
+      })));
+    } catch (error) {
+      await release();
+      throw error;
+    }
+    const renew = setInterval(() => {
+      void uploads.renewLease(lease.leaseId, ownerId).catch((error: unknown) => {
+        console.error(`续期附件租约失败：${error instanceof Error ? error.message : String(error)}`);
+      });
+    }, ATTACHMENT_LEASE_RENEW_INTERVAL_MS);
+    renew.unref();
+    void started.done.finally(() => {
+      clearInterval(renew);
+      void release();
+    });
+    return { roundId: started.roundId };
   }
 
   interrupt(groupId: string): Promise<boolean> {
@@ -369,6 +506,39 @@ export class GroupService {
       throw new GroupError("group_trashed", "这个群已经在回收站里了。");
     }
     return group;
+  }
+
+  #requireUploads(): UploadClient {
+    if (!this.#uploads) throw new SharedUploadError("uploads_unavailable", "附件服务没有启用。", 503);
+    return this.#uploads;
+  }
+
+  /** 浏览器能看到的所有附件路径都替换为原文件名，包括审批卡片和重连快照。 */
+  #attachmentRedactor(groupId: string): PathRedactor {
+    return new PathRedactor(new Map(this.#store.transcript(groupId).flatMap((entry) =>
+      (entry.attachments ?? []).map((attachment) => [attachment.path, attachment.originalName] as const)
+    )));
+  }
+
+  /** 按 CLI 给出的列表校验设置。思考强度要先选模型，取值限于那个模型支持的档位。 */
+  #checkSettings(agent: string, catalog: AgentCatalog, settings: AgentSettings): void {
+    const model = settings.model === null ? null : catalog.models.find((item) => item.id === settings.model);
+    if (model === undefined) throw new GroupError("invalid_settings", `${agent} 没有这个模型：${settings.model}`);
+    if (settings.effort !== null) {
+      if (!model) throw new GroupError("invalid_settings", "要先选模型，才能选思考强度。");
+      if (!model.efforts.includes(settings.effort)) {
+        throw new GroupError("invalid_settings", `${model.label} 不支持思考强度 ${settings.effort}。`);
+      }
+    }
+    if (settings.permission !== null && !catalog.permissions.some((item) => item.id === settings.permission)) {
+      throw new GroupError("invalid_settings", `${agent} 没有这个权限选项：${settings.permission}`);
+    }
+  }
+
+  #emitSettings(): Settings {
+    const settings = this.settings();
+    this.#emit({ scope: "global", payload: { type: "settings.updated", settings } });
+    return settings;
   }
 
   #requireMember(group: Group, agent: string): void {
@@ -408,4 +578,22 @@ export class GroupService {
       }
     }
   }
+}
+
+/** 附件绑定到群：项目取工作目录名，会话取群 id。 */
+function binding(group: Group): AttachmentBinding {
+  return { caller: UPLOAD_CALLER, projectId: path.basename(group.cwd), sessionId: group.id };
+}
+
+function publicEntry(entry: TranscriptEntry): PublicEntry {
+  if (!entry.attachments) return entry;
+  return { ...entry, attachments: entry.attachments.map(publicAttachment) };
+}
+
+function publicApproval<T extends ApprovalRequest>(approval: T, redactor: PathRedactor): T {
+  return { ...approval, detail: redactor.redact(approval.detail) };
+}
+
+function publicApprovalEvent(event: ApprovalEvent, redactor: PathRedactor): ApprovalEvent {
+  return { ...event, approval: publicApproval(event.approval, redactor) } as ApprovalEvent;
 }

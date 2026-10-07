@@ -13,6 +13,8 @@
 - 一个项目根目录：新建群时，工作目录从它下面的第一层文件夹里选
 - 要拉进群的 AI 的 CLI，已安装并登录：Claude Code、Codex、Grok，至少一个
 - 一个至少 32 字符的随机登录令牌
+- 要发附件的话：同一个系统账户下运行的 ai-remote-upload，
+  版本要认得调用方 `lanting`。不装也能用，只是不能发附件
 
 ## 2. 装代码和配置
 
@@ -30,7 +32,8 @@ chmod 600 .env config.json
 | `ACCESS_TOKEN` | 浏览器登录凭据，至少 32 字符 |
 | `PORT` | 监听端口，默认 `3010` |
 | `CONFIG_PATH` | JSON 配置路径，默认 `./config.json` |
-| `DATA_DIR` | 群和群聊记录的存放目录，默认 `./data` |
+| `DATA_DIR` | 群、群聊记录和设置的存放目录，默认 `./data` |
+| `AI_REMOTE_UPLOAD_SOCKET` | ai-remote-upload 的 Unix socket，默认 `~/.local/share/ai-remote/upload.sock` |
 | `ALLOWED_ORIGINS` | 额外允许的浏览器 Origin，逗号分隔 |
 
 `config.json` 提供项目根目录和各 AI 的 CLI 路径：
