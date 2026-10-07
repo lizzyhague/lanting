@@ -756,11 +756,7 @@ function entryElement(entry) {
   }
   if (entry.from.role === "host") {
     article.className = "message host";
-    if (entry.text) {
-      const body = document.createElement("pre");
-      body.textContent = entry.text;
-      article.append(body);
-    }
+    if (entry.text) article.append(renderMarkdown(entry.text));
     if (entry.attachments?.length) {
       const list = document.createElement("div");
       list.className = "entry-attachments";
