@@ -305,7 +305,7 @@ button.app-settings-button svg {
   gap: 0.55rem;
 }
 
-.create-form label,
+.create-form > label,
 .create-form select,
 .create-form > button,
 .group-search input {
@@ -322,8 +322,7 @@ button.app-settings-button svg {
   display: none;
 }
 
-.member-picks,
-.call-picks {
+.member-picks {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem 0.8rem;
@@ -1000,11 +999,13 @@ button[aria-invalid="true"] {
 }
 
 .composer textarea {
+  display: block;
   width: 100%;
-  min-height: 4.5rem;
-  max-height: 40dvh;
-  padding: 0.7rem 0.8rem;
-  resize: vertical;
+  max-height: 34dvh;
+  padding: 0.8rem 0.9rem;
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.45;
 }
 
 .composer-row {
@@ -1015,7 +1016,34 @@ button[aria-invalid="true"] {
 }
 
 .composer-row .call-picks {
+  min-width: 0;
   flex: 1;
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.composer-row .call-picks::-webkit-scrollbar {
+  display: none;
+}
+
+.call-pick {
+  min-height: 2rem;
+  flex: none;
+  padding: 0.35rem 0.65rem;
+  border-color: var(--agent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.call-pick[aria-pressed="true"] {
+  background: var(--agent);
+  color: var(--bg);
+  font-weight: 600;
 }
 
 .composer .form-status:empty {
@@ -1254,21 +1282,6 @@ button[aria-invalid="true"] {
   max-height: 70dvh;
   overflow-y: auto;
   border-top: 3px solid var(--agent);
-}
-
-.pick-name {
-  min-height: 0;
-  padding: 0.15rem 0.3rem;
-  border-color: transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  font-size: 0.9rem;
-}
-
-.pick-name:hover,
-.pick-name[aria-expanded="true"] {
-  border-color: var(--border);
-  background: var(--surface-3);
 }
 
 .popover-heading {

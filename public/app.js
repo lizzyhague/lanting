@@ -1,4 +1,4 @@
-import { clearAll, selectAll, toggleMember } from "./call-order.js";
+import { toggleMember } from "./call-order.js";
 import {
   colorChoices,
   createCandidates,
@@ -149,11 +149,9 @@ const state = {
   currentGroupId: null,
   /** 当前打开的群：{ group, transcript, round, compaction, approvals: Map } */
   current: null,
-  /** 当前群的点名顺序（勾选的先后），以后端保存的为准。 */
+  /** 当前群的点名顺序（按钮按下的先后），以后端保存的为准。 */
   callOrder: [],
-  /** 全选框是独立的开关，不跟着成员的勾选状态变。 */
-  selectAllOn: false,
-  /** 点名正在保存：多选框和发送按钮都锁住。 */
+  /** 点名正在保存：成员按钮和发送按钮都锁住。 */
   savingOrder: false,
   sending: false,
   interrupting: false,
@@ -161,9 +159,9 @@ const state = {
   catalogs: new Map(),
   /** 正在保存设置的 AI，它的下拉框锁住。 */
   savingSettings: new Set(),
-  /** 点名那一排里点开了设置框的 AI。 */
+  /** 当前打开设置框的 AI。 */
   openAgent: null,
-  /** + 菜单当前在哪一级：root 或 compact。 */
+  /** + 菜单当前在哪一级：root、compact 或 settings。 */
   plusLevel: "root",
 };
 
@@ -798,7 +796,6 @@ async function openGroup(groupId, { keepPane = false } = {}) {
   state.groups.set(groupId, snapshot.group);
   state.callOrder = [...snapshot.group.callOrder];
   if (switched) {
-    state.selectAllOn = false;
     elements.composerStatus.textContent = "";
     closePopovers();
     // 附件绑定在群上，换群就清掉没发出去的。
@@ -815,6 +812,7 @@ async function openGroup(groupId, { keepPane = false } = {}) {
   renderApprovals();
   renderCallPicks();
   renderComposer();
+  resizeComposer();
 }
 
 /** 当前的群被删了：回到空白页。 */
@@ -1107,56 +1105,29 @@ function renderApprovals() {
 function renderCallPicks() {
   const group = state.current?.group;
   if (!group) return;
-  const all = document.createElement("label");
-  all.className = "pick";
-  const allInput = document.createElement("input");
-  allInput.type = "checkbox";
-  allInput.checked = state.selectAllOn;
-  allInput.disabled = state.savingOrder;
-  allInput.addEventListener("change", () => {
-    const turningOn = !state.selectAllOn;
-    void saveCallOrder(
-      turningOn ? selectAll(state.callOrder, group.members) : clearAll(),
-      turningOn,
-    );
-  });
-  all.append(allInput, document.createTextNode("全选"));
-
-  // 复选框管点名；名字是按钮，点开这个 AI 的设置框。
-  elements.callPicks.replaceChildren(all, ...group.members.map((member) => {
-    const pick = document.createElement("span");
-    pick.className = "pick";
+  elements.callPicks.replaceChildren(...group.members.map((member) => {
+    const selected = state.callOrder.includes(member);
+    const pick = document.createElement("button");
+    pick.type = "button";
+    pick.className = "call-pick";
     pick.dataset.agent = member;
     paintAgent(pick, memberColor(group, member));
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = state.callOrder.includes(member);
-    input.disabled = state.savingOrder;
-    input.setAttribute("aria-label", `点名 ${member}`);
-    input.addEventListener("change", () => {
-      void saveCallOrder(toggleMember(state.callOrder, member, input.checked), state.selectAllOn);
+    pick.textContent = member;
+    pick.disabled = state.savingOrder;
+    pick.setAttribute("aria-pressed", String(selected));
+    pick.addEventListener("click", () => {
+      void saveCallOrder(toggleMember(state.callOrder, member, !selected));
     });
-    const name = document.createElement("button");
-    name.type = "button";
-    name.className = "pick-name";
-    name.textContent = member;
-    name.setAttribute("aria-haspopup", "true");
-    name.setAttribute("aria-expanded", String(state.openAgent === member));
-    name.addEventListener("click", () => toggleAgentPanel(member));
-    pick.append(input, name);
     return pick;
   }));
-  positionAgentPanel();
 }
 
-/** 每次勾选变化都存到后端；保存期间锁住多选框和发送，失败时恢复成后端的状态。 */
-async function saveCallOrder(order, selectAllOn) {
+/** 每次点名变化都存到后端；保存期间锁住成员按钮和发送，失败时恢复成后端的状态。 */
+async function saveCallOrder(order) {
   const current = state.current;
   if (!current || state.savingOrder) return;
-  const previousSelectAll = state.selectAllOn;
   state.savingOrder = true;
   state.callOrder = order;
-  state.selectAllOn = selectAllOn;
   renderCallPicks();
   renderComposer();
   try {
@@ -1169,7 +1140,6 @@ async function saveCallOrder(order, selectAllOn) {
   } catch (error) {
     if (state.current === current) {
       state.callOrder = [...current.group.callOrder];
-      state.selectAllOn = previousSelectAll;
     }
     elements.composerStatus.textContent = `点名没有保存：${errorMessage(error)}`;
   } finally {
@@ -1210,6 +1180,8 @@ elements.messageInput.addEventListener("keydown", (event) => {
   }
 });
 
+elements.messageInput.addEventListener("input", resizeComposer);
+
 async function send() {
   const current = state.current;
   const text = elements.messageInput.value;
@@ -1222,6 +1194,7 @@ async function send() {
   try {
     await request("round.start", { groupId: current.group.id, text, order: state.callOrder, attachmentIds });
     elements.messageInput.value = "";
+    resizeComposer();
     state.drafts = state.drafts.filter((draft) => draft.status !== "done");
     renderDrafts();
   } catch (error) {
@@ -1278,7 +1251,7 @@ document.addEventListener("click", (event) => {
   // 用点击那一刻的祖先链判断：菜单在点击处理里重画后，被点的按钮已经不在页面上，
   // 再从它往上找就找不到所属的菜单，会被误当成点在外面。
   const inside = event.composedPath().some((node) =>
-    node instanceof Element && node.matches(".menu-anchor, .agent-panel, .pick-name, .settings-color-wrap")
+    node instanceof Element && node.matches(".menu-anchor, .agent-panel, .settings-color-wrap")
   );
   if (!inside) closePopovers();
 });
@@ -1289,8 +1262,6 @@ document.addEventListener("keydown", (event) => {
     closeMobileSidebar();
   }
 });
-
-window.addEventListener("resize", () => positionAgentPanel());
 
 function groupBusy() {
   const current = state.current;
@@ -1307,6 +1278,11 @@ function renderPlusMenu() {
       renderPlusMenu();
     });
     compactItem.classList.add("has-submenu");
+    const settingsItem = menuItem("AI 设置", null, false, () => {
+      state.plusLevel = "settings";
+      renderPlusMenu();
+    });
+    settingsItem.classList.add("has-submenu");
     const renameItem = menuItem("重命名", null, !state.authenticated, () => {
       closePopovers();
       openRenameDialog();
@@ -1315,7 +1291,19 @@ function renderPlusMenu() {
       closePopovers();
       elements.fileInput.click();
     });
-    elements.plusMenu.replaceChildren(attachItem, compactItem, renameItem);
+    elements.plusMenu.replaceChildren(attachItem, compactItem, settingsItem, renameItem);
+    return;
+  }
+  if (state.plusLevel === "settings") {
+    const back = menuItem("‹ AI 设置", null, false, () => {
+      state.plusLevel = "root";
+      renderPlusMenu();
+    });
+    back.classList.add("menu-back");
+    const choices = group.members.map((member) => menuItem(member, member, false, () => {
+      toggleAgentPanel(member);
+    }));
+    elements.plusMenu.replaceChildren(back, ...choices);
     return;
   }
   const back = menuItem("‹ 压缩上下文", null, false, () => {
@@ -1388,34 +1376,13 @@ function toggleAgentPanel(agent) {
   if (!opening) return;
   state.openAgent = agent;
   elements.agentPanel.hidden = false;
-  setNameExpanded(agent, true);
   renderAgentPanel();
   void loadCatalog(agent);
 }
 
 function closeAgentPanel() {
-  if (state.openAgent) setNameExpanded(state.openAgent, false);
   state.openAgent = null;
   elements.agentPanel.hidden = true;
-}
-
-function setNameExpanded(agent, expanded) {
-  const name = elements.callPicks.querySelector(`.pick[data-agent="${agent}"] .pick-name`);
-  name?.setAttribute("aria-expanded", String(expanded));
-}
-
-/** 设置框从被点的名字那里往上弹出，靠窗口边时往里收。 */
-function positionAgentPanel() {
-  const agent = state.openAgent;
-  if (!agent || elements.agentPanel.hidden) return;
-  const pick = elements.callPicks.querySelector(`.pick[data-agent="${agent}"]`);
-  const row = elements.agentPanel.offsetParent;
-  if (!pick || !(row instanceof HTMLElement)) return;
-  const rowBox = row.getBoundingClientRect();
-  const pickBox = pick.getBoundingClientRect();
-  const width = elements.agentPanel.offsetWidth;
-  const left = Math.max(0, Math.min(pickBox.left - rowBox.left, rowBox.width - width));
-  elements.agentPanel.style.left = `${left}px`;
 }
 
 /** 一个 AI 的设置框：模型、思考强度、权限，加单独压缩。只影响这个群。 */
@@ -1432,7 +1399,14 @@ function renderAgentPanel() {
   elements.agentPanel.dataset.agent = agent;
   paintAgent(elements.agentPanel, memberColor(group, agent));
   elements.agentPanel.replaceChildren(memberRow(group, agent));
-  positionAgentPanel();
+}
+
+function resizeComposer() {
+  elements.messageInput.style.height = "auto";
+  elements.messageInput.style.height = `${Math.min(
+    elements.messageInput.scrollHeight,
+    window.innerHeight * 0.34,
+  )}px`;
 }
 
 function memberRow(group, agent) {
