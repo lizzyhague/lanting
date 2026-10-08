@@ -10,8 +10,8 @@ import { DEFAULT_AGENT_SETTINGS, type AgentCatalog } from "../agents/types.ts";
 import type { SharedUploadClient } from "../attachments/shared-upload-client.ts";
 import type { AttachmentBinding, AttachmentLease } from "../attachments/types.ts";
 import { GroupStore } from "../state/group-store.ts";
-import { SettingsStore } from "../state/settings-store.ts";
-import { GroupRuntime } from "./runtime.ts";
+import { SettingsError, SettingsStore } from "../state/settings-store.ts";
+import { GroupError, GroupRuntime } from "./runtime.ts";
 import { GroupService, type ServiceEvent } from "./service.ts";
 
 async function setup(t: test.TestContext) {
@@ -129,7 +129,13 @@ test("invalid agent settings are rejected with a clear reason", async (t) => {
 
 test("the settings AI list keeps its order and incomplete records cannot join a group", async (t) => {
   const { service, settings, agentIds } = await setup(t);
-  assert.deepEqual(service.agents(), [
+  assert.deepEqual(service.settings().agents.map((agent) => ({
+    id: agent.id,
+    name: agent.name,
+    kind: agent.kind,
+    color: agent.color,
+    complete: agent.complete,
+  })), [
     { id: agentIds.claude, name: "claude", kind: "claude", color: "orange", complete: true },
     { id: agentIds.codex, name: "codex", kind: "codex", color: "mint", complete: true },
   ]);
@@ -141,10 +147,83 @@ test("the settings AI list keeps its order and incomplete records cannot join a 
   await settings.update((next) => {
     next.agents.find((agent) => agent.id === agentIds.codex)!.color = null;
   });
-  assert.equal(service.agents()[1]?.complete, false);
+  assert.equal(service.settings().agents[1]?.complete, false);
   await assert.rejects(
     service.create({ directory: "demo", members: [agentIds.codex], title: "" }),
     /设置不完整/u,
+  );
+});
+
+test("settings AI records can be added, updated, reordered and removed", async (t) => {
+  const { service, settings, agentIds } = await setup(t);
+  const added = await service.addAgent({ name: "reviewer", kind: "codex", color: "yellow" });
+  assert.equal(added.settings.agents.at(-1)?.id, added.agentId);
+  assert.deepEqual(added.settings.agents.at(-1)?.defaults, DEFAULT_AGENT_SETTINGS);
+
+  await service.setDefaultSettings(added.agentId, { model: "large", effort: "high", permission: "yolo" });
+  const changed = await service.updateAgent(added.agentId, {
+    name: "critic",
+    kind: "claude",
+    color: "blue",
+  });
+  const critic = changed.agents.find((agent) => agent.id === added.agentId)!;
+  assert.equal(critic.name, "critic");
+  assert.equal(critic.kind, "claude");
+  assert.equal(critic.color, "blue");
+  assert.deepEqual(critic.defaults, DEFAULT_AGENT_SETTINGS);
+
+  const order = [added.agentId, agentIds.codex, agentIds.claude];
+  assert.deepEqual((await service.reorderAgents(order)).agents.map((agent) => agent.id), order);
+  await assert.rejects(service.reorderAgents([agentIds.claude]), (error: unknown) => {
+    assert.ok(error instanceof GroupError);
+    assert.equal(error.code, "invalid_order");
+    return true;
+  });
+
+  await settings.update((next) => {
+    next.createMembers = [agentIds.claude, added.agentId];
+  });
+  const removed = await service.removeAgent(added.agentId);
+  assert.ok(!removed.agents.some((agent) => agent.id === added.agentId));
+  assert.deepEqual(removed.createMembers, [agentIds.claude]);
+});
+
+test("settings AI kind errors identify the field and existing record", async (t) => {
+  const { service, settings, agentIds } = await setup(t);
+  await assert.rejects(
+    service.addAgent({ name: "new", kind: "grok", color: null }),
+    (error: unknown) => {
+      assert.ok(error instanceof SettingsError);
+      assert.equal(error.field, "kind");
+      assert.equal(error.agentId, undefined);
+      return true;
+    },
+  );
+  await assert.rejects(service.updateAgent(agentIds.claude, { kind: "grok" }), (error: unknown) => {
+    assert.ok(error instanceof SettingsError);
+    assert.equal(error.field, "kind");
+    assert.equal(error.agentId, agentIds.claude);
+    return true;
+  });
+
+  await settings.update((next) => {
+    next.agents.find((agent) => agent.id === agentIds.claude)!.kind = "grok";
+  });
+  const renamed = await service.updateAgent(agentIds.claude, { name: "orphan" });
+  assert.equal(renamed.agents.find((agent) => agent.id === agentIds.claude)?.name, "orphan");
+  assert.equal((await service.updateAgent(agentIds.claude, { kind: "grok" }))
+    .agents.find((agent) => agent.id === agentIds.claude)?.kind, "grok");
+});
+
+test("default settings errors identify the defaults field and AI record", async (t) => {
+  const { service, agentIds } = await setup(t);
+  await assert.rejects(
+    service.setDefaultSettings(agentIds.codex, { model: null, effort: "high", permission: null }),
+    (error: unknown) => {
+      assert.ok(error instanceof GroupError);
+      assert.deepEqual(error.details, { field: "defaults", agentId: agentIds.codex });
+      return true;
+    },
   );
 });
 
@@ -312,7 +391,12 @@ test("the username is validated, and a new group copies the username, default se
   });
   assert.deepEqual(service.settings().createMembers, [agentIds.codex]);
   assert.equal((await service.setUsername("MyClaude")).username, "MyClaude");
-  await assert.rejects(service.setUsername("Claude"), /“claude”/u);
+  await assert.rejects(service.setUsername("Claude"), (error: unknown) => {
+    assert.ok(error instanceof GroupError);
+    assert.match(error.message, /“claude”/u);
+    assert.deepEqual(error.details, { field: "username" });
+    return true;
+  });
   await assert.rejects(service.setUsername(""), /不能为空/u);
   assert.equal((await service.setUsername("lizzy")).username, "lizzy");
   await assert.rejects(

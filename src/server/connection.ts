@@ -1,6 +1,8 @@
 import { SharedUploadError } from "../attachments/types.ts";
+import { PALETTE } from "../agents/palette.ts";
 import { GroupError } from "../group/runtime.ts";
 import type { GroupService } from "../group/service.ts";
+import { SettingsError } from "../state/settings-store.ts";
 import type { ConnectionHub, EmittedEvent, EventSink } from "./hub.ts";
 import {
   parseBrowserRequest,
@@ -78,12 +80,16 @@ export class BrowserConnection implements EventSink {
     }
 
     void this.#handle(request).catch((error: unknown) => {
-      const known = error instanceof RequestError || error instanceof GroupError ||
+      const known = error instanceof RequestError || error instanceof GroupError || error instanceof SettingsError ||
         error instanceof SharedUploadError;
       const code = known ? error.code : "internal_error";
       if (!known) console.error(error);
       const message = error instanceof Error ? error.message : "请求处理失败。";
-      const details = error instanceof RequestError ? error.details : undefined;
+      const details = error instanceof RequestError || error instanceof GroupError
+        ? error.details
+        : error instanceof SettingsError
+          ? settingsErrorDetails(error)
+          : undefined;
       this.#respondError(request.requestId, code, message, details);
     });
   }
@@ -99,10 +105,11 @@ export class BrowserConnection implements EventSink {
       case "app.state": {
         const directories = await groups.directories();
         this.#respondOk(request.requestId, {
-          agents: groups.agents(),
           directories,
           groups: groups.groups(),
           settings: groups.settings(),
+          agentKinds: groups.agentKinds(),
+          palette: PALETTE,
         });
         return;
       }
@@ -172,13 +179,30 @@ export class BrowserConnection implements EventSink {
         this.#respondOk(request.requestId, { settings: await groups.setUsername(request.username) });
         return;
       }
+      case "settings.agent.add": {
+        this.#respondOk(request.requestId, await groups.addAgent(request));
+        return;
+      }
+      case "settings.agent.update": {
+        const { agentId, ...patch } = request;
+        this.#respondOk(request.requestId, { settings: await groups.updateAgent(agentId, patch) });
+        return;
+      }
+      case "settings.agent.remove": {
+        this.#respondOk(request.requestId, { settings: await groups.removeAgent(request.agentId) });
+        return;
+      }
+      case "settings.agent.reorder": {
+        this.#respondOk(request.requestId, { settings: await groups.reorderAgents(request.order) });
+        return;
+      }
       case "settings.catalog": {
-        this.#respondOk(request.requestId, await groups.settingsCatalog(request.agent));
+        this.#respondOk(request.requestId, await groups.settingsCatalog(request.agentId));
         return;
       }
       case "settings.defaults": {
         const { model, effort, permission } = request;
-        const settings = await groups.setDefaultSettings(request.agent, { model, effort, permission });
+        const settings = await groups.setDefaultSettings(request.agentId, { model, effort, permission });
         this.#respondOk(request.requestId, { settings });
         return;
       }
@@ -244,4 +268,12 @@ export class BrowserConnection implements EventSink {
     if (this.#disposed) return;
     this.#socket.send(JSON.stringify(message));
   }
+}
+
+function settingsErrorDetails(error: SettingsError): Record<string, string> | undefined {
+  const details = {
+    ...(error.field ? { field: error.field } : {}),
+    ...(error.agentId ? { agentId: error.agentId } : {}),
+  };
+  return Object.keys(details).length > 0 ? details : undefined;
 }

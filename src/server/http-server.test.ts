@@ -8,6 +8,7 @@ import test from "node:test";
 import { WebSocket } from "ws";
 
 import { FakeAdapter } from "../agents/fake-adapter.test-support.ts";
+import { PALETTE } from "../agents/palette.ts";
 import { AgentRegistry } from "../agents/registry.ts";
 import { GroupRuntime } from "../group/runtime.ts";
 import { GroupService } from "../group/service.ts";
@@ -289,14 +290,73 @@ test("a browser can create a group, run a round, and answer an approval over the
     assert.equal(response.ok, true, JSON.stringify(response));
     return response.data as Record<string, unknown>;
   };
+  const callError = async (type: string, fields: Record<string, unknown> = {}) => {
+    const requestId = `r${++nextId}`;
+    socket.send(JSON.stringify({ ...fields, type, requestId }));
+    const response = await waitFor(() => inbox.find((message) => message.requestId === requestId));
+    assert.equal(response.ok, false, JSON.stringify(response));
+    return response.error as { code: string; message: string; details?: Record<string, string> };
+  };
   const event = (type: string) => waitFor(() => inbox.find((message) => message.event?.type === type)?.event);
 
   await call("connection.ready");
-  const state = await call("app.state");
-  assert.deepEqual(state.agents, [{ id: "claude", displayName: "Claude" }]);
+  const state = await call("app.state") as {
+    directories: string[];
+    settings: {
+      username: string;
+      agents: {
+        id: string;
+        name: string;
+        kind: string | null;
+        color: string | null;
+        defaults: { model: string | null; effort: string | null; permission: string | null };
+        complete: boolean;
+      }[];
+      initialized: boolean;
+      createMembers: string[] | null;
+    };
+    agentKinds: { kind: string; displayName: string; configured: boolean }[];
+    palette: unknown;
+  };
   assert.deepEqual(state.directories, ["demo"]);
+  assert.deepEqual(state.agentKinds, [
+    { kind: "claude", displayName: "Claude Code", configured: true },
+    { kind: "codex", displayName: "Codex CLI", configured: false },
+    { kind: "grok", displayName: "Grok Build", configured: false },
+  ]);
+  assert.deepEqual(state.palette, PALETTE);
+  assert.equal(state.settings.agents.length, 1);
+  assert.deepEqual(
+    { ...state.settings.agents[0], id: "<uuid>" },
+    {
+      id: "<uuid>",
+      name: "claude",
+      kind: "claude",
+      color: "orange",
+      defaults: { model: null, effort: null, permission: null },
+      complete: true,
+    },
+  );
+  const claudeId = state.settings.agents[0]!.id;
 
-  const { group } = await call("group.create", { directory: "demo", members: ["claude"], title: "" }) as {
+  const addConflict = await callError("settings.agent.add", {
+    name: "claude",
+    kind: null,
+    color: null,
+  });
+  assert.deepEqual(addConflict.details, { field: "name" });
+  const added = await call("settings.agent.add", {
+    name: "assistant",
+    kind: "claude",
+    color: "mint",
+  }) as { agentId: string };
+  const updateConflict = await callError("settings.agent.update", {
+    agentId: added.agentId,
+    name: "claude",
+  });
+  assert.deepEqual(updateConflict.details, { field: "name", agentId: added.agentId });
+
+  const { group } = await call("group.create", { directory: "demo", members: [claudeId], title: "" }) as {
     group: { id: string; title: string; directory: string };
   };
   assert.equal(group.title, "demo");

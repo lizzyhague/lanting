@@ -1,7 +1,8 @@
+import { AGENT_NAME_PATTERN, MAX_AGENTS } from "../state/settings-store.ts";
+
 export const MAX_BROWSER_MESSAGE_BYTES = 2_097_152;
 const MAX_MESSAGE_TEXT_LENGTH = 524_288;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
-const AGENT_ID_PATTERN = /^[a-z][a-z0-9]{0,15}$/u;
 /** 模型、思考强度、权限的 id 由各家 CLI 给出，这里只限制长度。 */
 const MAX_SETTING_LENGTH = 200;
 /** 一次多选操作最多处理的群数。 */
@@ -45,11 +46,22 @@ export type BrowserRequest =
     expectedSize: number;
   }
   | { type: "settings.username"; requestId: string; username: string }
-  | { type: "settings.catalog"; requestId: string; agent: string }
+  | { type: "settings.agent.add"; requestId: string; name: string; kind: string | null; color: string | null }
+  | {
+    type: "settings.agent.update";
+    requestId: string;
+    agentId: string;
+    name?: string;
+    kind?: string | null;
+    color?: string | null;
+  }
+  | { type: "settings.agent.remove"; requestId: string; agentId: string }
+  | { type: "settings.agent.reorder"; requestId: string; order: string[] }
+  | { type: "settings.catalog"; requestId: string; agentId: string }
   | {
     type: "settings.defaults";
     requestId: string;
-    agent: string;
+    agentId: string;
     model: string | null;
     effort: string | null;
     permission: string | null;
@@ -108,7 +120,7 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         type: "group.create",
         requestId,
         directory: requireString(value.directory, "工作目录", requestId, 255),
-        members: requireAgentList(value.members, "成员", requestId),
+        members: requireAgentIdList(value.members, "成员", requestId),
         title: optionalString(value.title, "群名", requestId, 200) ?? "",
       };
     case "group.subscribe":
@@ -120,7 +132,7 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         type: "group.callOrder",
         requestId,
         groupId: requireUuid(value.groupId, "群 ID", requestId),
-        order: requireAgentList(value.order, "点名", requestId),
+        order: requireTagList(value.order, "点名", requestId),
       };
     case "round.start": {
       // 带附件时消息可以为空。
@@ -135,7 +147,7 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         text: attachmentIds.length > 0
           ? optionalString(value.text, "消息", requestId, MAX_MESSAGE_TEXT_LENGTH) ?? ""
           : requireString(value.text, "消息", requestId, MAX_MESSAGE_TEXT_LENGTH),
-        order: requireAgentList(value.order, "点名", requestId),
+        order: requireTagList(value.order, "点名", requestId),
         attachmentIds: attachmentIds.map((id) => requireUuid(id, "附件 ID", requestId)),
       };
     }
@@ -155,14 +167,14 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         type: "agent.catalog",
         requestId,
         groupId: requireUuid(value.groupId, "群 ID", requestId),
-        agent: requireAgent(value.agent, requestId),
+        agent: requireTag(value.agent, requestId),
       };
     case "agent.settings":
       return {
         type: "agent.settings",
         requestId,
         groupId: requireUuid(value.groupId, "群 ID", requestId),
-        agent: requireAgent(value.agent, requestId),
+        agent: requireTag(value.agent, requestId),
         model: nullableSetting(value.model, "模型", requestId),
         effort: nullableSetting(value.effort, "思考强度", requestId),
         permission: nullableSetting(value.permission, "权限", requestId),
@@ -172,7 +184,7 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         type: "group.compact",
         requestId,
         groupId: requireUuid(value.groupId, "群 ID", requestId),
-        agents: requireAgentList(value.agents, "要压缩的 AI", requestId),
+        agents: requireTagList(value.agents, "要压缩的 AI", requestId),
       };
     case "group.rename":
       return {
@@ -201,13 +213,42 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         throw new ProtocolError("invalid_field", "用户名格式不对。", requestId);
       }
       return { type: "settings.username", requestId, username: value.username };
+    case "settings.agent.add":
+      return {
+        type: "settings.agent.add",
+        requestId,
+        name: looseString(value.name, "AI 名字", requestId, 200),
+        kind: looseNullableString(value.kind, "CLI 种类", requestId, 32),
+        color: looseNullableString(value.color, "主色", requestId, 32),
+      };
+    case "settings.agent.update": {
+      if (!("name" in value) && !("kind" in value) && !("color" in value)) {
+        throw new ProtocolError("invalid_field", "至少要修改一个 AI 字段。", requestId);
+      }
+      return {
+        type: "settings.agent.update",
+        requestId,
+        agentId: requireAgentId(value.agentId, requestId),
+        ...("name" in value ? { name: looseString(value.name, "AI 名字", requestId, 200) } : {}),
+        ...("kind" in value ? { kind: looseNullableString(value.kind, "CLI 种类", requestId, 32) } : {}),
+        ...("color" in value ? { color: looseNullableString(value.color, "主色", requestId, 32) } : {}),
+      };
+    }
+    case "settings.agent.remove":
+      return { type: "settings.agent.remove", requestId, agentId: requireAgentId(value.agentId, requestId) };
+    case "settings.agent.reorder":
+      return {
+        type: "settings.agent.reorder",
+        requestId,
+        order: requireAgentIdList(value.order, "AI 顺序", requestId),
+      };
     case "settings.catalog":
-      return { type: "settings.catalog", requestId, agent: requireAgent(value.agent, requestId) };
+      return { type: "settings.catalog", requestId, agentId: requireAgentId(value.agentId, requestId) };
     case "settings.defaults":
       return {
         type: "settings.defaults",
         requestId,
-        agent: requireAgent(value.agent, requestId),
+        agentId: requireAgentId(value.agentId, requestId),
         model: nullableSetting(value.model, "模型", requestId),
         effort: nullableSetting(value.effort, "思考强度", requestId),
         permission: nullableSetting(value.permission, "权限", requestId),
@@ -262,11 +303,33 @@ function requireUuid(value: unknown, label: string, requestId: string): string {
   return value;
 }
 
-function requireAgent(value: unknown, requestId: string): string {
-  if (typeof value !== "string" || !AGENT_ID_PATTERN.test(value)) {
+function requireTag(value: unknown, requestId: string): string {
+  if (typeof value !== "string" || !AGENT_NAME_PATTERN.test(value)) {
     throw new ProtocolError("invalid_field", "AI 格式不对。", requestId);
   }
   return value;
+}
+
+function requireAgentId(value: unknown, requestId: string): string {
+  return requireUuid(value, "AI 内部 ID", requestId);
+}
+
+/** 具体名字、种类和颜色规则由设置存储校验，以便错误能落到对应字段。 */
+function looseString(value: unknown, label: string, requestId: string, maxLength: number): string {
+  if (typeof value !== "string" || value.length > maxLength) {
+    throw new ProtocolError("invalid_field", `${label}格式不对或过长。`, requestId);
+  }
+  return value;
+}
+
+function looseNullableString(
+  value: unknown,
+  label: string,
+  requestId: string,
+  maxLength: number,
+): string | null {
+  if (value === null) return null;
+  return looseString(value, label, requestId, maxLength);
 }
 
 /** null 表示跟随 CLI 的默认值；空字符串不接受。 */
@@ -278,12 +341,19 @@ function nullableSetting(value: unknown, label: string, requestId: string): stri
   return value;
 }
 
-function requireAgentList(value: unknown, label: string, requestId: string): string[] {
-  if (!Array.isArray(value) || value.length > 16 ||
-      !value.every((item) => typeof item === "string" && AGENT_ID_PATTERN.test(item))) {
+function requireTagList(value: unknown, label: string, requestId: string): string[] {
+  if (!Array.isArray(value) || value.length > MAX_AGENTS ||
+      !value.every((item) => typeof item === "string" && AGENT_NAME_PATTERN.test(item))) {
     throw new ProtocolError("invalid_field", `${label}格式不对。`, requestId);
   }
   return [...value];
+}
+
+function requireAgentIdList(value: unknown, label: string, requestId: string): string[] {
+  if (!Array.isArray(value) || value.length > MAX_AGENTS) {
+    throw new ProtocolError("invalid_field", `${label}格式不对。`, requestId);
+  }
+  return value.map((item) => requireUuid(item, label, requestId));
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

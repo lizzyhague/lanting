@@ -3,6 +3,9 @@ import test from "node:test";
 
 import { MAX_BROWSER_MESSAGE_BYTES, parseBrowserRequest, ProtocolError } from "./protocol.ts";
 
+const AGENT_ID = "11111111-1111-4111-8111-111111111111";
+const OTHER_AGENT_ID = "22222222-2222-4222-8222-222222222222";
+
 function rejectsWith(source: string, code: string, requestId: string | null): void {
   assert.throws(() => parseBrowserRequest(source), (error: unknown) => {
     assert.ok(error instanceof ProtocolError);
@@ -32,8 +35,8 @@ test("rejects malformed messages and keeps the request id when it is known", () 
 test("parses member settings, catalog and compaction requests", () => {
   const groupId = "00000000-0000-4000-8000-000000000000";
   assert.deepEqual(
-    parseBrowserRequest(JSON.stringify({ type: "agent.catalog", requestId: "r1", groupId, agent: "codex" })),
-    { type: "agent.catalog", requestId: "r1", groupId, agent: "codex" },
+    parseBrowserRequest(JSON.stringify({ type: "agent.catalog", requestId: "r1", groupId, agent: "my_codex-2" })),
+    { type: "agent.catalog", requestId: "r1", groupId, agent: "my_codex-2" },
   );
   assert.deepEqual(
     parseBrowserRequest(JSON.stringify({
@@ -50,6 +53,102 @@ test("parses member settings, catalog and compaction requests", () => {
     type: "agent.settings", requestId: "r5", groupId, agent: "claude", model: null, effort: null,
   }), "invalid_field", "r5");
   rejectsWith(JSON.stringify({ type: "agent.catalog", requestId: "r6", groupId, agent: "Claude" }), "invalid_field", "r6");
+});
+
+test("settings records and group creation use internal UUIDs", () => {
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({ type: "settings.catalog", requestId: "r1", agentId: AGENT_ID })),
+    { type: "settings.catalog", requestId: "r1", agentId: AGENT_ID },
+  );
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({
+      type: "settings.defaults",
+      requestId: "r2",
+      agentId: AGENT_ID,
+      model: null,
+      effort: null,
+      permission: null,
+    })),
+    {
+      type: "settings.defaults",
+      requestId: "r2",
+      agentId: AGENT_ID,
+      model: null,
+      effort: null,
+      permission: null,
+    },
+  );
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({
+      type: "group.create",
+      requestId: "r3",
+      directory: "demo",
+      members: [AGENT_ID, OTHER_AGENT_ID],
+      title: "",
+    })),
+    {
+      type: "group.create",
+      requestId: "r3",
+      directory: "demo",
+      members: [AGENT_ID, OTHER_AGENT_ID],
+      title: "",
+    },
+  );
+  rejectsWith(JSON.stringify({ type: "settings.catalog", requestId: "r4", agentId: "claude" }), "invalid_field", "r4");
+  rejectsWith(JSON.stringify({
+    type: "settings.defaults",
+    requestId: "r5",
+    agentId: "claude",
+    model: null,
+    effort: null,
+    permission: null,
+  }), "invalid_field", "r5");
+  rejectsWith(JSON.stringify({
+    type: "group.create",
+    requestId: "r6",
+    directory: "demo",
+    members: ["claude"],
+    title: "",
+  }), "invalid_field", "r6");
+});
+
+test("parses settings AI list mutations and leaves field validation to the store", () => {
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({
+      type: "settings.agent.add",
+      requestId: "r1",
+      name: "Bad Name",
+      kind: "future-cli",
+      color: null,
+    })),
+    { type: "settings.agent.add", requestId: "r1", name: "Bad Name", kind: "future-cli", color: null },
+  );
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({
+      type: "settings.agent.update",
+      requestId: "r2",
+      agentId: AGENT_ID,
+      color: "orange",
+    })),
+    { type: "settings.agent.update", requestId: "r2", agentId: AGENT_ID, color: "orange" },
+  );
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({ type: "settings.agent.remove", requestId: "r3", agentId: AGENT_ID })),
+    { type: "settings.agent.remove", requestId: "r3", agentId: AGENT_ID },
+  );
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({
+      type: "settings.agent.reorder",
+      requestId: "r4",
+      order: [OTHER_AGENT_ID, AGENT_ID],
+    })),
+    { type: "settings.agent.reorder", requestId: "r4", order: [OTHER_AGENT_ID, AGENT_ID] },
+  );
+  rejectsWith(JSON.stringify({
+    type: "settings.agent.update",
+    requestId: "r5",
+    agentId: AGENT_ID,
+  }), "invalid_field", "r5");
 });
 
 test("parses rename and trash requests", () => {

@@ -49,11 +49,13 @@ export type RoundSnapshot = {
 
 export class GroupError extends Error {
   readonly code: string;
+  readonly details: Record<string, string> | undefined;
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, details?: Record<string, string>) {
     super(message);
     this.name = "GroupError";
     this.code = code;
+    this.details = details;
   }
 }
 

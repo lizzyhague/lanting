@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
+import type { AgentKind } from "../agents/kinds.ts";
 import type { PaletteId } from "../agents/palette.ts";
-import { kindDisplayName, type AgentRegistry } from "../agents/registry.ts";
-import type { AgentAdapter, AgentCatalog, AgentSettings } from "../agents/types.ts";
+import { kindDisplayName, SUPPORTED_AGENT_KINDS, type AgentRegistry } from "../agents/registry.ts";
+import { DEFAULT_AGENT_SETTINGS, type AgentAdapter, type AgentCatalog, type AgentSettings } from "../agents/types.ts";
 import type { ApprovalEvent, ApprovalRequest } from "../approvals/registry.ts";
 import { publicAttachment, type StoredAttachment } from "../attachments/prompt.ts";
 import { PathRedactor } from "../attachments/redact.ts";
@@ -20,6 +21,7 @@ import {
 import type { GroupStore } from "../state/group-store.ts";
 import {
   isAgentComplete,
+  SettingsError,
   type AgentRecord,
   type Settings,
   type SettingsStore,
@@ -84,10 +86,14 @@ export type BatchResult = {
   failed: { groupId: string; message: string }[];
 };
 
+export type PublicSettings = Omit<Settings, "agents"> & {
+  agents: (AgentRecord & { complete: boolean })[];
+};
+
 export type ServiceEvent =
   | { scope: "global"; payload: { type: "group.created" | "group.updated"; group: GroupSummary } }
   | { scope: "global"; payload: { type: "group.removed"; groupId: string } }
-  | { scope: "global"; payload: { type: "settings.updated"; settings: Settings } }
+  | { scope: "global"; payload: { type: "settings.updated"; settings: PublicSettings } }
   | { scope: "group"; groupId: string; payload: PublicGroupEvent | ApprovalEvent };
 
 /** 群事件发给浏览器前，群聊记录里的附件去掉路径。 */
@@ -143,24 +149,21 @@ export class GroupService {
     return () => this.#listeners.delete(listener);
   }
 
-  agents(): (Pick<AgentRecord, "id" | "name" | "kind" | "color"> & { complete: boolean })[] {
-    return this.#settings.get().agents.map((agent) => ({
-      id: agent.id,
-      name: agent.name,
-      kind: agent.kind,
-      color: agent.color,
-      complete: isAgentComplete(agent, this.#agents.kinds),
+  settings(): PublicSettings {
+    return this.#publicSettings(this.#settings.get());
+  }
+
+  agentKinds(): { kind: AgentKind; displayName: string; configured: boolean }[] {
+    return SUPPORTED_AGENT_KINDS.map((entry) => ({
+      ...entry,
+      configured: this.#agents.has(entry.kind),
     }));
   }
 
-  settings(): Settings {
-    return this.#settings.get();
-  }
-
   /** 改用户名只影响以后新开的群。 */
-  async setUsername(username: string): Promise<Settings> {
+  async setUsername(username: string): Promise<PublicSettings> {
     const problem = usernameProblem(username, this.#settings.get().agents.map((agent) => agent.name));
-    if (problem) throw new GroupError("invalid_username", problem);
+    if (problem) throw new GroupError("invalid_username", problem, { field: "username" });
     await this.#settings.update((next) => {
       next.username = username;
     });
@@ -174,11 +177,11 @@ export class GroupService {
   }
 
   /** 每个 AI 的默认设置，新开的群复制一份；已经开的群不受影响。 */
-  async setDefaultSettings(agentId: string, settings: AgentSettings): Promise<Settings> {
+  async setDefaultSettings(agentId: string, settings: AgentSettings): Promise<PublicSettings> {
     const agent = this.#settingsAgent(this.#settings.get(), agentId);
     const kind = agent.kind;
     const catalog = await this.#adapterForSettings(agent).catalog(this.#projectRoot);
-    this.#checkSettings(agent.name, catalog, settings);
+    this.#checkSettings(agent.name, catalog, settings, { field: "defaults", agentId });
     await this.#settings.update((next) => {
       const current = next.agents.find((item) => item.id === agentId);
       if (!current) throw new GroupError("agent_not_found", `没有这个 AI：${agentId}`);
@@ -186,6 +189,66 @@ export class GroupService {
         throw new GroupError("agent_changed", `${current.name} 的 CLI 已经变化，请重试。`);
       }
       current.defaults = { ...settings };
+    });
+    return this.#emitSettings();
+  }
+
+  async addAgent(input: { name: string; kind: string | null; color: string | null }): Promise<{
+    settings: PublicSettings;
+    agentId: string;
+  }> {
+    const kind = input.kind;
+    if (kind !== null && !this.#agents.has(kind)) {
+      throw new SettingsError("这个 CLI 没有在 config.json 中配置。", "kind");
+    }
+    const agentId = randomUUID();
+    await this.#settings.update((next) => {
+      next.agents.push({
+        id: agentId,
+        name: input.name,
+        kind,
+        color: input.color as PaletteId | null,
+        defaults: { ...DEFAULT_AGENT_SETTINGS },
+      });
+    });
+    return { settings: this.#emitSettings(), agentId };
+  }
+
+  async updateAgent(
+    agentId: string,
+    patch: { name?: string; kind?: string | null; color?: string | null },
+  ): Promise<PublicSettings> {
+    await this.#settings.update((next) => {
+      const current = next.agents.find((agent) => agent.id === agentId);
+      if (!current) throw new GroupError("agent_not_found", `没有这个 AI：${agentId}`);
+      if (patch.kind !== undefined && patch.kind !== current.kind &&
+          patch.kind !== null && !this.#agents.has(patch.kind)) {
+        throw new SettingsError("这个 CLI 没有在 config.json 中配置。", "kind", agentId);
+      }
+      if (patch.name !== undefined) current.name = patch.name;
+      if (patch.kind !== undefined) current.kind = patch.kind as AgentKind | null;
+      if (patch.color !== undefined) current.color = patch.color as PaletteId | null;
+    });
+    return this.#emitSettings();
+  }
+
+  async removeAgent(agentId: string): Promise<PublicSettings> {
+    await this.#settings.update((next) => {
+      const index = next.agents.findIndex((agent) => agent.id === agentId);
+      if (index < 0) throw new GroupError("agent_not_found", `没有这个 AI：${agentId}`);
+      next.agents.splice(index, 1);
+    });
+    return this.#emitSettings();
+  }
+
+  async reorderAgents(order: string[]): Promise<PublicSettings> {
+    await this.#settings.update((next) => {
+      const byId = new Map(next.agents.map((agent) => [agent.id, agent]));
+      if (order.length !== next.agents.length || new Set(order).size !== order.length ||
+          order.some((agentId) => !byId.has(agentId))) {
+        throw new GroupError("invalid_order", "AI 顺序必须是当前列表的完整排列。");
+      }
+      next.agents = order.map((agentId) => byId.get(agentId)!);
     });
     return this.#emitSettings();
   }
@@ -564,24 +627,41 @@ export class GroupService {
   }
 
   /** 按 CLI 给出的列表校验设置。思考强度要先选模型，取值限于那个模型支持的档位。 */
-  #checkSettings(agent: string, catalog: AgentCatalog, settings: AgentSettings): void {
+  #checkSettings(
+    agent: string,
+    catalog: AgentCatalog,
+    settings: AgentSettings,
+    details?: Record<string, string>,
+  ): void {
     const model = settings.model === null ? null : catalog.models.find((item) => item.id === settings.model);
-    if (model === undefined) throw new GroupError("invalid_settings", `${agent} 没有这个模型：${settings.model}`);
+    if (model === undefined) {
+      throw new GroupError("invalid_settings", `${agent} 没有这个模型：${settings.model}`, details);
+    }
     if (settings.effort !== null) {
-      if (!model) throw new GroupError("invalid_settings", "要先选模型，才能选思考强度。");
+      if (!model) throw new GroupError("invalid_settings", "要先选模型，才能选思考强度。", details);
       if (!model.efforts.includes(settings.effort)) {
-        throw new GroupError("invalid_settings", `${model.label} 不支持思考强度 ${settings.effort}。`);
+        throw new GroupError("invalid_settings", `${model.label} 不支持思考强度 ${settings.effort}。`, details);
       }
     }
     if (settings.permission !== null && !catalog.permissions.some((item) => item.id === settings.permission)) {
-      throw new GroupError("invalid_settings", `${agent} 没有这个权限选项：${settings.permission}`);
+      throw new GroupError("invalid_settings", `${agent} 没有这个权限选项：${settings.permission}`, details);
     }
   }
 
-  #emitSettings(): Settings {
+  #emitSettings(): PublicSettings {
     const settings = this.settings();
     this.#emit({ scope: "global", payload: { type: "settings.updated", settings } });
     return settings;
+  }
+
+  #publicSettings(settings: Settings): PublicSettings {
+    return {
+      ...settings,
+      agents: settings.agents.map((agent) => ({
+        ...agent,
+        complete: isAgentComplete(agent, this.#agents.kinds),
+      })),
+    };
   }
 
   #requireMember(group: Group, agent: string): void {
