@@ -4,6 +4,7 @@ import { renderMarkdown } from "./markdown.js";
 const RECONNECT_DELAY_MS = 3_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const DIRECTORY_KEY = "lanting.directory";
+const SIDEBAR_COLLAPSED_KEY = "lanting.sidebar-collapsed";
 /** 离底部不到这么多像素时，新内容到来自动滚到底；用户往上翻时不打扰。 */
 const STICK_TO_BOTTOM_PX = 80;
 /** 照 ai-remote-upload 的限制。 */
@@ -30,6 +31,7 @@ const elements = {
   createButton: byId("create-button"),
   createStatus: byId("create-status"),
   groupList: byId("group-list"),
+  groupSearchInput: byId("group-search-input"),
   listHeading: byId("list-heading"),
   listBackButton: byId("list-back-button"),
   listTitle: byId("list-title"),
@@ -39,11 +41,13 @@ const elements = {
   selectionCount: byId("selection-count"),
   selectAllButton: byId("select-all-button"),
   listStatus: byId("list-status"),
+  listDestinations: byId("list-destinations"),
   trashViewButton: byId("trash-view-button"),
   bulkActions: byId("bulk-actions"),
   bulkRestoreButton: byId("bulk-restore-button"),
   bulkDeleteButton: byId("bulk-delete-button"),
   settingsButton: byId("settings-button"),
+  collapseSidebarButton: byId("collapse-sidebar-button"),
   settingsDialog: byId("settings-dialog"),
   settingsCloseButton: byId("settings-close-button"),
   usernameForm: byId("username-form"),
@@ -109,6 +113,8 @@ const state = {
   selecting: false,
   selected: new Set(),
   batchBusy: false,
+  searchTimer: null,
+  sidebarCollapsed: stateGet(SIDEBAR_COLLAPSED_KEY) === "1",
 
   currentGroupId: null,
   /** 当前打开的群：{ group, transcript, round, compaction, approvals: Map } */
@@ -130,6 +136,8 @@ const state = {
   /** + 菜单当前在哪一级：root 或 compact。 */
   plusLevel: "root",
 };
+
+elements.appView.dataset.sidebarCollapsed = String(state.sidebarCollapsed);
 
 /* ---------- 登录与连接 ---------- */
 
@@ -488,10 +496,16 @@ elements.directorySelect.addEventListener("change", () => {
   state.listView = "groups";
   state.selecting = false;
   state.selected.clear();
+  elements.groupSearchInput.value = "";
   elements.listStatus.textContent = "";
   if (state.current?.group.directory !== directory) closeGroup();
   renderGroupList();
   updateCreateButton();
+});
+
+elements.groupSearchInput.addEventListener("input", () => {
+  clearTimeout(state.searchTimer);
+  state.searchTimer = setTimeout(renderGroupList, 250);
 });
 
 elements.createForm.addEventListener("submit", async (event) => {
@@ -530,8 +544,10 @@ function inSelection() {
 function visibleGroups() {
   const trash = state.listView === "trash";
   const directory = elements.directorySelect.value;
+  const query = elements.groupSearchInput.value.trim().toLowerCase();
   return [...state.groups.values()]
-    .filter((group) => group.directory === directory && Boolean(group.trashedAt) === trash)
+    .filter((group) => group.directory === directory && Boolean(group.trashedAt) === trash &&
+      (!query || group.title.toLowerCase().includes(query)))
     .sort(compareGroupSummaries);
 }
 
@@ -547,7 +563,7 @@ function renderGroupList() {
   const visibleIds = new Set(groups.map((group) => group.id));
   for (const id of state.selected) if (!visibleIds.has(id)) state.selected.delete(id);
 
-  elements.listTitle.textContent = trash ? "回收站" : "群";
+  elements.listTitle.textContent = trash ? "回收站" : "最近群会话";
   elements.listHeading.hidden = inSelection();
   elements.listBackButton.hidden = !trash;
   elements.trashViewButton.hidden = trash;
@@ -559,6 +575,8 @@ function renderGroupList() {
   elements.selectAllButton.textContent =
     groups.length > 0 && state.selected.size === groups.length ? "全不选" : "全选";
   elements.bulkActions.hidden = !inSelection();
+  elements.listDestinations.hidden = inSelection();
+  elements.bulkActions.dataset.single = String(!trash);
   elements.bulkRestoreButton.hidden = !trash;
   elements.bulkDeleteButton.textContent = trash ? "永久删除" : "删除";
   const noSelection = state.selected.size === 0 || state.batchBusy || !state.authenticated;
@@ -568,7 +586,11 @@ function renderGroupList() {
   if (groups.length === 0) {
     const hint = document.createElement("p");
     hint.className = "empty-hint";
-    hint.textContent = trash ? "回收站是空的" : "还没有群";
+    hint.textContent = elements.groupSearchInput.value.trim()
+      ? "没有找到匹配的群会话。"
+      : trash
+      ? "回收站是空的"
+      : "还没有群";
     elements.groupList.replaceChildren(hint);
     return;
   }
@@ -759,33 +781,61 @@ function renderHeader() {
 
 const mobileNavigationQuery = window.matchMedia("(max-width: 800px)");
 
-function syncMobileSidebar() {
-  const mobile = mobileNavigationQuery.matches;
-  const open = mobile && elements.appView.dataset.mobileSidebarOpen === "true";
-  elements.groupSidebar.inert = mobile && !open;
-  elements.groupSidebar.setAttribute("aria-hidden", String(mobile && !open));
-  elements.openSidebarButton.setAttribute("aria-expanded", String(open));
-  elements.sidebarBackdrop.setAttribute("aria-hidden", String(!open));
+function openSidebar() {
+  if (mobileNavigationQuery.matches) {
+    elements.appView.dataset.mobileSidebarOpen = "true";
+    syncSidebarState();
+    elements.collapseSidebarButton.focus();
+    return;
+  }
+  state.sidebarCollapsed = false;
+  elements.appView.dataset.sidebarCollapsed = "false";
+  stateSet(SIDEBAR_COLLAPSED_KEY, "0");
+  syncSidebarState();
+}
+
+function closeSidebar() {
+  if (mobileNavigationQuery.matches) {
+    closeMobileSidebar();
+    return;
+  }
+  state.sidebarCollapsed = true;
+  elements.appView.dataset.sidebarCollapsed = "true";
+  stateSet(SIDEBAR_COLLAPSED_KEY, "1");
+  syncSidebarState();
 }
 
 function openMobileSidebar() {
   if (!mobileNavigationQuery.matches) return;
   elements.appView.dataset.mobileSidebarOpen = "true";
-  syncMobileSidebar();
+  syncSidebarState();
 }
 
 function closeMobileSidebar() {
   elements.appView.dataset.mobileSidebarOpen = "false";
-  syncMobileSidebar();
+  syncSidebarState();
 }
 
-elements.openSidebarButton.addEventListener("click", openMobileSidebar);
-elements.sidebarBackdrop.addEventListener("click", closeMobileSidebar);
+function syncSidebarState() {
+  const sidebarVisible = mobileNavigationQuery.matches
+    ? elements.appView.dataset.mobileSidebarOpen === "true"
+    : !state.sidebarCollapsed;
+  elements.groupSidebar.inert = !sidebarVisible;
+  elements.groupSidebar.setAttribute("aria-hidden", String(!sidebarVisible));
+  elements.openSidebarButton.setAttribute("aria-expanded", String(sidebarVisible));
+  elements.sidebarBackdrop.setAttribute("aria-hidden", String(!(
+    mobileNavigationQuery.matches && elements.appView.dataset.mobileSidebarOpen === "true"
+  )));
+}
+
+elements.openSidebarButton.addEventListener("click", openSidebar);
+elements.collapseSidebarButton.addEventListener("click", closeSidebar);
+elements.sidebarBackdrop.addEventListener("click", closeSidebar);
 mobileNavigationQuery.addEventListener("change", () => {
   elements.appView.dataset.mobileSidebarOpen = "false";
-  syncMobileSidebar();
+  syncSidebarState();
 });
-syncMobileSidebar();
+syncSidebarState();
 
 /* ---------- 时间线 ---------- */
 
@@ -1632,7 +1682,7 @@ function showLogin() {
 function showApp() {
   elements.loginView.hidden = true;
   elements.appView.hidden = false;
-  syncMobileSidebar();
+  syncSidebarState();
   updateCreateButton();
 }
 

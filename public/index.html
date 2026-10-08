@@ -21,11 +21,22 @@
       </form>
     </section>
 
-    <div id="app-view" class="app-view" data-mobile-sidebar-open="false" hidden>
+    <div id="app-view" class="app-view" data-sidebar-collapsed="false" data-mobile-sidebar-open="false" hidden>
       <aside id="group-sidebar" class="group-sidebar" aria-label="群列表">
         <div class="sidebar-heading">
-          <strong class="sidebar-brand">lanting</strong>
-          <button id="settings-button" class="quiet small" type="button">设置</button>
+          <div class="sidebar-brand">
+            <img class="sidebar-logo" src="/icon.svg" alt="">
+            <strong>lanting</strong>
+          </div>
+          <div class="sidebar-heading-actions">
+            <button id="settings-button" class="quiet small app-settings-button" type="button" aria-label="设置" title="设置" aria-haspopup="dialog" aria-controls="settings-dialog">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+            <button id="collapse-sidebar-button" class="quiet small" type="button" aria-label="收起群列表">收起</button>
+          </div>
         </div>
         <form id="create-form" class="create-form">
           <label>
@@ -35,29 +46,35 @@
             </select>
           </label>
           <div id="member-picks" class="member-picks" role="group" aria-label="拉哪些 AI 进群"></div>
-          <button id="create-button" type="submit" disabled>新建</button>
+          <button id="create-button" type="submit" disabled>新建群</button>
           <p id="create-status" class="form-status" aria-live="polite"></p>
         </form>
+        <label class="group-search">
+          <span class="visually-hidden">搜索群会话</span>
+          <input id="group-search-input" type="search" maxlength="256" placeholder="搜索群会话">
+        </label>
         <div id="list-heading" class="list-heading">
-          <strong id="list-title">群</strong>
+          <strong id="list-title">最近群会话</strong>
           <button id="select-button" class="quiet small" type="button">选择</button>
         </div>
-        <div id="selection-heading" class="list-heading" hidden>
+        <div id="selection-heading" class="selection-heading" hidden>
           <button id="cancel-selection-button" class="quiet small" type="button">取消</button>
-          <button id="list-back-button" class="quiet small" type="button" hidden>← 群</button>
-          <strong id="selection-count">已选择 0 项</strong>
-          <button id="select-all-button" class="quiet small" type="button">全选</button>
+          <button id="list-back-button" class="quiet small" type="button" hidden>← 最近群会话</button>
+          <div class="selection-heading-end">
+            <strong id="selection-count">已选择 0 项</strong>
+            <button id="select-all-button" class="quiet small" type="button">全选</button>
+          </div>
         </div>
-        <div id="group-list" class="group-list">
+        <div id="group-list" class="group-list" aria-live="polite">
           <p class="empty-hint">还没有群</p>
         </div>
         <p id="list-status" class="form-status list-status" aria-live="polite"></p>
-        <div class="list-footer">
+        <nav id="list-destinations" class="list-destinations" aria-label="群会话分类">
           <button id="trash-view-button" class="quiet" type="button">回收站</button>
-          <div id="bulk-actions" class="bulk-actions" hidden>
-            <button id="bulk-restore-button" type="button" hidden>恢复</button>
-            <button id="bulk-delete-button" class="danger" type="button">删除</button>
-          </div>
+        </nav>
+        <div id="bulk-actions" class="bulk-actions" hidden>
+          <button id="bulk-restore-button" type="button" hidden>恢复</button>
+          <button id="bulk-delete-button" class="danger" type="button">删除</button>
         </div>
       </aside>
 

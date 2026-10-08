@@ -42,6 +42,7 @@ const STATIC_FILES: Record<string, { file: string; contentType: string }> = {
   "/markdown.js": { file: "markdown.js", contentType: "text/javascript; charset=utf-8" },
   "/call-order.js": { file: "call-order.js", contentType: "text/javascript; charset=utf-8" },
   "/styles.css": { file: "styles.css", contentType: "text/css; charset=utf-8" },
+  "/icon.svg": { file: "icon.svg", contentType: "image/svg+xml" },
 };
 
 export class WebServer {

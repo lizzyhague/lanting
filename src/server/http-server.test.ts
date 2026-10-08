@@ -26,6 +26,7 @@ async function startServer(t: test.TestContext) {
   await writeFile(path.join(webRoot, "app.js"), "console.log('app');\n");
   await writeFile(path.join(webRoot, "boot.js"), "");
   await writeFile(path.join(webRoot, "styles.css"), "");
+  await writeFile(path.join(webRoot, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
   const projectRoot = path.join(webRoot, "projects");
   await mkdir(path.join(projectRoot, "demo"), { recursive: true });
   const store = await GroupStore.open(path.join(webRoot, "data"));
@@ -121,6 +122,10 @@ test("serves only allow-listed static files and rewrites assets to versioned pat
   assert.equal(asset.status, 200);
   assert.equal(await asset.text(), "console.log('app');\n");
   assert.match(asset.headers.get("cache-control") ?? "", /immutable/u);
+
+  const icon = await fetch(`${base}/icon.svg`);
+  assert.equal(icon.status, 200);
+  assert.equal(icon.headers.get("content-type"), "image/svg+xml");
 
   assert.equal((await fetch(`${base}/package.json`)).status, 404);
   assert.equal((await fetch(`${base}/`, { method: "POST" })).status, 405);
