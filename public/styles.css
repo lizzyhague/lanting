@@ -179,10 +179,11 @@ button.primary {
 
 .agent-dot {
   flex: none;
-  width: 0.55rem;
-  height: 0.55rem;
-  border-radius: 50%;
+  width: 0.85rem;
+  height: 0.85rem;
   background: var(--agent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='174 99 164 164'%3E%3Cpath d='M255 276 C236 248 207 222 202 181 C197 141 218 106 260 78 C286 105 301 141 295 179 C289 216 274 242 265 268 C262 276 259 280 255 276 Z' transform='rotate(45 249 179)'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='174 99 164 164'%3E%3Cpath d='M255 276 C236 248 207 222 202 181 C197 141 218 106 260 78 C286 105 301 141 295 179 C289 216 274 242 265 268 C262 276 259 280 255 276 Z' transform='rotate(45 249 179)'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 /* ---------- 布局 ---------- */

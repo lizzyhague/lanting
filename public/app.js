@@ -576,7 +576,7 @@ elements.createForm.addEventListener("submit", async (event) => {
   updateCreateButton();
   elements.createStatus.textContent = "";
   try {
-    const { group } = await request("group.create", { directory, members, title: defaultTitle(directory) });
+    const { group } = await request("group.create", { directory, members, title: "" });
     state.groups.set(group.id, group);
     renderGroupList();
     await openGroup(group.id);
@@ -587,12 +587,6 @@ elements.createForm.addEventListener("submit", async (event) => {
     updateCreateButton();
   }
 });
-
-function defaultTitle(directory) {
-  const now = new Date();
-  const pad = (value) => String(value).padStart(2, "0");
-  return `${directory} ${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-}
 
 /* ---------- 群列表、选择与回收站 ---------- */
 

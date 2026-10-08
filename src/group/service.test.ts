@@ -285,6 +285,38 @@ test("renaming changes only the lanting title and rejects empty names", async (t
   await assert.rejects(service.rename(groupId, "x".repeat(101)), /最多 100/u);
 });
 
+test("a new group uses a placeholder title and the first text line replaces it", async (t) => {
+  const { service, store, events, groupId } = await setup(t);
+  assert.equal(store.get(groupId)?.title, "新群");
+
+  const firstLine = "一".repeat(61);
+  const expected = `${"一".repeat(60)}…`;
+  await service.startRound(groupId, `  ${firstLine}\n第二行不进标题`, ["claude"]);
+  assert.equal(store.get(groupId)?.title, expected);
+  assert.ok(events.some((event) =>
+    event.scope === "global" && event.payload.type === "group.updated" &&
+    event.payload.group.title === expected
+  ));
+  await idle(service, groupId);
+});
+
+test("existing titles and an attachment-only first message are not renamed later", async (t) => {
+  const named = await setup(t);
+  await named.service.rename(named.groupId, "已有群名");
+  await named.service.startRound(named.groupId, "新的第一句话", ["claude"]);
+  assert.equal(named.store.get(named.groupId)?.title, "已有群名");
+  await idle(named.service, named.groupId);
+
+  const attachmentOnly = await setup(t);
+  const attachmentId = "22222222-2222-4222-8222-222222222222";
+  await attachmentOnly.service.startRound(attachmentOnly.groupId, "", ["claude"], [attachmentId]);
+  await idle(attachmentOnly.service, attachmentOnly.groupId);
+  assert.equal(attachmentOnly.store.get(attachmentOnly.groupId)?.title, "新群");
+  await attachmentOnly.service.startRound(attachmentOnly.groupId, "后来有了正文", ["claude"]);
+  assert.equal(attachmentOnly.store.get(attachmentOnly.groupId)?.title, "新群");
+  await idle(attachmentOnly.service, attachmentOnly.groupId);
+});
+
 test("group summaries use Relayu recency ordering and visible changes refresh it", async (t) => {
   const { service, store, agentIds, groupId } = await setup(t);
   const other = await service.create({ directory: "demo", members: [agentIds.claude], title: "other" });

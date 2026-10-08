@@ -38,6 +38,8 @@ import type { Group, TranscriptEntry } from "./types.ts";
 import { usernameProblem } from "./username.ts";
 
 const MAX_TITLE_LENGTH = 100;
+const TITLE_LENGTH = 60;
+const DEFAULT_TITLE = "新群";
 
 type UploadClient = Pick<SharedUploadClient, "createTicket" | "createLease" | "renewLease" | "releaseLease">;
 /** 回收站保留 30 天，从移入时起算；常量只放这一处，页面拿到的是推出来的到期时间。 */
@@ -288,7 +290,7 @@ export class GroupService {
       settings: { ...agent.defaults },
     }));
     const tags = members.map((member) => member.tag);
-    const title = input.title.trim().slice(0, MAX_TITLE_LENGTH) || input.directory;
+    const title = input.title.trim().slice(0, MAX_TITLE_LENGTH) || DEFAULT_TITLE;
     // 用户名和每个 AI 的身份、设置从同一份快照复制，之后改设置不影响这个群。
     const group = await this.#store.create({
       title,
@@ -546,7 +548,7 @@ export class GroupService {
   ): Promise<{ roundId: string }> {
     const group = this.#requireActive(groupId);
     if (attachmentIds.length === 0) {
-      const { roundId } = this.#runtime.startRound(groupId, text, order);
+      const { roundId } = await this.#startRuntimeRound(groupId, text, order);
       return { roundId };
     }
     if (attachmentIds.length > MAX_MESSAGE_ATTACHMENTS) {
@@ -562,7 +564,7 @@ export class GroupService {
     let started;
     try {
       this.#requireActive(groupId);
-      started = this.#runtime.startRound(groupId, text, order, lease.attachments.map((attachment) => ({
+      started = await this.#startRuntimeRound(groupId, text, order, lease.attachments.map((attachment) => ({
         id: attachment.id,
         originalName: attachment.originalName,
         mimeType: attachment.detectedMime,
@@ -585,6 +587,38 @@ export class GroupService {
       void release();
     });
     return { roundId: started.roundId };
+  }
+
+  /** runtime 接受首轮后，用第一行正文替换占位标题；改名失败不反过来把这一轮报成发送失败。 */
+  async #startRuntimeRound(
+    groupId: string,
+    text: string,
+    order: string[],
+    attachments: StoredAttachment[] = [],
+  ): Promise<ReturnType<GroupRuntime["startRound"]>> {
+    const group = this.#store.get(groupId);
+    const autoTitle = group?.title === DEFAULT_TITLE &&
+        !this.#store.transcript(groupId).some((entry) => entry.from.role === "host")
+      ? titleFromText(text)
+      : null;
+    const started = this.#runtime.startRound(groupId, text, order, attachments);
+    if (autoTitle !== null && autoTitle !== DEFAULT_TITLE) {
+      try {
+        let changed = false;
+        const updated = await this.#store.update(groupId, (next) => {
+          if (next.title !== DEFAULT_TITLE) return;
+          next.title = autoTitle;
+          next.updatedAt = Date.now();
+          changed = true;
+        });
+        if (changed) {
+          this.#emit({ scope: "global", payload: { type: "group.updated", group: this.#summary(updated) } });
+        }
+      } catch (error) {
+        console.error(`群 ${groupId} 没有自动改名：${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return started;
   }
 
   interrupt(groupId: string): Promise<boolean> {
@@ -735,6 +769,12 @@ export class GroupService {
 /** 附件绑定到群：项目取工作目录名，会话取群 id。 */
 function binding(group: Group): AttachmentBinding {
   return { caller: UPLOAD_CALLER, projectId: path.basename(group.cwd), sessionId: group.id };
+}
+
+function titleFromText(text: string): string {
+  const firstLine = text.trim().split(/\r?\n/u)[0] ?? "";
+  const trimmed = firstLine.trim() || DEFAULT_TITLE;
+  return trimmed.length > TITLE_LENGTH ? `${trimmed.slice(0, TITLE_LENGTH)}…` : trimmed;
 }
 
 function publicEntry(entry: TranscriptEntry): PublicEntry {

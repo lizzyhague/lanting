@@ -368,7 +368,7 @@ test("a browser can create a group, run a round, and answer an approval over the
   const { group } = await call("group.create", { directory: "demo", members: [claudeId], title: "" }) as {
     group: { id: string; title: string; directory: string };
   };
-  assert.equal(group.title, "demo");
+  assert.equal(group.title, "新群");
   assert.equal(group.directory, "demo");
   await event("group.created");
 
