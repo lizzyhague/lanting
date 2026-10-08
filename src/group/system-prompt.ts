@@ -52,7 +52,7 @@ What each participant says is wrapped in a tag. Tags are flat and never nested:
   - Put temporary previews used only for comparison, selection, or experimentation in
     \`~/preview\`. Do not separate them by project or add them to Git; the user will delete them after
     viewing them.
-  - Do not put these files in \`~/.codex\` or \`/tmp\`.
+  - Do not put these files in an agent's own config directory or \`/tmp\`.
   - In your reply, provide a Markdown link whose target is \`/view?path=\` followed by the
     URL-encoded absolute path.
 
