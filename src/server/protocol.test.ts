@@ -112,7 +112,11 @@ test("settings records and group creation use internal UUIDs", () => {
   }), "invalid_field", "r6");
 });
 
-test("parses settings AI list mutations and leaves field validation to the store", () => {
+test("parses settings AI list mutations and ignores obsolete add fields", () => {
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({ type: "settings.agent.add", requestId: "r0" })),
+    { type: "settings.agent.add", requestId: "r0" },
+  );
   assert.deepEqual(
     parseBrowserRequest(JSON.stringify({
       type: "settings.agent.add",
@@ -121,7 +125,7 @@ test("parses settings AI list mutations and leaves field validation to the store
       kind: "future-cli",
       color: null,
     })),
-    { type: "settings.agent.add", requestId: "r1", name: "Bad Name", kind: "future-cli", color: null },
+    { type: "settings.agent.add", requestId: "r1" },
   );
   assert.deepEqual(
     parseBrowserRequest(JSON.stringify({

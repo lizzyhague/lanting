@@ -183,6 +183,20 @@ test("an invalid new agent has no agentId in its error", async (t) => {
   }), "color", undefined);
 });
 
+test("empty names are valid, need not be unique, and make records incomplete", async (t) => {
+  const { store } = await populatedStore(t);
+  const updated = await store.update((settings) => {
+    settings.agents[0]!.name = "";
+    settings.agents[1]!.name = "";
+    settings.agents.push(agent("c", "", "claude", "yellow"));
+  });
+
+  assert.deepEqual(updated.agents.map((record) => record.name), ["", "", ""]);
+  for (const record of updated.agents) {
+    assert.equal(isAgentComplete(record, ["claude", "codex"]), false);
+  }
+});
+
 test("structural and list-wide invariants are enforced", async (t) => {
   const { store } = await populatedStore(t);
 
@@ -256,8 +270,9 @@ test("an initialized empty list stays empty after reopening", async (t) => {
   assert.deepEqual(reopened.get().agents, []);
 });
 
-test("isAgentComplete requires a configured kind and a color", () => {
+test("isAgentComplete requires a name, configured kind and color", () => {
   assert.equal(isAgentComplete(agent("a", "alice", "claude", "orange"), ["claude"]), true);
+  assert.equal(isAgentComplete(agent("a", "", "claude", "orange"), ["claude"]), false);
   assert.equal(isAgentComplete(agent("a", "alice", null, "orange"), ["claude"]), false);
   assert.equal(isAgentComplete(agent("a", "alice", "claude", null), ["claude"]), false);
   assert.equal(isAgentComplete(agent("a", "alice", "claude", "orange"), ["codex"]), false);

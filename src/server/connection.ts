@@ -180,7 +180,7 @@ export class BrowserConnection implements EventSink {
         return;
       }
       case "settings.agent.add": {
-        this.#respondOk(request.requestId, await groups.addAgent(request));
+        this.#respondOk(request.requestId, await groups.addAgent());
         return;
       }
       case "settings.agent.update": {

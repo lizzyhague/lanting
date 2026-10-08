@@ -46,7 +46,7 @@ export type BrowserRequest =
     expectedSize: number;
   }
   | { type: "settings.username"; requestId: string; username: string }
-  | { type: "settings.agent.add"; requestId: string; name: string; kind: string | null; color: string | null }
+  | { type: "settings.agent.add"; requestId: string }
   | {
     type: "settings.agent.update";
     requestId: string;
@@ -214,13 +214,7 @@ export function parseBrowserRequest(source: string): BrowserRequest {
       }
       return { type: "settings.username", requestId, username: value.username };
     case "settings.agent.add":
-      return {
-        type: "settings.agent.add",
-        requestId,
-        name: looseString(value.name, "AI 名字", requestId, 200),
-        kind: looseNullableString(value.kind, "CLI 种类", requestId, 32),
-        color: looseNullableString(value.color, "主色", requestId, 32),
-      };
+      return { type: "settings.agent.add", requestId };
     case "settings.agent.update": {
       if (!("name" in value) && !("kind" in value) && !("color" in value)) {
         throw new ProtocolError("invalid_field", "至少要修改一个 AI 字段。", requestId);

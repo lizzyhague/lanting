@@ -47,7 +47,7 @@ export class SettingsError extends Error {
 }
 
 export function isAgentComplete(agent: AgentRecord, configured: readonly AgentKind[]): boolean {
-  return agent.kind !== null && configured.includes(agent.kind) && agent.color !== null;
+  return agent.name.length > 0 && agent.kind !== null && configured.includes(agent.kind) && agent.color !== null;
 }
 
 /** 设置存在数据目录的 settings.json。常驻内存，写盘成功后才换掉内存里的值。 */
@@ -160,7 +160,7 @@ function validateSettings(value: unknown, previous?: Settings): asserts value is
     }
     if (ids.has(item.id)) throw new SettingsError(`AI 内部 id 重复：${item.id}`, undefined, agentId);
     ids.add(item.id);
-    if (typeof item.name !== "string" || !AGENT_NAME_PATTERN.test(item.name)) {
+    if (typeof item.name !== "string" || (item.name !== "" && !AGENT_NAME_PATTERN.test(item.name))) {
       throw new SettingsError("AI 名字只能用小写字母、数字、下划线和连字符，并以字母开头，最多 16 位。", "name", agentId);
     }
     if (item.kind !== null && !isAgentKind(item.kind)) {
@@ -179,9 +179,11 @@ function validateSettings(value: unknown, previous?: Settings): asserts value is
   const byColor = new Map<PaletteId, Record<string, unknown>[]>();
   for (const agent of agents) {
     const name = agent.name as string;
-    const named = byName.get(name) ?? [];
-    named.push(agent);
-    byName.set(name, named);
+    if (name !== "") {
+      const named = byName.get(name) ?? [];
+      named.push(agent);
+      byName.set(name, named);
+    }
     if (agent.color !== null) {
       const color = agent.color as PaletteId;
       const colored = byColor.get(color) ?? [];
@@ -204,7 +206,7 @@ function validateSettings(value: unknown, previous?: Settings): asserts value is
   }
 
   const usernameClash = agents.find((agent) =>
-    (agent.name as string).toLowerCase() === username.toLowerCase()
+    agent.name !== "" && (agent.name as string).toLowerCase() === username.toLowerCase()
   );
   if (usernameClash) {
     if (previous && username !== previous.username) {

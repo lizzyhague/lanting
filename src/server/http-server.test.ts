@@ -339,17 +339,25 @@ test("a browser can create a group, run a round, and answer an approval over the
   );
   const claudeId = state.settings.agents[0]!.id;
 
-  const addConflict = await callError("settings.agent.add", {
-    name: "claude",
-    kind: null,
-    color: null,
-  });
-  assert.deepEqual(addConflict.details, { field: "name" });
   const added = await call("settings.agent.add", {
-    name: "assistant",
+    name: "claude",
     kind: "claude",
     color: "mint",
-  }) as { agentId: string };
+  }) as {
+    agentId: string;
+    settings: { agents: {
+      id: string;
+      name: string;
+      kind: string | null;
+      color: string | null;
+      defaults: { model: string | null; effort: string | null; permission: string | null };
+      complete: boolean;
+    }[] };
+  };
+  assert.deepEqual(
+    added.settings.agents.find((agent) => agent.id === added.agentId),
+    { id: added.agentId, name: "", kind: null, color: null, defaults: { model: null, effort: null, permission: null }, complete: false },
+  );
   const updateConflict = await callError("settings.agent.update", {
     agentId: added.agentId,
     name: "claude",

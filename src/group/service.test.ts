@@ -156,9 +156,33 @@ test("the settings AI list keeps its order and incomplete records cannot join a 
 
 test("settings AI records can be added, updated, reordered and removed", async (t) => {
   const { service, settings, agentIds } = await setup(t);
-  const added = await service.addAgent({ name: "reviewer", kind: "codex", color: "yellow" });
+  const added = await service.addAgent();
   assert.equal(added.settings.agents.at(-1)?.id, added.agentId);
-  assert.deepEqual(added.settings.agents.at(-1)?.defaults, DEFAULT_AGENT_SETTINGS);
+  assert.deepEqual(added.settings.agents.at(-1), {
+    id: added.agentId,
+    name: "",
+    kind: null,
+    color: null,
+    defaults: DEFAULT_AGENT_SETTINGS,
+    complete: false,
+  });
+  await assert.rejects(
+    service.create({ directory: "demo", members: [added.agentId], title: "" }),
+    /未命名的 AI 的设置不完整/u,
+  );
+
+  const configured = await service.updateAgent(
+    added.agentId,
+    { name: "reviewer", kind: "codex", color: "yellow" },
+  );
+  assert.deepEqual(configured.agents.find((agent) => agent.id === added.agentId), {
+    id: added.agentId,
+    name: "reviewer",
+    kind: "codex",
+    color: "yellow",
+    defaults: DEFAULT_AGENT_SETTINGS,
+    complete: true,
+  });
 
   await service.setDefaultSettings(added.agentId, { model: "large", effort: "high", permission: "yolo" });
   const changed = await service.updateAgent(added.agentId, {
@@ -190,15 +214,6 @@ test("settings AI records can be added, updated, reordered and removed", async (
 
 test("settings AI kind errors identify the field and existing record", async (t) => {
   const { service, settings, agentIds } = await setup(t);
-  await assert.rejects(
-    service.addAgent({ name: "new", kind: "grok", color: null }),
-    (error: unknown) => {
-      assert.ok(error instanceof SettingsError);
-      assert.equal(error.field, "kind");
-      assert.equal(error.agentId, undefined);
-      return true;
-    },
-  );
   await assert.rejects(service.updateAgent(agentIds.claude, { kind: "grok" }), (error: unknown) => {
     assert.ok(error instanceof SettingsError);
     assert.equal(error.field, "kind");

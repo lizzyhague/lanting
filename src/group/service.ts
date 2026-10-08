@@ -193,21 +193,17 @@ export class GroupService {
     return this.#emitSettings();
   }
 
-  async addAgent(input: { name: string; kind: string | null; color: string | null }): Promise<{
+  async addAgent(): Promise<{
     settings: PublicSettings;
     agentId: string;
   }> {
-    const kind = input.kind;
-    if (kind !== null && !this.#agents.has(kind)) {
-      throw new SettingsError("这个 CLI 没有在 config.json 中配置。", "kind");
-    }
     const agentId = randomUUID();
     await this.#settings.update((next) => {
       next.agents.push({
         id: agentId,
-        name: input.name,
-        kind,
-        color: input.color as PaletteId | null,
+        name: "",
+        kind: null,
+        color: null,
         defaults: { ...DEFAULT_AGENT_SETTINGS },
       });
     });
@@ -280,7 +276,8 @@ export class GroupService {
     }
     for (const agent of selected) {
       if (!isAgentComplete(agent, this.#agents.kinds)) {
-        throw new GroupError("invalid_members", `${agent.name} 的设置不完整。`);
+        const label = agent.name || "未命名的 AI";
+        throw new GroupError("invalid_members", `${label} 的设置不完整。`);
       }
     }
     const memberIds = selected.map((agent) => agent.id);
