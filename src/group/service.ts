@@ -60,6 +60,8 @@ export type GroupSummary = {
   settings: Record<string, AgentSettings>;
   createdAt: string;
   updatedAt: number;
+  /** 是否固定显示在最近群会话顶部。 */
+  pinned: boolean;
   busy: boolean;
   /** 移入回收站的时间；不在回收站时为 null。 */
   trashedAt: string | null;
@@ -379,6 +381,18 @@ export class GroupService {
     const updated = await this.#store.update(groupId, (next) => {
       next.title = trimmed;
       next.updatedAt = Date.now();
+    });
+    const summary = this.#summary(updated);
+    this.#emit({ scope: "global", payload: { type: "group.updated", group: summary } });
+    return summary;
+  }
+
+  /** 钉住只改变列表分组，不算群内活动，因此不刷新 updatedAt。 */
+  async setPinned(groupId: string, pinned: boolean): Promise<GroupSummary> {
+    const group = this.#requireActive(groupId);
+    if (group.pinned === pinned) return this.#summary(group);
+    const updated = await this.#store.update(groupId, (next) => {
+      next.pinned = pinned;
     });
     const summary = this.#summary(updated);
     this.#emit({ scope: "global", payload: { type: "group.updated", group: summary } });
@@ -741,6 +755,7 @@ export class GroupService {
       settings: Object.fromEntries(group.members.map((member) => [member, group.agents[member]!.settings])),
       createdAt: group.createdAt,
       updatedAt: group.updatedAt,
+      pinned: group.pinned,
       busy: this.#runtime.isBusy(group.id),
       trashedAt: group.trashedAt,
       purgeAt: group.trashedAt

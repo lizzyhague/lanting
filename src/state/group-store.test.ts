@@ -31,6 +31,7 @@ test("groups and transcripts preserve frozen member identity after reopening", a
   const store = await GroupStore.open(directory);
   const group = await store.create(NEW_GROUP);
   assert.equal(group.updatedAt, Date.parse(group.createdAt));
+  assert.equal(group.pinned, false);
   assert.deepEqual(group.members, ["claude", "codex"]);
   assert.deepEqual(group.agents, {
     claude: {
@@ -115,6 +116,22 @@ test("missing required version 2 group fields are rejected", async (t) => {
     await writeFile(groupFile, JSON.stringify(broken));
     await assert.rejects(GroupStore.open(directory), new RegExp(item.label, "u"));
   }
+});
+
+test("version 2 groups written before pinning default to unpinned", async (t) => {
+  const directory = await scratch(t);
+  const store = await GroupStore.open(directory);
+  const group = await store.create(NEW_GROUP);
+  const groupFile = path.join(directory, "groups", group.id, "group.json");
+  const saved = JSON.parse(await readFile(groupFile, "utf8"));
+  delete saved.group.pinned;
+  await writeFile(groupFile, JSON.stringify(saved));
+
+  assert.equal((await GroupStore.open(directory)).get(group.id)?.pinned, false);
+
+  saved.group.pinned = "yes";
+  await writeFile(groupFile, JSON.stringify(saved));
+  await assert.rejects(GroupStore.open(directory), /pinned 不对/u);
 });
 
 test("invalid frozen member tags, kinds, and colors are rejected", async (t) => {

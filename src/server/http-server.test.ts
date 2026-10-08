@@ -372,6 +372,12 @@ test("a browser can create a group, run a round, and answer an approval over the
   assert.equal(group.directory, "demo");
   await event("group.created");
 
+  const pinned = await call("group.pin", { groupId: group.id, pinned: true }) as {
+    group: { pinned: boolean };
+  };
+  assert.equal(pinned.group.pinned, true);
+  assert.equal((await event("group.updated") as unknown as { group: { pinned: boolean } }).group.pinned, true);
+
   const snapshot = await call("group.subscribe", { groupId: group.id });
   assert.deepEqual(snapshot.transcript, []);
   assert.deepEqual((snapshot.group as { callOrder: string[] }).callOrder, ["claude"]);

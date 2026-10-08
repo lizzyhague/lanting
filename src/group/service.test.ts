@@ -285,6 +285,24 @@ test("renaming changes only the lanting title and rejects empty names", async (t
   await assert.rejects(service.rename(groupId, "x".repeat(101)), /最多 100/u);
 });
 
+test("pinning persists without changing recency and survives trash restore", async (t) => {
+  const { service, store, events, groupId } = await setup(t);
+  const before = store.get(groupId)!.updatedAt;
+  const pinned = await service.setPinned(groupId, true);
+  assert.equal(pinned.pinned, true);
+  assert.equal(pinned.updatedAt, before);
+  assert.equal(store.get(groupId)?.pinned, true);
+  assert.ok(events.some((event) =>
+    event.scope === "global" && event.payload.type === "group.updated" &&
+    event.payload.group.id === groupId && event.payload.group.pinned
+  ));
+
+  await service.trash([groupId]);
+  await assert.rejects(service.setPinned(groupId, false), /回收站/u);
+  await service.restore([groupId]);
+  assert.equal(service.groups().find((group) => group.id === groupId)?.pinned, true);
+});
+
 test("a new group uses a placeholder title and the first text line replaces it", async (t) => {
   const { service, store, events, groupId } = await setup(t);
   assert.equal(store.get(groupId)?.title, "新群");

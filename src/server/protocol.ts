@@ -37,6 +37,7 @@ export type BrowserRequest =
   }
   | { type: "group.compact"; requestId: string; groupId: string; agents: string[] }
   | { type: "group.rename"; requestId: string; groupId: string; title: string }
+  | { type: "group.pin"; requestId: string; groupId: string; pinned: boolean }
   | {
     type: "attachment.ticket";
     requestId: string;
@@ -192,6 +193,16 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         requestId,
         groupId: requireUuid(value.groupId, "群 ID", requestId),
         title: requireString(value.title, "群名", requestId, 200),
+      };
+    case "group.pin":
+      if (typeof value.pinned !== "boolean") {
+        throw new ProtocolError("invalid_field", "钉住状态格式不对。", requestId);
+      }
+      return {
+        type: "group.pin",
+        requestId,
+        groupId: requireUuid(value.groupId, "群 ID", requestId),
+        pinned: value.pinned,
       };
     case "attachment.ticket": {
       const size = value.expectedSize;

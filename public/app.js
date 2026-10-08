@@ -147,6 +147,8 @@ const state = {
   sidebarCollapsed: stateGet(SIDEBAR_COLLAPSED_KEY) === "1",
 
   currentGroupId: null,
+  /** 正在等订阅响应的群；换群时旧群已先退订，面板上的群只是还没换下来。 */
+  openingGroupId: null,
   /** 当前打开的群：{ group, transcript, round, compaction, approvals: Map } */
   current: null,
   /** 当前群的点名顺序（按钮按下的先后），以后端保存的为准。 */
@@ -557,7 +559,9 @@ elements.directorySelect.addEventListener("change", () => {
   state.selected.clear();
   elements.groupSearchInput.value = "";
   elements.listStatus.textContent = "";
-  if (state.current?.group.directory !== directory) closeGroup();
+  // 换群途中旧群已经退订，即使目录对得上也不能留着它。
+  const switching = state.openingGroupId !== null && state.openingGroupId !== state.currentGroupId;
+  if (switching || state.current?.group.directory !== directory) closeGroup();
   renderGroupList();
   updateCreateButton();
 });
@@ -598,10 +602,15 @@ function visibleGroups() {
   const trash = state.listView === "trash";
   const directory = elements.directorySelect.value;
   const query = elements.groupSearchInput.value.trim().toLowerCase();
-  return [...state.groups.values()]
-    .filter((group) => group.directory === directory && Boolean(group.trashedAt) === trash &&
+  const matching = [...state.groups.values()]
+    .filter((group) => Boolean(group.trashedAt) === trash &&
       (!query || group.title.toLowerCase().includes(query)))
     .sort(compareGroupSummaries);
+  if (trash) return matching.filter((group) => group.directory === directory);
+  return [
+    ...matching.filter((group) => group.pinned),
+    ...matching.filter((group) => !group.pinned && group.directory === directory),
+  ];
 }
 
 function compareGroupSummaries(left, right) {
@@ -612,6 +621,8 @@ function compareGroupSummaries(left, right) {
 function renderGroupList() {
   const trash = state.listView === "trash";
   const groups = visibleGroups();
+  const pinned = trash ? [] : groups.filter((group) => group.pinned);
+  const regular = trash ? groups : groups.filter((group) => !group.pinned);
   // 已经不在这一类里的群（被删、被恢复）从选择里去掉。
   const visibleIds = new Set(groups.map((group) => group.id));
   for (const id of state.selected) if (!visibleIds.has(id)) state.selected.delete(id);
@@ -647,14 +658,28 @@ function renderGroupList() {
     elements.groupList.replaceChildren(hint);
     return;
   }
-  elements.groupList.replaceChildren(...groups.map((group) => groupItem(group, trash)));
+  const items = [];
+  if (pinned.length > 0) {
+    const section = document.createElement("div");
+    section.className = "group-pin-section";
+    section.append(...pinned.map((group) => groupItem(group, false)));
+    const divider = document.createElement("hr");
+    divider.className = "group-pin-divider";
+    items.push(section, divider);
+  }
+  items.push(...regular.map((group) => groupItem(group, trash)));
+  elements.groupList.replaceChildren(...items);
 }
 
 function groupItem(group, trash) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "group-item";
-  if (!inSelection() && group.id === state.currentGroupId) button.setAttribute("aria-current", "true");
+  const item = document.createElement("article");
+  item.className = "group-item";
+  item.dataset.current = String(!inSelection() && group.id === state.currentGroupId);
+  item.setAttribute("role", "listitem");
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "group-open";
+  if (!inSelection() && group.id === state.currentGroupId) open.setAttribute("aria-current", "true");
   const title = document.createElement("span");
   title.className = "group-item-title";
   if (inSelection()) {
@@ -679,12 +704,75 @@ function groupItem(group, trash) {
     badge.textContent = "发言中";
   }
   if (badge.textContent) meta.append(badge);
-  button.append(title, meta);
-  button.addEventListener("click", () => {
+  open.append(title, meta);
+  open.addEventListener("click", () => {
     if (inSelection()) toggleSelected(group.id);
-    else void openGroup(group.id);
+    else void openListedGroup(group);
   });
-  return button;
+  item.append(open);
+  if (!inSelection() && !trash) {
+    const pin = document.createElement("button");
+    pin.className = "group-pin-trigger quiet";
+    pin.type = "button";
+    pin.setAttribute("aria-pressed", String(Boolean(group.pinned)));
+    pin.setAttribute("aria-label", group.pinned ? `取消钉住 ${group.title}` : `钉住 ${group.title}`);
+    pin.title = group.pinned ? "取消钉住" : "钉住后会一直显示在最近群会话顶部";
+    pin.append(groupPinIcon(Boolean(group.pinned)));
+    pin.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void toggleGroupPin(group);
+      if (!group.pinned) openRenameDialog(group);
+    });
+    item.append(pin);
+  }
+  return item;
+}
+
+function groupPinIcon(pinned) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  svg.classList.add("group-pin-icon");
+
+  // 两个状态各用一副图形，避免把斜图钉旋转后裁出 viewBox；钉住时填实钉身。
+  const LOOSE = {
+    body: "M15 4.5l-4 4l-4 1.5l-1.5 1.5l7 7l1.5-1.5l1.5-4l4-4",
+    needle: "M9 15l-4.5 4.5",
+    cap: "M14.5 4l5.5 5.5",
+  };
+  const DRIVEN = {
+    body: "M9 4v6l-2 4v2h10v-2l-2-4v-6z",
+    needle: "M12 16l0 5",
+    cap: "M8 4l8 0",
+  };
+  const shape = pinned ? DRIVEN : LOOSE;
+  const body = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  body.setAttribute("d", shape.body);
+  if (pinned) body.setAttribute("fill", "currentColor");
+  const needle = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  needle.setAttribute("d", shape.needle);
+  const cap = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  cap.setAttribute("d", shape.cap);
+  svg.append(body, needle, cap);
+  return svg;
+}
+
+async function toggleGroupPin(group) {
+  try {
+    const data = await request("group.pin", { groupId: group.id, pinned: !group.pinned });
+    if (data?.group) {
+      state.groups.set(data.group.id, data.group);
+      if (state.current && data.group.id === state.currentGroupId) state.current.group = data.group;
+      renderGroupList();
+    }
+  } catch (error) {
+    elements.listStatus.textContent = errorMessage(error);
+  }
 }
 
 function toggleSelected(groupId) {
@@ -772,7 +860,13 @@ async function openGroup(groupId, { keepPane = false } = {}) {
   if (previous && previous !== groupId) {
     void request("group.unsubscribe", { groupId: previous }).catch(() => {});
   }
-  const snapshot = await request("group.subscribe", { groupId });
+  state.openingGroupId = groupId;
+  let snapshot;
+  try {
+    snapshot = await request("group.subscribe", { groupId });
+  } finally {
+    if (state.openingGroupId === groupId) state.openingGroupId = null;
+  }
   // 换目录会清空当前会话；订阅响应迟到时也不能把旧目录的群重新打开。
   if (snapshot.group.directory !== elements.directorySelect.value) {
     void request("group.unsubscribe", { groupId }).catch(() => {});
@@ -807,6 +901,22 @@ async function openGroup(groupId, { keepPane = false } = {}) {
   renderCallPicks();
   renderComposer();
   resizeComposer();
+}
+
+/** 点开跨目录的钉住群时，只同步目录框和列表，不先关掉正在切换的群。 */
+async function openListedGroup(group) {
+  if (!state.directories.includes(group.directory)) {
+    elements.listStatus.textContent = "这个群的工作目录已经不在了。";
+    return;
+  }
+  if (group.directory !== elements.directorySelect.value) {
+    elements.directorySelect.value = group.directory;
+    stateSet(DIRECTORY_KEY, group.directory);
+    renderGroupList();
+    updateCreateButton();
+  }
+  elements.listStatus.textContent = "";
+  await openGroup(group.id);
 }
 
 /** 当前的群被删了：回到空白页。 */
@@ -1287,7 +1397,7 @@ function renderPlusMenu() {
     settingsItem.classList.add("has-submenu");
     const renameItem = menuItem("重命名", null, !state.authenticated, () => {
       closePopovers();
-      openRenameDialog();
+      openRenameDialog(group);
     });
     const attachItem = menuItem("添加附件", null, !state.authenticated, () => {
       closePopovers();
@@ -2082,14 +2192,18 @@ function renderDrafts() {
 
 /* ---------- 重命名 ---------- */
 
+/** 弹窗打开后群可能切换；提交始终改打开弹窗时认下的群。 */
+let renamingGroupId = null;
+
 /** 只改 lanting 里的群名，各 AI 的原生会话名不动。 */
-function openRenameDialog() {
-  const group = state.current?.group;
-  if (!group) return;
+function openRenameDialog(group) {
+  if (!group || group.trashedAt || group.deleting) return;
+  renamingGroupId = group.id;
   elements.renameInput.value = group.title;
   elements.renameStatus.textContent = "";
   elements.renameSaveButton.disabled = false;
-  elements.renameDialog.showModal();
+  if (!elements.renameDialog.open) elements.renameDialog.showModal();
+  elements.renameInput.focus();
   elements.renameInput.select();
 }
 
@@ -2097,17 +2211,25 @@ elements.renameCancelButton.addEventListener("click", () => elements.renameDialo
 
 elements.renameForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const current = state.current;
+  const group = state.groups.get(renamingGroupId);
   const title = elements.renameInput.value.trim();
-  if (!current || !title) return;
+  if (!group || group.trashedAt || group.deleting) {
+    elements.renameDialog.close();
+    return;
+  }
+  if (!title) return;
+  if (title === group.title) {
+    elements.renameDialog.close();
+    return;
+  }
   elements.renameSaveButton.disabled = true;
   elements.renameStatus.textContent = "";
   try {
-    const { group } = await request("group.rename", { groupId: current.group.id, title });
-    state.groups.set(group.id, group);
-    if (state.current === current) current.group = group;
+    const { group: renamed } = await request("group.rename", { groupId: group.id, title });
+    state.groups.set(renamed.id, renamed);
+    if (state.current && renamed.id === state.currentGroupId) state.current.group = renamed;
     renderGroupList();
-    renderHeader();
+    if (renamed.id === state.currentGroupId) renderHeader();
     elements.renameDialog.close();
   } catch (error) {
     elements.renameStatus.textContent = errorMessage(error);

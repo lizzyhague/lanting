@@ -104,6 +104,7 @@ export class GroupStore {
       agents,
       createdAt: new Date(now).toISOString(),
       updatedAt: now,
+      pinned: false,
       trashedAt: null,
       deletingAt: null,
     };
@@ -238,6 +239,7 @@ function parseGroup(value: unknown, id: string): Group {
     if (value !== null && typeof value !== "string") fail(`${key} 不对`);
   }
   if (typeof group.updatedAt !== "number" || !Number.isFinite(group.updatedAt)) return fail("updatedAt 不对");
+  if (group.pinned !== undefined && typeof group.pinned !== "boolean") fail("pinned 不对");
   const updatedAt = group.updatedAt;
   return {
     id,
@@ -249,6 +251,7 @@ function parseGroup(value: unknown, id: string): Group {
     agents,
     createdAt: group.createdAt as string,
     updatedAt,
+    pinned: group.pinned === true,
     trashedAt: group.trashedAt as string | null,
     deletingAt: group.deletingAt as string | null,
   };

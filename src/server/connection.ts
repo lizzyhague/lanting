@@ -166,6 +166,11 @@ export class BrowserConnection implements EventSink {
         this.#respondOk(request.requestId, { group });
         return;
       }
+      case "group.pin": {
+        const group = await groups.setPinned(request.groupId, request.pinned);
+        this.#respondOk(request.requestId, { group });
+        return;
+      }
       case "attachment.ticket": {
         const { ticket, expiresAtMs, attachment } = await groups.createAttachmentTicket(request.groupId, {
           originalName: request.originalName,

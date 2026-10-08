@@ -17,6 +17,9 @@
   --text: #ececef;
   --muted: #a1a3ab;
 
+  --accent: #d97757;
+  --accent-bright: #e5a184;
+
   --primary-fill: var(--text);
   --primary-ink: var(--bg);
 
@@ -732,26 +735,78 @@ button[aria-invalid="true"] {
 }
 
 .group-item {
-  position: relative;
   width: 100%;
+  min-height: 68px;
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  background: transparent;
+}
+
+.group-open {
+  width: 100%;
+  min-width: 0;
   min-height: 68px;
   margin: 0;
   padding: 0.65rem 0.4rem 0.65rem 0.75rem;
   display: grid;
   gap: 0;
   border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
   border-radius: 0;
   background: transparent;
   text-align: left;
 }
 
-.group-item:hover:not(:disabled) {
+.group-item:hover {
   background: rgb(255 255 255 / 4%);
 }
 
-.group-item[aria-current="true"] {
+.group-item[data-current="true"] {
   background: var(--surface-3);
+}
+
+.group-pin-section .group-item:last-child {
+  border-bottom: 0;
+}
+
+.group-pin-divider {
+  margin: 0.4rem 0.85rem;
+  border: 0;
+  border-top: 2px solid var(--accent);
+}
+
+.group-pin-trigger {
+  align-self: center;
+  width: 38px;
+  min-height: 38px;
+  padding: 0;
+  margin-right: 0.35rem;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.group-pin-trigger .group-pin-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.group-pin-trigger[aria-pressed="true"] {
+  color: var(--accent-bright);
+}
+
+.group-pin-trigger,
+.group-pin-trigger .group-pin-icon {
+  transition: color 140ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .group-pin-trigger,
+  .group-pin-trigger .group-pin-icon {
+    transition: none;
+  }
 }
 
 .group-item-title {

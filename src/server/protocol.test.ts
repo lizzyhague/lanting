@@ -161,6 +161,10 @@ test("parses rename and trash requests", () => {
     parseBrowserRequest(JSON.stringify({ type: "group.rename", requestId: "r1", groupId, title: "plan" })),
     { type: "group.rename", requestId: "r1", groupId, title: "plan" },
   );
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({ type: "group.pin", requestId: "r2", groupId, pinned: true })),
+    { type: "group.pin", requestId: "r2", groupId, pinned: true },
+  );
   for (const type of ["groups.trash", "groups.restore", "groups.purge"]) {
     assert.deepEqual(
       parseBrowserRequest(JSON.stringify({ type, requestId: "r2", groupIds: [groupId] })),
@@ -170,4 +174,5 @@ test("parses rename and trash requests", () => {
   rejectsWith(JSON.stringify({ type: "groups.trash", requestId: "r3", groupIds: [] }), "invalid_field", "r3");
   rejectsWith(JSON.stringify({ type: "groups.purge", requestId: "r4", groupIds: ["x"] }), "invalid_field", "r4");
   rejectsWith(JSON.stringify({ type: "group.rename", requestId: "r5", groupId, title: "" }), "invalid_field", "r5");
+  rejectsWith(JSON.stringify({ type: "group.pin", requestId: "r6", groupId, pinned: 1 }), "invalid_field", "r6");
 });
