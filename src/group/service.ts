@@ -153,7 +153,7 @@ export class GroupService {
 
   /** 改用户名只影响以后新开的群。 */
   async setUsername(username: string): Promise<Settings> {
-    const problem = usernameProblem(username, this.#agents.kinds);
+    const problem = usernameProblem(username, this.#settings.get().agents.map((agent) => agent.name));
     if (problem) throw new GroupError("invalid_username", problem);
     await this.#settings.update((next) => {
       next.username = username;
