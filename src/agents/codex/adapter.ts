@@ -26,7 +26,7 @@ const INITIALIZE_PARAMS = {
 const INTERRUPT_TIMEOUT_MS = 10_000;
 
 export class CodexAdapter implements AgentAdapter {
-  readonly id = "codex";
+  readonly kind = "codex";
   readonly displayName = "Codex";
   /** 照 Codex Remote：每轮结束就关掉 app-server。 */
   readonly closeAfterTurn = true;

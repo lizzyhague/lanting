@@ -1,3 +1,4 @@
+import type { AgentKind } from "./kinds.ts";
 import type { AgentAdapter, AgentCatalog, AgentEvent, AgentSession, SessionOptions } from "./types.ts";
 
 /** 剧本里的一步：普通事件，或者向群主申请审批（结果作为 activity 发出）。 */
@@ -14,7 +15,7 @@ export type FakeCall = {
 
 /** 不调用任何 CLI 的假 AI，记录收到的每条消息。 */
 export class FakeAdapter implements AgentAdapter {
-  readonly id: string;
+  readonly kind: AgentKind;
   readonly displayName: string;
   closeAfterTurn = false;
   readonly calls: FakeCall[] = [];
@@ -36,18 +37,18 @@ export class FakeAdapter implements AgentAdapter {
   compactError: Error | null = null;
   #nextSession = 1;
 
-  constructor(id: string, script?: Script) {
-    this.id = id;
-    this.displayName = id[0]!.toUpperCase() + id.slice(1);
+  constructor(kind: AgentKind, script?: Script) {
+    this.kind = kind;
+    this.displayName = kind[0]!.toUpperCase() + kind.slice(1);
     this.script = script ?? ((_, call) => [
-      { type: "text", delta: `${id} reply ` },
-      { type: "end", outcome: "completed", text: `${id} reply ${call}` },
+      { type: "text", delta: `${kind} reply ` },
+      { type: "end", outcome: "completed", text: `${kind} reply ${call}` },
     ]);
   }
 
   startSession(options: SessionOptions): Promise<AgentSession> {
     this.calls.push({ kind: "start", nativeId: null, options });
-    const session = new FakeSession(this, `${this.id}-session-${this.#nextSession++}`, options);
+    const session = new FakeSession(this, `${this.kind}-session-${this.#nextSession++}`, options);
     this.sessions.push(session);
     return Promise.resolve(session);
   }

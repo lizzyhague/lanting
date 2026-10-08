@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { loadConfig } from "./load.ts";
+import { configuredKinds, loadConfig } from "./load.ts";
 
 async function scratch(t: test.TestContext): Promise<string> {
   const directory = await realpath(await mkdtemp(path.join(tmpdir(), "lanting-config-")));
@@ -35,6 +35,24 @@ test("loads an executable Claude Code path and rejects a non-executable one", as
 
   await chmod(claude, 0o600);
   await assert.rejects(loadConfig(configPath), /不存在或不可执行/u);
+});
+
+test("reports configured CLI kinds in their fixed order", async (t) => {
+  const directory = await scratch(t);
+  const projects = path.join(directory, "projects");
+  const executable = path.join(directory, "agent-cli");
+  const configPath = path.join(directory, "config.json");
+  await mkdir(projects);
+  await writeFile(executable, "#!/bin/sh\n", { mode: 0o700 });
+  await writeFile(configPath, JSON.stringify({
+    projectRoot: projects,
+    agents: {
+      grok: { executable },
+      claude: { executable },
+    },
+  }));
+
+  assert.deepEqual(configuredKinds(await loadConfig(configPath)), ["claude", "grok"]);
 });
 
 test("rejects a relative, missing, or non-directory project root", async (t) => {

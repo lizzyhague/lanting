@@ -59,7 +59,7 @@ export async function main(): Promise<void> {
   try {
     const address = await server.listen(readPort(process.env.PORT ?? DEFAULT_PORT));
     console.log(`服务正在监听 http://${address.host}:${address.port}/`);
-    console.log(`已接入的 AI：${agents.ids.join("、") || "无"}`);
+    console.log(`已接入的 CLI：${agents.kinds.join("、") || "无"}`);
     runtime.startIdleSweeper();
     groups.startTrashSweeper();
     await waitForShutdownSignal();

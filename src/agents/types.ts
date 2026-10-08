@@ -1,6 +1,8 @@
+import type { AgentKind } from "./kinds.ts";
+
 /**
  * AI 接入的统一接口。群核心只认这里的类型，不关心对面是哪家 CLI。
- * 接入新的 AI，就是新写一个 AgentAdapter 并登记到 AgentRegistry。
+ * 接入新的 CLI 种类，要写 AgentAdapter、在 kinds.ts 登记种类，并在 server/main.ts 按 config 实例化。
  *
  * 原生会话名不改：群主只在 lanting 里找群，永久删除时原生会话一起删掉。
  */
@@ -103,8 +105,8 @@ export interface AgentSession {
 }
 
 export interface AgentAdapter {
-  /** 标签名，也是登记用的 id：claude / codex / grok。只用小写字母。 */
-  readonly id: string;
+  /** 这个适配器接入的 CLI 种类。 */
+  readonly kind: AgentKind;
   /** 写进 system prompt 的名字，比如 Codex。 */
   readonly displayName: string;
   /**

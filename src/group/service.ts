@@ -136,7 +136,7 @@ export class GroupService {
   }
 
   agents(): { id: string; displayName: string }[] {
-    return this.#agents.ids.map((id) => ({ id, displayName: this.#agents.get(id).displayName }));
+    return this.#agents.kinds.map((id) => ({ id, displayName: this.#agents.get(id).displayName }));
   }
 
   /** 页面用的设置：只列已接入的 AI 的默认设置。 */
@@ -144,16 +144,16 @@ export class GroupService {
     const settings = this.#settings.get();
     return {
       ...settings,
-      defaults: Object.fromEntries(this.#agents.ids.map((id) => [id, this.#settings.defaultsFor(id)])),
+      defaults: Object.fromEntries(this.#agents.kinds.map((id) => [id, this.#settings.defaultsFor(id)])),
       createMembers: settings.createMembers === null
         ? null
-        : this.#agents.ids.filter((id) => settings.createMembers!.includes(id)),
+        : this.#agents.kinds.filter((id) => settings.createMembers!.includes(id)),
     };
   }
 
   /** 改用户名只影响以后新开的群。 */
   async setUsername(username: string): Promise<Settings> {
-    const problem = usernameProblem(username, this.#agents.ids);
+    const problem = usernameProblem(username, this.#agents.kinds);
     if (problem) throw new GroupError("invalid_username", problem);
     await this.#settings.update((next) => {
       next.username = username;
@@ -197,7 +197,7 @@ export class GroupService {
       if (!this.#agents.has(member)) throw new GroupError("invalid_members", `${member} 目前没有接入。`);
     }
     // 成员按界面顺序（登记顺序）保存，和勾选先后无关。
-    const members = this.#agents.ids.filter((id) => input.members.includes(id));
+    const members = this.#agents.kinds.filter((id) => input.members.includes(id));
     const title = input.title.trim().slice(0, MAX_TITLE_LENGTH) || input.directory;
     // 用户名和每个 AI 的设置从当前设置复制一份，之后改设置不影响这个群。
     // 新群的点名默认是全部成员，按界面顺序。

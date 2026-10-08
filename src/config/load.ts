@@ -3,16 +3,19 @@ import { access, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
+import { AGENT_KINDS, type AgentKind } from "../agents/kinds.ts";
+
 export type AppConfig = {
   /** 新建群时，工作目录从这个目录下的第一层文件夹里选。 */
   projectRoot: string;
-  /** 各 AI 的 CLI。没有配置的 AI 不接入。 */
-  agents: {
-    claude?: { executable: string };
-    codex?: { executable: string };
-    grok?: { executable: string };
-  };
+  /** 各种 CLI 的路径。没有配置的种类不接入。 */
+  agents: Partial<Record<AgentKind, { executable: string }>>;
 };
+
+/** 这台机器已经配置的 CLI 种类，始终按代码里的固定顺序返回。 */
+export function configuredKinds(config: AppConfig): AgentKind[] {
+  return AGENT_KINDS.filter((kind) => config.agents[kind] !== undefined);
+}
 
 export async function loadConfig(configPath: string): Promise<AppConfig> {
   let source: string;
@@ -46,10 +49,10 @@ export async function loadConfig(configPath: string): Promise<AppConfig> {
   const agents: AppConfig["agents"] = {};
   if (value.agents !== undefined) {
     const configured = requireObject(value.agents, "agents");
-    for (const id of ["claude", "codex", "grok"] as const) {
-      if (configured[id] === undefined) continue;
-      const agent = requireObject(configured[id], `agents.${id}`);
-      agents[id] = { executable: await requireExecutable(agent.executable, `agents.${id}.executable`) };
+    for (const kind of AGENT_KINDS) {
+      if (configured[kind] === undefined) continue;
+      const agent = requireObject(configured[kind], `agents.${kind}`);
+      agents[kind] = { executable: await requireExecutable(agent.executable, `agents.${kind}.executable`) };
     }
   }
 
