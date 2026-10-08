@@ -32,6 +32,11 @@ async function startServer(t: test.TestContext) {
   await writeFile(path.join(webRoot, "viewer.css"), ".file-viewer {}\n");
   await writeFile(path.join(webRoot, "styles.css"), "");
   await writeFile(path.join(webRoot, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+  await writeFile(path.join(webRoot, "manifest.webmanifest"), "{}");
+  await writeFile(path.join(webRoot, "sw.js"), "// sw\n");
+  await writeFile(path.join(webRoot, "icon-192.png"), "png");
+  await writeFile(path.join(webRoot, "icon-512.png"), "png");
+  await writeFile(path.join(webRoot, "icon-512-maskable.png"), "png");
   const projectRoot = path.join(webRoot, "projects");
   await mkdir(path.join(projectRoot, "demo"), { recursive: true });
   const store = await GroupStore.open(path.join(webRoot, "data"));
@@ -128,6 +133,7 @@ test("serves only allow-listed static files and rewrites assets to versioned pat
   const html = await page.text();
   const match = /src="(\/assets\/[a-f0-9]{64}\/app\.js)"/u.exec(html);
   assert.ok(match, html);
+  assert.match(html, /<meta name="lanting-assets"/u);
 
   const asset = await fetch(`${base}${match[1]}`);
   assert.equal(asset.status, 200);
@@ -140,6 +146,25 @@ test("serves only allow-listed static files and rewrites assets to versioned pat
 
   assert.equal((await fetch(`${base}/package.json`)).status, 404);
   assert.equal((await fetch(`${base}/`, { method: "POST" })).status, 405);
+});
+
+test("serves the PWA shell assets with their own content types", async (t) => {
+  const { base } = await startServer(t);
+
+  const manifest = await fetch(`${base}/manifest.webmanifest`);
+  assert.equal(manifest.status, 200);
+  assert.match(manifest.headers.get("content-type") ?? "", /application\/manifest\+json/u);
+
+  const worker = await fetch(`${base}/sw.js`);
+  assert.equal(worker.status, 200);
+  assert.match(worker.headers.get("content-type") ?? "", /text\/javascript/u);
+  assert.match(worker.headers.get("cache-control") ?? "", /no-cache/u);
+
+  for (const name of ["icon-192.png", "icon-512.png", "icon-512-maskable.png"]) {
+    const icon = await fetch(`${base}/${name}`);
+    assert.equal(icon.status, 200);
+    assert.equal(icon.headers.get("content-type"), "image/png");
+  }
 });
 
 test("raw serves only caged Markdown and images with authentication and sandbox headers", async (t) => {

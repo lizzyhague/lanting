@@ -49,6 +49,11 @@ const STATIC_FILES: Record<string, { file: string; contentType: string }> = {
   "/call-order.js": { file: "call-order.js", contentType: "text/javascript; charset=utf-8" },
   "/styles.css": { file: "styles.css", contentType: "text/css; charset=utf-8" },
   "/icon.svg": { file: "icon.svg", contentType: "image/svg+xml" },
+  "/manifest.webmanifest": {
+    file: "manifest.webmanifest",
+    contentType: "application/manifest+json; charset=utf-8",
+  },
+  "/sw.js": { file: "sw.js", contentType: "text/javascript; charset=utf-8" },
   "/icon-192.png": { file: "icon-192.png", contentType: "image/png" },
   "/icon-512.png": { file: "icon-512.png", contentType: "image/png" },
   "/icon-512-maskable.png": { file: "icon-512-maskable.png", contentType: "image/png" },
@@ -82,7 +87,7 @@ export class WebServer {
     this.#webRoot = options.webRoot ?? DEFAULT_WEB_ROOT;
     this.#uploads = options.uploads;
     this.#webAssets = new WebAssets(this.#webRoot, Object.values(STATIC_FILES)
-      .map((asset) => asset.file).filter((file) => /\.(js|css)$/u.test(file)));
+      .map((asset) => asset.file).filter((file) => /\.(js|css)$/u.test(file) && file !== "sw.js"));
     this.#http = createServer((request, response) => {
       void this.#serveHttp(request, response).catch((error: unknown) => {
         console.error(error);

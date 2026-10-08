@@ -1287,3 +1287,23 @@ button.app-settings-button svg {
     transition: none;
   }
 }
+
+/* 下拉刷新只在手势进行时显示；由页面实现，避免原生手势重复触发。 */
+html.pull-refresh-enabled {
+  overscroll-behavior-y: none;
+}
+
+.pull-refresh {
+  position: fixed;
+  top: max(0.6rem, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 40;
+  padding: 0.5rem 0.85rem;
+  transform: translateX(-50%);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 40%);
+  font-size: 0.82rem;
+  pointer-events: none;
+}

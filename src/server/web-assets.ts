@@ -50,14 +50,17 @@ export class WebAssets {
     await publish;
 
     const available = new Set(entries.map(([file]) => file));
-    return Buffer.from(html.toString("utf8").replace(
+    const rewritten = html.toString("utf8").replace(
       /\b(src|href)="\/([^"?#]+)(?:\?[^"#]*)?"/gu,
       (original, attribute: string, file: string) => {
         if (!this.#files.has(file)) return original;
         if (!available.has(file)) throw new Error(`Missing public asset: ${file}`);
         return `${attribute}="/assets/${version}/${file}"`;
       },
-    ));
+    );
+    // SW saves an offline page only after every script, including module imports, is cached.
+    const assetList = entries.map(([file]) => `/assets/${version}/${file}`).join(",");
+    return Buffer.from(rewritten.replace("</head>", `<meta name="lanting-assets" content="${assetList}">\n</head>`));
   }
 
   async read(pathname: string): Promise<{ body: Buffer; file: string } | null> {
