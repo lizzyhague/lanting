@@ -7,7 +7,7 @@ import { GrokAdapter } from "../agents/grok/adapter.ts";
 import { AgentRegistry } from "../agents/registry.ts";
 import { SharedUploadClient } from "../attachments/shared-upload-client.ts";
 import type { AgentAdapter } from "../agents/types.ts";
-import { loadConfig } from "../config/load.ts";
+import { configuredKinds, loadConfig } from "../config/load.ts";
 import { GroupRuntime } from "../group/runtime.ts";
 import { GroupService } from "../group/service.ts";
 import { GroupStore } from "../state/group-store.ts";
@@ -29,7 +29,7 @@ export async function main(): Promise<void> {
 
   // 群数据读不动或校验不过时直接退出，绝不能用空状态覆盖原文件。
   const store = await GroupStore.open(dataDirectory);
-  const settings = await SettingsStore.open(dataDirectory);
+  const settings = await SettingsStore.open(dataDirectory, configuredKinds(config));
   // socket 取 AI_REMOTE_UPLOAD_SOCKET，没设时用 ai-remote-upload 的默认位置。
   const uploads = new SharedUploadClient();
   const adapters: AgentAdapter[] = [];

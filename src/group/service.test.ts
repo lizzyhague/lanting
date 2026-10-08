@@ -23,7 +23,7 @@ async function setup(t: test.TestContext) {
   const agents = new AgentRegistry([adapter, new FakeAdapter("codex")]);
   const runtime = new GroupRuntime({ store, agents });
   t.after(() => runtime.shutdown());
-  const settings = await SettingsStore.open(path.join(directory, "data"));
+  const settings = await SettingsStore.open(path.join(directory, "data"), ["claude", "codex"]);
   const uploads = new FakeUploads(path.join(directory, "blobs"));
   const service = new GroupService({ projectRoot, store, runtime, agents, settings, uploads });
   const events: ServiceEvent[] = [];

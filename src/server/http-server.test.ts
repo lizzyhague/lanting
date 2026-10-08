@@ -43,7 +43,7 @@ async function startServer(t: test.TestContext) {
   const claude = new FakeAdapter("claude");
   const agents = new AgentRegistry([claude]);
   const runtime = new GroupRuntime({ store, agents });
-  const settings = await SettingsStore.open(path.join(webRoot, "data"));
+  const settings = await SettingsStore.open(path.join(webRoot, "data"), ["claude"]);
   const groups = new GroupService({ projectRoot, store, runtime, agents, settings });
   const hub = new ConnectionHub();
   groups.onEvent((event) => {
