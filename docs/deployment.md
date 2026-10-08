@@ -49,7 +49,12 @@ chmod 600 .env config.json
 }
 ```
 
-`agents` 里没有写的 AI 不接入。路径可以用 `~/` 开头。
+`agents` 只决定这台机器能用哪几种 CLI，没写的种类在设置页里显示为不可选。路径可以用
+`~/` 开头。
+
+群里有哪些 AI，在页面的设置里管理：每个 AI 选一种 CLI 和一个主色，同一种 CLI 可以给
+多个 AI 用。第一次启动时，会按 `config.json` 里已配置的 CLI 各生成一个 AI；之后不再
+自动添加。
 
 `.env`、`config.json` 和 `data/` 都是本机数据，不提交。
 
@@ -103,3 +108,18 @@ Node 直接运行 `.ts`，没有构建步骤。更新代码后重启服务即可
 服务器在提供页面时自动生成带版本地址的脚本和样式，保存在 `public/.web-assets/`。
 运行账户必须能写这个目录；它已被 Git 忽略。新增前端文件要登记到
 `src/server/http-server.ts` 的静态文件白名单，并重启后端。
+
+## 6. 新增 CLI
+
+部署后再装了新的 CLI，先在本机装好并登录，然后在 `config.json` 的 `agents` 里补上它的
+路径，例如：
+
+```json
+"codex": { "executable": "/absolute/path/to/codex" }
+```
+
+`config.json` 只在启动时读一次，改完要重启 lanting。重启后，这种 CLI 在设置页的下拉里
+变为可选，再到设置里添加 AI 或给已有的 AI 选上它。
+
+从 `config.json` 去掉某种 CLI 并重启后，用它的 AI 在设置里显示为不完整，不能拉进新群；
+已有的群里点到它时，会在群里如实报错。
