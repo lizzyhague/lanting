@@ -1,4 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect x="3" y="3" width="58" height="58" rx="16" fill="#232321" stroke="#55534d" stroke-width="4"/>
-  <path d="M21 15v34h24" fill="none" stroke="#a7f3d0" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="icon-title">
+  <title id="icon-title">lanting</title>
+  <rect width="512" height="512" rx="112" fill="#141413"/>
+  <g stroke="#141413" stroke-width="10" stroke-linejoin="round" paint-order="stroke">
+    <path d="M255 276 C236 248 207 222 202 181 C197 141 218 106 260 78 C286 105 301 141 295 179 C289 216 274 242 265 268 C262 276 259 280 255 276 Z" fill="#d97757"/>
+    <path d="M255 276 C236 248 207 222 202 181 C197 141 218 106 260 78 C286 105 301 141 295 179 C289 216 274 242 265 268 C262 276 259 280 255 276 Z" fill="#a7f3d0" transform="rotate(117 256 294)"/>
+    <path d="M255 276 C236 248 207 222 202 181 C197 141 218 106 260 78 C286 105 301 141 295 179 C289 216 274 242 265 268 C262 276 259 280 255 276 Z" fill="#f3c56b" transform="rotate(241 256 294)"/>
+  </g>
+  <circle cx="256" cy="294" r="18" fill="#141413"/>
 </svg>
