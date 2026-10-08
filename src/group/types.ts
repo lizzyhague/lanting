@@ -1,7 +1,13 @@
+import type { AgentKind } from "../agents/kinds.ts";
+import type { PaletteId } from "../agents/palette.ts";
 import type { AgentSettings } from "../agents/types.ts";
 import type { StoredAttachment } from "../attachments/prompt.ts";
 
 export type AgentState = {
+  /** 建群时冻结的 CLI 种类。 */
+  kind: AgentKind;
+  /** 建群时冻结的主色。 */
+  color: PaletteId;
   /** CLI 的原生会话 id；还没开过会话时为 null。 */
   nativeSessionId: string | null;
   /**
@@ -20,7 +26,7 @@ export type Group = {
   cwd: string;
   /** 建群时的用户名，之后不再改变。 */
   username: string;
-  /** 成员的 AI 标签名，按界面顺序。 */
+  /** 冻结标签：建群时从 AI 名字复制，之后不变；按建群时的设置顺序。 */
   members: string[];
   /** 上一次的点名顺序。 */
   callOrder: string[];

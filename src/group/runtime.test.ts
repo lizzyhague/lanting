@@ -5,11 +5,14 @@ import path from "node:path";
 import test from "node:test";
 
 import { FakeAdapter } from "../agents/fake-adapter.test-support.ts";
+import { AGENT_KINDS, type AgentKind } from "../agents/kinds.ts";
+import { PALETTE } from "../agents/palette.ts";
 import { AgentRegistry } from "../agents/registry.ts";
+import { DEFAULT_AGENT_SETTINGS } from "../agents/types.ts";
 import { GroupStore } from "../state/group-store.ts";
 import { GroupError, GroupRuntime, type GroupEvent } from "./runtime.ts";
 
-async function setup(t: test.TestContext, members = ["claude", "codex", "grok"]) {
+async function setup(t: test.TestContext, members: AgentKind[] = [...AGENT_KINDS]) {
   const directory = await mkdtemp(path.join(tmpdir(), "lanting-runtime-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const adapters = Object.fromEntries(members.map((id) => [id, new FakeAdapter(id)]));
@@ -18,7 +21,17 @@ async function setup(t: test.TestContext, members = ["claude", "codex", "grok"])
   t.after(() => runtime.shutdown());
   const events: GroupEvent[] = [];
   runtime.onEvent((event) => events.push(event));
-  const group = await store.create({ title: "demo", cwd: "/work/demo", username: "host", members });
+  const group = await store.create({
+    title: "demo",
+    cwd: "/work/demo",
+    username: "host",
+    members: members.map((tag, index) => ({
+      tag,
+      kind: tag,
+      color: PALETTE[index]!.id,
+      settings: { ...DEFAULT_AGENT_SETTINGS },
+    })),
+  });
   return { directory, adapters, store, runtime, events, groupId: group.id };
 }
 

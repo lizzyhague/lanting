@@ -2,26 +2,34 @@ import { randomUUID } from "node:crypto";
 import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
-import { DEFAULT_AGENT_SETTINGS, type AgentSettings } from "../agents/types.ts";
+import { isAgentKind, type AgentKind } from "../agents/kinds.ts";
+import { isPaletteId, type PaletteId } from "../agents/palette.ts";
+import type { AgentSettings } from "../agents/types.ts";
 import type { StoredAttachment } from "../attachments/prompt.ts";
 import type { Activity, AgentState, Group, ReplyStatus, Speaker, TranscriptEntry } from "../group/types.ts";
+import { AGENT_NAME_PATTERN } from "./settings-store.ts";
 import {
   ensurePrivateDirectory,
   readJsonIfPresent,
   writeJsonAtomically,
 } from "./atomic-json.ts";
 
-const STORE_VERSION = 1;
+const STORE_VERSION = 2;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+
+export type NewMember = {
+  tag: string;
+  kind: AgentKind;
+  color: PaletteId;
+  settings: AgentSettings;
+};
 
 export type NewGroup = {
   title: string;
   cwd: string;
   username: string;
-  members: string[];
+  members: NewMember[];
   callOrder?: string[];
-  /** 每个成员一开始的设置；没给的跟随 CLI 默认。 */
-  settings?: Record<string, AgentSettings>;
 };
 
 export type NewEntry = Omit<TranscriptEntry, "seq" | "at">;
@@ -73,11 +81,17 @@ export class GroupStore {
   }
 
   async create(input: NewGroup): Promise<Group> {
+    validateNewGroup(input);
     const id = randomUUID();
     const agents: Group["agents"] = {};
     for (const member of input.members) {
-      const settings = input.settings?.[member] ?? DEFAULT_AGENT_SETTINGS;
-      agents[member] = { nativeSessionId: null, cursor: 0, settings: { ...settings } };
+      agents[member.tag] = {
+        kind: member.kind,
+        color: member.color,
+        nativeSessionId: null,
+        cursor: 0,
+        settings: { ...member.settings },
+      };
     }
     const now = Date.now();
     const group: Group = {
@@ -85,7 +99,7 @@ export class GroupStore {
       title: input.title,
       cwd: input.cwd,
       username: input.username,
-      members: [...input.members],
+      members: input.members.map((member) => member.tag),
       callOrder: [...(input.callOrder ?? [])],
       agents,
       createdAt: new Date(now).toISOString(),
@@ -177,12 +191,16 @@ function parseGroup(value: unknown, id: string): Group {
     throw new Error(`群数据损坏（${id}）：${detail}`);
   };
   if (value === null) fail("缺少 group.json");
-  if (!isObject(value) || value.version !== STORE_VERSION || !isObject(value.group)) {
-    fail("格式或版本不对");
+  if (!isObject(value)) return fail("格式或版本不对");
+  const root = value;
+  if (root.version === 1) throw new Error("群数据是旧版本（1），需要先清理。");
+  if (root.version !== STORE_VERSION || !isObject(root.group)) {
+    return fail("格式或版本不对");
   }
-  const group = (value as { group: { [key: string]: unknown } }).group;
+  const group = root.group;
   if (group.id !== id) fail("id 和目录名不一致");
   const members = stringArray(group.members) ?? fail("members 不对");
+  if (!members.every((member) => AGENT_NAME_PATTERN.test(member))) fail("members 里有非法标签");
   const callOrder = stringArray(group.callOrder) ?? fail("callOrder 不对");
   if (!callOrder.every((agent) => members.includes(agent))) fail("callOrder 里有不是成员的 AI");
   if (!isObject(group.agents)) fail("agents 不对");
@@ -190,25 +208,37 @@ function parseGroup(value: unknown, id: string): Group {
   for (const member of members) {
     const state = (group.agents as { [key: string]: unknown })[member];
     if (!isObject(state) ||
+        !isAgentKind(state.kind) ||
+        !isPaletteId(state.color) ||
         !(state.nativeSessionId === null || typeof state.nativeSessionId === "string") ||
         !Number.isSafeInteger(state.cursor) || (state.cursor as number) < 0) {
       fail(`agents.${member} 不对`);
     }
-    const valid = state as { nativeSessionId: string | null; cursor: number; settings?: unknown };
-    // 第 5 步之前建的群没有 settings，按跟随默认处理。
-    const settings = valid.settings === undefined
-      ? { ...DEFAULT_AGENT_SETTINGS }
-      : parseSettings(valid.settings) ?? fail(`agents.${member}.settings 不对`);
-    agents[member] = { nativeSessionId: valid.nativeSessionId, cursor: valid.cursor, settings };
+    const valid = state as {
+      kind: AgentKind;
+      color: PaletteId;
+      nativeSessionId: string | null;
+      cursor: number;
+      settings: unknown;
+    };
+    const settings = parseSettings(valid.settings) ?? fail(`agents.${member}.settings 不对`);
+    agents[member] = {
+      kind: valid.kind,
+      color: valid.color,
+      nativeSessionId: valid.nativeSessionId,
+      cursor: valid.cursor,
+      settings,
+    };
   }
   for (const key of ["title", "cwd", "username", "createdAt"] as const) {
     if (typeof group[key] !== "string") fail(`${key} 不对`);
   }
-  // 第 6 步之前建的群没有这两个字段，按不在回收站处理。
   for (const key of ["trashedAt", "deletingAt"] as const) {
     const value = group[key];
-    if (value !== undefined && value !== null && typeof value !== "string") fail(`${key} 不对`);
+    if (value !== null && typeof value !== "string") fail(`${key} 不对`);
   }
+  if (typeof group.updatedAt !== "number" || !Number.isFinite(group.updatedAt)) return fail("updatedAt 不对");
+  const updatedAt = group.updatedAt;
   return {
     id,
     title: group.title as string,
@@ -218,12 +248,9 @@ function parseGroup(value: unknown, id: string): Group {
     callOrder,
     agents,
     createdAt: group.createdAt as string,
-    // 照 Relayu：旧数据没有 updatedAt 时退回创建时间。
-    updatedAt: typeof group.updatedAt === "number" && Number.isFinite(group.updatedAt)
-      ? group.updatedAt
-      : Date.parse(group.createdAt as string),
-    trashedAt: (group.trashedAt as string | null | undefined) ?? null,
-    deletingAt: (group.deletingAt as string | null | undefined) ?? null,
+    updatedAt,
+    trashedAt: group.trashedAt as string | null,
+    deletingAt: group.deletingAt as string | null,
   };
 }
 
@@ -232,11 +259,14 @@ function parseTranscript(value: unknown, id: string): TranscriptEntry[] {
     throw new Error(`群聊记录损坏（${id}）：${detail}`);
   };
   if (value === null) fail("缺少 transcript.json");
-  if (!isObject(value) || value.version !== STORE_VERSION || !Array.isArray(value.entries)) {
-    fail("格式或版本不对");
+  if (!isObject(value)) return fail("格式或版本不对");
+  const root = value;
+  if (root.version === 1) throw new Error("群聊记录是旧版本（1），需要先清理。");
+  if (root.version !== STORE_VERSION || !Array.isArray(root.entries)) {
+    return fail("格式或版本不对");
   }
   const entries: TranscriptEntry[] = [];
-  for (const raw of (value as { entries: unknown[] }).entries) {
+  for (const raw of root.entries) {
     const expected = entries.length + 1;
     if (!isObject(raw) || raw.seq !== expected || typeof raw.at !== "string" ||
         typeof raw.text !== "string") {
@@ -271,6 +301,20 @@ function parseTranscript(value: unknown, id: string): TranscriptEntry[] {
     });
   }
   return entries;
+}
+
+function validateNewGroup(input: NewGroup): void {
+  const tags = input.members.map((member) => member.tag);
+  if (tags.some((tag) => !AGENT_NAME_PATTERN.test(tag))) throw new Error("群成员标签不合法。");
+  if (new Set(tags).size !== tags.length) throw new Error("群成员标签不能重复。");
+  for (const member of input.members) {
+    if (!isAgentKind(member.kind)) throw new Error(`群成员 ${member.tag} 的 CLI 种类不合法。`);
+    if (!isPaletteId(member.color)) throw new Error(`群成员 ${member.tag} 的主色不合法。`);
+    if (parseSettings(member.settings) === null) throw new Error(`群成员 ${member.tag} 的设置不合法。`);
+  }
+  const callOrder = input.callOrder ?? [];
+  if (new Set(callOrder).size !== callOrder.length) throw new Error("callOrder 里有重复的 AI。");
+  if (!callOrder.every((tag) => tags.includes(tag))) throw new Error("callOrder 里有不是成员的 AI。");
 }
 
 function isStoredAttachment(value: unknown): boolean {
