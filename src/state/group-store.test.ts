@@ -18,13 +18,18 @@ test("groups and transcripts survive reopening the store", async (t) => {
   const directory = await scratch(t);
   const store = await GroupStore.open(directory);
   const group = await store.create(NEW_GROUP);
+  assert.equal(group.updatedAt, Date.parse(group.createdAt));
   const settings = { model: null, effort: null, permission: null };
   assert.deepEqual(group.agents, {
     claude: { nativeSessionId: null, cursor: 0, settings },
     codex: { nativeSessionId: null, cursor: 0, settings },
   });
   await store.append(group.id, { from: { role: "host" }, text: "hello" });
-  await store.append(group.id, { from: { role: "agent", agent: "claude" }, text: "hi", status: "completed" });
+  const reply = await store.append(
+    group.id,
+    { from: { role: "agent", agent: "claude" }, text: "hi", status: "completed" },
+  );
+  assert.equal(store.get(group.id)?.updatedAt, Date.parse(reply.at));
   await store.update(group.id, (next) => {
     next.callOrder = ["claude"];
     next.agents.claude!.nativeSessionId = "native-1";
@@ -110,16 +115,18 @@ test("removing a group deletes its directory and it stays gone after reopening",
   assert.deepEqual(reopened.list().map((item) => item.id), [kept.id]);
 });
 
-test("groups saved before the trash existed open as not trashed", async (t) => {
+test("groups saved before recency and trash fields existed use compatible defaults", async (t) => {
   const directory = await scratch(t);
   const store = await GroupStore.open(directory);
   const group = await store.create(NEW_GROUP);
   const groupFile = path.join(directory, "groups", group.id, "group.json");
   const saved = JSON.parse(await readFile(groupFile, "utf8"));
+  delete saved.group.updatedAt;
   delete saved.group.trashedAt;
   delete saved.group.deletingAt;
   await writeFile(groupFile, JSON.stringify(saved));
   const reopened = await GroupStore.open(directory);
+  assert.equal(reopened.get(group.id)?.updatedAt, Date.parse(group.createdAt));
   assert.equal(reopened.get(group.id)?.trashedAt, null);
   assert.equal(reopened.get(group.id)?.deletingAt, null);
 });

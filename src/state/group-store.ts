@@ -79,6 +79,7 @@ export class GroupStore {
       const settings = input.settings?.[member] ?? DEFAULT_AGENT_SETTINGS;
       agents[member] = { nativeSessionId: null, cursor: 0, settings: { ...settings } };
     }
+    const now = Date.now();
     const group: Group = {
       id,
       title: input.title,
@@ -87,7 +88,8 @@ export class GroupStore {
       members: [...input.members],
       callOrder: [...(input.callOrder ?? [])],
       agents,
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(now).toISOString(),
+      updatedAt: now,
       trashedAt: null,
       deletingAt: null,
     };
@@ -109,14 +111,25 @@ export class GroupStore {
     });
   }
 
+  touch(id: string, now = Date.now()): Promise<Group> {
+    return this.update(id, (group) => {
+      group.updatedAt = now;
+    });
+  }
+
   append(id: string, entry: NewEntry): Promise<TranscriptEntry> {
     return this.#enqueue(id, async (record) => {
+      const now = Date.now();
       const full: TranscriptEntry = {
         ...entry,
         seq: (record.transcript.at(-1)?.seq ?? 0) + 1,
-        at: new Date().toISOString(),
+        at: new Date(now).toISOString(),
       };
       const next = [...record.transcript, full];
+      const nextGroup = { ...record.group, updatedAt: now };
+      // 和 Relayu 一样，消息一进入记录就刷新最近活动时间。
+      await this.#writeGroup(nextGroup);
+      record.group = nextGroup;
       await this.#writeTranscript(id, next);
       record.transcript = next;
       return full;
@@ -205,6 +218,10 @@ function parseGroup(value: unknown, id: string): Group {
     callOrder,
     agents,
     createdAt: group.createdAt as string,
+    // 照 Relayu：旧数据没有 updatedAt 时退回创建时间。
+    updatedAt: typeof group.updatedAt === "number" && Number.isFinite(group.updatedAt)
+      ? group.updatedAt
+      : Date.parse(group.createdAt as string),
     trashedAt: (group.trashedAt as string | null | undefined) ?? null,
     deletingAt: (group.deletingAt as string | null | undefined) ?? null,
   };

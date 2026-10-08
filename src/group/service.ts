@@ -47,6 +47,7 @@ export type GroupSummary = {
   /** 每个成员在这个群里的模型、思考强度和权限。 */
   settings: Record<string, AgentSettings>;
   createdAt: string;
+  updatedAt: number;
   busy: boolean;
   /** 移入回收站的时间；不在回收站时为 null。 */
   trashedAt: string | null;
@@ -118,7 +119,7 @@ export class GroupService {
     this.#runtime.onEvent((event) => {
       const payload = event.type === "entry.appended" ? { ...event, entry: publicEntry(event.entry) } : event;
       this.#emit({ scope: "group", groupId: event.groupId, payload });
-      if (event.type === "round.started" || event.type === "round.ended" ||
+      if (event.type === "entry.appended" || event.type === "round.started" || event.type === "round.ended" ||
           event.type === "compact.started" || event.type === "compact.ended") {
         this.#emitUpdated(event.groupId);
       }
@@ -181,7 +182,7 @@ export class GroupService {
 
   groups(): GroupSummary[] {
     return this.#store.list()
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .sort((a, b) => b.updatedAt - a.updatedAt || b.id.localeCompare(a.id))
       .map((group) => this.#summary(group));
   }
 
@@ -240,6 +241,7 @@ export class GroupService {
     }
     const updated = await this.#store.update(groupId, (next) => {
       next.callOrder = [...order];
+      next.updatedAt = Date.now();
     });
     const summary = this.#summary(updated);
     this.#emit({ scope: "global", payload: { type: "group.updated", group: summary } });
@@ -264,6 +266,7 @@ export class GroupService {
     const updated = await this.#store.update(groupId, (next) => {
       const state = next.agents[agent];
       if (state) state.settings = { ...settings };
+      next.updatedAt = Date.now();
     });
     const summary = this.#summary(updated);
     this.#emit({ scope: "global", payload: { type: "group.updated", group: summary } });
@@ -286,6 +289,7 @@ export class GroupService {
     }
     const updated = await this.#store.update(groupId, (next) => {
       next.title = trimmed;
+      next.updatedAt = Date.now();
     });
     const summary = this.#summary(updated);
     this.#emit({ scope: "global", payload: { type: "group.updated", group: summary } });
@@ -303,8 +307,10 @@ export class GroupService {
       this.#locked.add(groupId);
       try {
         await this.#runtime.closeSessions(groupId);
+        const now = Date.now();
         const updated = await this.#store.update(groupId, (next) => {
-          next.trashedAt = new Date().toISOString();
+          next.trashedAt = new Date(now).toISOString();
+          next.updatedAt = now;
         });
         this.#emit({ scope: "global", payload: { type: "group.updated", group: this.#summary(updated) } });
       } finally {
@@ -322,6 +328,7 @@ export class GroupService {
       }
       const updated = await this.#store.update(groupId, (next) => {
         next.trashedAt = null;
+        next.updatedAt = Date.now();
       });
       this.#emit({ scope: "global", payload: { type: "group.updated", group: this.#summary(updated) } });
     });
@@ -374,8 +381,10 @@ export class GroupService {
       await this.#runtime.closeSessions(groupId);
       let group = this.#requireGroup(groupId);
       if (!group.deletingAt) {
+        const now = Date.now();
         group = await this.#store.update(groupId, (next) => {
-          next.deletingAt = new Date().toISOString();
+          next.deletingAt = new Date(now).toISOString();
+          next.updatedAt = now;
         });
         this.#emit({ scope: "global", payload: { type: "group.updated", group: this.#summary(group) } });
       }
@@ -555,6 +564,7 @@ export class GroupService {
       callOrder: group.callOrder,
       settings: Object.fromEntries(group.members.map((member) => [member, group.agents[member]!.settings])),
       createdAt: group.createdAt,
+      updatedAt: group.updatedAt,
       busy: this.#runtime.isBusy(group.id),
       trashedAt: group.trashedAt,
       purgeAt: group.trashedAt

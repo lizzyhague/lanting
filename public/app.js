@@ -3,6 +3,7 @@ import { renderMarkdown } from "./markdown.js";
 
 const RECONNECT_DELAY_MS = 3_000;
 const REQUEST_TIMEOUT_MS = 30_000;
+const DIRECTORY_KEY = "lanting.directory";
 /** 离底部不到这么多像素时，新内容到来自动滚到底；用户往上翻时不打扰。 */
 const STICK_TO_BOTTOM_PX = 80;
 /** 照 ai-remote-upload 的限制。 */
@@ -440,7 +441,14 @@ function renderCreateForm() {
   const previous = select.value;
   select.replaceChildren(new Option("选择工作目录", ""));
   for (const name of state.directories) select.add(new Option(name, name));
-  if (state.directories.includes(previous)) select.value = previous;
+  const saved = stateGet(DIRECTORY_KEY);
+  const selected = state.directories.includes(previous)
+    ? previous
+    : state.directories.includes(saved)
+    ? saved
+    : "";
+  select.value = selected;
+  stateSet(DIRECTORY_KEY, selected);
 
   elements.memberPicks.replaceChildren(...state.agents.map((agent) => {
     const label = document.createElement("label");
@@ -471,7 +479,20 @@ function updateCreateButton() {
     !elements.directorySelect.value || state.createMembers.size === 0;
 }
 
-elements.directorySelect.addEventListener("change", updateCreateButton);
+elements.directorySelect.addEventListener("change", () => {
+  const directory = state.directories.includes(elements.directorySelect.value)
+    ? elements.directorySelect.value
+    : "";
+  elements.directorySelect.value = directory;
+  stateSet(DIRECTORY_KEY, directory);
+  state.listView = "groups";
+  state.selecting = false;
+  state.selected.clear();
+  elements.listStatus.textContent = "";
+  if (state.current?.group.directory !== directory) closeGroup();
+  renderGroupList();
+  updateCreateButton();
+});
 
 elements.createForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -508,11 +529,15 @@ function inSelection() {
 
 function visibleGroups() {
   const trash = state.listView === "trash";
+  const directory = elements.directorySelect.value;
   return [...state.groups.values()]
-    .filter((group) => Boolean(group.trashedAt) === trash)
-    .sort((a, b) => trash
-      ? b.trashedAt.localeCompare(a.trashedAt)
-      : b.createdAt.localeCompare(a.createdAt));
+    .filter((group) => group.directory === directory && Boolean(group.trashedAt) === trash)
+    .sort(compareGroupSummaries);
+}
+
+function compareGroupSummaries(left, right) {
+  return (right.updatedAt || 0) - (left.updatedAt || 0) ||
+    String(right.id).localeCompare(String(left.id));
 }
 
 function renderGroupList() {
@@ -672,6 +697,11 @@ async function openGroup(groupId, { keepPane = false } = {}) {
     void request("group.unsubscribe", { groupId: previous }).catch(() => {});
   }
   const snapshot = await request("group.subscribe", { groupId });
+  // 换目录会清空当前会话；订阅响应迟到时也不能把旧目录的群重新打开。
+  if (snapshot.group.directory !== elements.directorySelect.value) {
+    void request("group.unsubscribe", { groupId }).catch(() => {});
+    return;
+  }
   const switched = previous !== groupId;
   state.currentGroupId = groupId;
   state.current = {
@@ -1613,4 +1643,20 @@ function setConnectionStatus(stateName, text) {
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function stateGet(key) {
+  try {
+    return localStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function stateSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // 浏览器禁用本地存储时，当前页面仍可继续使用。
+  }
 }

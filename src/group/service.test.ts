@@ -130,6 +130,22 @@ test("renaming changes only the lanting title and rejects empty names", async (t
   await assert.rejects(service.rename(groupId, "x".repeat(101)), /最多 100/u);
 });
 
+test("group summaries use Relayu recency ordering and visible changes refresh it", async (t) => {
+  const { service, store, groupId } = await setup(t);
+  const other = await service.create({ directory: "demo", members: ["claude"], title: "other" });
+  await store.update(groupId, (group) => {
+    group.updatedAt = 100;
+  });
+  await store.update(other.id, (group) => {
+    group.updatedAt = 200;
+  });
+  assert.deepEqual(service.groups().map((group) => group.id), [other.id, groupId]);
+
+  const renamed = await service.rename(groupId, "recent");
+  assert.ok(renamed.updatedAt > 200);
+  assert.equal(service.groups()[0]?.id, groupId);
+});
+
 test("trashed groups keep their data, can be restored, and refuse other operations", async (t) => {
   const { service, store, groupId } = await setup(t);
   const trashed = await service.trash([groupId]);

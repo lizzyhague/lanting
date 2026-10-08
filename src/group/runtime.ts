@@ -287,9 +287,10 @@ export class GroupRuntime {
       console.error(`群 ${groupId} 的这一轮出错：${errorMessage(error)}`);
       outcome = "failed";
     } finally {
-      this.#rounds.delete(groupId);
       this.#approvals.cancel(groupId);
     }
+    await this.#touchUpdatedAt(groupId);
+    this.#rounds.delete(groupId);
     this.#emit({ type: "round.ended", groupId, roundId: round.id, outcome });
     return outcome;
   }
@@ -306,6 +307,7 @@ export class GroupRuntime {
     } catch (error) {
       console.error(`群 ${groupId} 压缩上下文出错：${errorMessage(error)}`);
     } finally {
+      await this.#touchUpdatedAt(groupId);
       this.#compactions.delete(groupId);
       this.#emit({ type: "compact.ended", groupId });
     }
@@ -454,6 +456,14 @@ export class GroupRuntime {
   #touch(groupId: string, agent: string): void {
     const cached = this.#sessions.get(sessionKey(groupId, agent));
     if (cached) cached.lastUsedAt = Date.now();
+  }
+
+  async #touchUpdatedAt(groupId: string): Promise<void> {
+    try {
+      await this.#store.touch(groupId);
+    } catch (error) {
+      console.error(`更新群 ${groupId} 的最近活动时间失败：${errorMessage(error)}`);
+    }
   }
 
   async #dropSession(groupId: string, agent: string, session: AgentSession): Promise<void> {
