@@ -431,7 +431,6 @@ export class GroupRuntime {
       settings: { ...settings },
       systemPrompt: buildSystemPrompt({
         username: group.username,
-        cwd: group.cwd,
         others: group.members
           .filter((member) => member !== agent && this.#agents.has(member))
           .map((member) => ({ tag: member, name: this.#agents.get(member).displayName })),

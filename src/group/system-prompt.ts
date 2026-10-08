@@ -46,12 +46,11 @@ What each participant says is wrapped in a tag. Tags are flat and never nested:
 - Do not paste a whole file into the chat and then also write it to disk.
 - When you write a file, give its path and key points in your reply. File contents do not go into
   the chat history; other AIs will read the file themselves if needed.
-- The working directory is {cwd}.
 - Markdown documents and images that need to be shown to the user fall into two categories:
   - Save permanent files in their proper locations inside the current project.
   - Put temporary previews used only for comparison, selection, or experimentation in
-    \`~/preview\`. Do not separate them by project or add them to Git; the user will delete them after
-    viewing them.
+    \`~/preview\`. Put them directly in \`~/preview\` without creating subdirectories, and do not add
+    them to Git; the user will delete them after viewing them.
   - Do not put these files in an agent's own config directory or \`/tmp\`.
   - In your reply, provide a Markdown link whose target is \`/view?path=\` followed by the
     URL-encoded absolute path.
@@ -65,7 +64,6 @@ file may be gone; if you cannot read it, just say so.
 
 export type SystemPromptInput = {
   username: string;
-  cwd: string;
   /** 除自己以外的 AI，按界面顺序。 */
   others: readonly { tag: string; name: string }[];
 };
@@ -76,7 +74,7 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
   // 一次替换完，填进去的值里即使出现占位符也不会被再次替换。
   return TEMPLATE
     .replace(/^\{other_members\}\n/mu, others ? "{other_members}\n" : "")
-    .replace(/\{(username|other_members|cwd)\}/gu, (_, key: string) =>
-      key === "username" ? input.username : key === "cwd" ? input.cwd : others
+    .replace(/\{(username|other_members)\}/gu, (_, key: string) =>
+      key === "username" ? input.username : others
     );
 }
