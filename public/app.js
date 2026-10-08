@@ -1,4 +1,14 @@
 import { clearAll, selectAll, toggleMember } from "./call-order.js";
+import {
+  colorChoices,
+  createCandidates,
+  effectiveCreateMembers,
+  kindOptions,
+  moveAgent,
+  paletteColor,
+  selectionAfterRemove,
+  settingsCatalogKey,
+} from "./agents.js";
 import { renderMarkdown } from "./markdown.js";
 
 const RECONNECT_DELAY_MS = 3_000;
@@ -54,8 +64,12 @@ const elements = {
   usernameInput: byId("username-input"),
   usernameSaveButton: byId("username-save-button"),
   usernameStatus: byId("username-status"),
-  defaultsList: byId("defaults-list"),
-  defaultsStatus: byId("defaults-status"),
+  settingsAgentList: byId("settings-agent-list"),
+  settingsAddButton: byId("settings-add-button"),
+  settingsRemoveButton: byId("settings-remove-button"),
+  settingsUpButton: byId("settings-up-button"),
+  settingsDownButton: byId("settings-down-button"),
+  settingsStatus: byId("settings-status"),
   attachmentList: byId("attachment-list"),
   fileInput: byId("file-input"),
   renameDialog: byId("rename-dialog"),
@@ -93,17 +107,33 @@ const state = {
   nextRequestId: 1,
   pending: new Map(),
 
-  agents: [],
+  /** lanting 支持的 CLI 种类及当前是否配置。 */
+  agentKinds: [],
+  /** 后端下发的主色表。 */
+  palette: [],
   directories: [],
   /** 群摘要，按 id 存。 */
   groups: new Map(),
   /** 新建群时勾选的 AI。 */
   createMembers: new Set(),
-  /** 后端的设置：{ username, defaults, createMembers } */
+  /** 后端的设置：{ username, agents, initialized, createMembers } */
   settings: null,
-  /** 设置页用的模型和权限列表，按 AI 存；值为 { catalog } 或 { error }。 */
+  /** 设置页用的模型和权限列表，按“内部 id:CLI 种类”存。 */
   settingsCatalogs: new Map(),
   savingDefaults: new Set(),
+  /** 同一条记录可能因名字失焦和另一个控件变化而同时有多个请求。 */
+  savingAgents: new Map(),
+  settingsActionBusy: false,
+  /** 进行中的单项保存；顶部按钮先等它们结束，再按最新列表操作。 */
+  settingsSaves: new Set(),
+  /** 焦点还在输入框或下拉框里时跳过了一次重绘，焦点离开列表后补上。 */
+  settingsRenderPending: false,
+  selectedAgentId: null,
+  openColorAgentId: null,
+  /** 名字请求失败后保留用户输入，不被后端快照冲掉。 */
+  settingsNameDrafts: new Map(),
+  /** 每条 AI 当前的字段错误，键是内部 id。 */
+  settingsErrors: new Map(),
   /** 当前群输入框里待发的附件：{ localId, name, status: uploading|done|failed, attachment, error } */
   drafts: [],
   createBusy: false,
@@ -315,8 +345,14 @@ function handleSocketMessage(data) {
     if (!entry) return;
     state.pending.delete(message.requestId);
     clearTimeout(entry.timer);
-    if (message.ok) entry.resolve(message.data);
-    else entry.reject(new Error(message.error?.message ?? "请求失败。"));
+    if (message.ok) {
+      entry.resolve(message.data);
+    } else {
+      const error = new Error(message.error?.message ?? "请求失败。");
+      error.code = message.error?.code;
+      error.details = message.error?.details;
+      entry.reject(error);
+    }
     return;
   }
   if (message.type === "error") {
@@ -331,12 +367,7 @@ function handleSocketMessage(data) {
 function handleEvent(event) {
   switch (event.type) {
     case "settings.updated":
-      state.settings = event.settings;
-      if (event.settings.createMembers) {
-        state.createMembers = new Set(event.settings.createMembers);
-        renderCreateForm();
-      }
-      renderSettingsDialog();
+      applySettings(event.settings);
       return;
     case "group.removed":
       state.groups.delete(event.groupId);
@@ -439,17 +470,31 @@ function handleEvent(event) {
 
 async function loadAppState() {
   const data = await request("app.state");
-  const firstLoad = state.agents.length === 0;
-  state.agents = data.agents;
+  state.agentKinds = data.agentKinds;
+  state.palette = data.palette;
   state.directories = data.directories;
   state.groups = new Map(data.groups.map((group) => [group.id, group]));
-  state.settings = data.settings;
-  // 记住的是上次新建群时的勾选，存在后端；还没建过群时全部勾选。
-  if (firstLoad) {
-    state.createMembers = new Set(data.settings.createMembers ?? state.agents.map((agent) => agent.id));
-  }
-  renderCreateForm();
+  applySettings(data.settings);
   renderGroupList();
+}
+
+function applySettings(settings) {
+  state.settings = settings;
+  state.createMembers = new Set(settings.createMembers === null
+    ? effectiveCreateMembers(null, settings)
+    : settings.createMembers);
+  const ids = new Set(settings.agents.map((agent) => agent.id));
+  if (!ids.has(state.selectedAgentId)) state.selectedAgentId = null;
+  if (!ids.has(state.openColorAgentId)) state.openColorAgentId = null;
+  for (const id of state.settingsNameDrafts.keys()) if (!ids.has(id)) state.settingsNameDrafts.delete(id);
+  for (const id of state.settingsErrors.keys()) if (!ids.has(id)) state.settingsErrors.delete(id);
+  const catalogKeys = new Set(settings.agents
+    .filter((agent) => agent.kind !== null)
+    .map((agent) => settingsCatalogKey(agent.id, agent.kind)));
+  for (const key of state.settingsCatalogs.keys()) if (!catalogKeys.has(key)) state.settingsCatalogs.delete(key);
+  renderCreateForm();
+  renderSettingsDialog();
+  loadAvailableSettingsCatalogs();
 }
 
 function renderCreateForm() {
@@ -466,10 +511,12 @@ function renderCreateForm() {
   select.value = selected;
   stateSet(DIRECTORY_KEY, selected);
 
-  elements.memberPicks.replaceChildren(...state.agents.map((agent) => {
+  const candidates = state.settings ? createCandidates(state.settings) : [];
+  elements.memberPicks.replaceChildren(...candidates.map((agent) => {
     const label = document.createElement("label");
     label.className = "pick";
     label.dataset.agent = agent.id;
+    paintAgent(label, agent.color);
     const input = document.createElement("input");
     input.type = "checkbox";
     input.checked = state.createMembers.has(agent.id);
@@ -478,21 +525,27 @@ function renderCreateForm() {
       else state.createMembers.delete(agent.id);
       updateCreateButton();
     });
-    label.append(input, document.createTextNode(agent.displayName));
+    label.append(input, document.createTextNode(agent.name));
     return label;
   }));
-  if (state.agents.length === 0) {
+  if (candidates.length === 0) {
     const hint = document.createElement("span");
     hint.className = "empty-hint";
-    hint.textContent = "还没有接入任何 AI";
+    hint.textContent = "还没有设置完整的 AI";
     elements.memberPicks.append(hint);
   }
   updateCreateButton();
 }
 
 function updateCreateButton() {
+  const members = selectedCreateMemberIds();
   elements.createButton.disabled = state.createBusy || !state.authenticated ||
-    !elements.directorySelect.value || state.createMembers.size === 0;
+    !elements.directorySelect.value || members.length === 0;
+}
+
+function selectedCreateMemberIds() {
+  if (!state.settings) return [];
+  return effectiveCreateMembers([...state.createMembers], state.settings);
 }
 
 elements.directorySelect.addEventListener("change", () => {
@@ -519,12 +572,12 @@ elements.groupSearchInput.addEventListener("input", () => {
 elements.createForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const directory = elements.directorySelect.value;
-  if (!directory || state.createMembers.size === 0) return;
+  const members = selectedCreateMemberIds();
+  if (!directory || members.length === 0) return;
   state.createBusy = true;
   updateCreateButton();
   elements.createStatus.textContent = "";
   try {
-    const members = state.agents.map((agent) => agent.id).filter((id) => state.createMembers.has(id));
     const { group } = await request("group.create", { directory, members, title: defaultTitle(directory) });
     state.groups.set(group.id, group);
     renderGroupList();
@@ -623,7 +676,7 @@ function groupItem(group, trash) {
   title.append(document.createTextNode(group.title));
   const meta = document.createElement("span");
   meta.className = "group-item-meta";
-  meta.append(...group.members.map((member) => agentDot(member)));
+  meta.append(...group.members.map((member) => agentDot(member, group)));
   meta.append(document.createTextNode(group.directory));
   const badge = document.createElement("span");
   badge.className = "busy-badge";
@@ -711,11 +764,12 @@ async function runBatch(type) {
   }
 }
 
-function agentDot(agent) {
+function agentDot(agent, group = state.current?.group) {
   const dot = document.createElement("span");
   dot.className = "agent-dot";
   dot.dataset.agent = agent;
-  dot.title = agentName(agent);
+  dot.title = agent;
+  paintAgent(dot, memberColor(group, agent));
   return dot;
 }
 
@@ -782,7 +836,7 @@ function renderHeader() {
   if (!group) return;
   elements.groupTitle.textContent = group.title;
   elements.groupMeta.replaceChildren(
-    ...group.members.map((member) => agentDot(member)),
+    ...group.members.map((member) => agentDot(member, group)),
     document.createTextNode(group.directory),
   );
 }
@@ -871,6 +925,7 @@ function entryElement(entry) {
   if (entry.from.role === "notice") {
     article.className = "notice";
     article.dataset.agent = entry.from.agent;
+    paintAgent(article, memberColor(state.current?.group, entry.from.agent));
     article.append(agentDot(entry.from.agent), document.createTextNode(entry.text));
     return article;
   }
@@ -894,6 +949,7 @@ function entryElement(entry) {
   const agent = entry.from.agent;
   article.className = "message agent";
   article.dataset.agent = agent;
+  paintAgent(article, memberColor(state.current?.group, agent));
   article.append(speakerLabel(agent, entry.status));
   if (entry.activities?.length) article.append(activityDetails(entry.activities));
   if (entry.text.trim()) article.append(renderMarkdown(entry.text));
@@ -909,7 +965,7 @@ function entryElement(entry) {
 function speakerLabel(agent, status) {
   const label = document.createElement("div");
   label.className = "speaker";
-  label.append(agentDot(agent), document.createTextNode(agentName(agent)));
+  label.append(agentDot(agent), document.createTextNode(agent));
   const note = { interrupted: "已打断", failed: "出错", speaking: "正在发言" }[status];
   if (note) {
     const badge = document.createElement("span");
@@ -964,7 +1020,7 @@ function renderLive() {
       const waiting = document.createElement("p");
       waiting.className = "live-waiting";
       waiting.textContent = compaction.current
-        ? `正在压缩 ${agentName(compaction.current)} 的上下文……`
+        ? `正在压缩 ${compaction.current} 的上下文……`
         : "准备压缩上下文……";
       live.replaceChildren(waiting);
       return;
@@ -983,6 +1039,7 @@ function renderLive() {
     const article = document.createElement("article");
     article.className = "message agent live";
     article.dataset.agent = round.speaking;
+    paintAgent(article, memberColor(state.current?.group, round.speaking));
     article.append(speakerLabel(round.speaking, "speaking"));
     if (round.activities.length > 0) article.append(activityList(round.activities));
     if (round.text) {
@@ -1010,9 +1067,10 @@ function renderApprovals() {
     const card = document.createElement("div");
     card.className = "approval";
     card.dataset.agent = approval.agent;
+    paintAgent(card, memberColor(state.current?.group, approval.agent));
     const title = document.createElement("div");
     title.className = "approval-title";
-    title.append(agentDot(approval.agent), document.createTextNode(`${agentName(approval.agent)} 请求使用 ${approval.toolName}`));
+    title.append(agentDot(approval.agent), document.createTextNode(`${approval.agent} 请求使用 ${approval.toolName}`));
     card.append(title);
     if (approval.detail) {
       const detail = document.createElement("pre");
@@ -1069,18 +1127,19 @@ function renderCallPicks() {
     const pick = document.createElement("span");
     pick.className = "pick";
     pick.dataset.agent = member;
+    paintAgent(pick, memberColor(group, member));
     const input = document.createElement("input");
     input.type = "checkbox";
     input.checked = state.callOrder.includes(member);
     input.disabled = state.savingOrder;
-    input.setAttribute("aria-label", `点名 ${agentName(member)}`);
+    input.setAttribute("aria-label", `点名 ${member}`);
     input.addEventListener("change", () => {
       void saveCallOrder(toggleMember(state.callOrder, member, input.checked), state.selectAllOn);
     });
     const name = document.createElement("button");
     name.type = "button";
     name.className = "pick-name";
-    name.textContent = agentName(member);
+    name.textContent = member;
     name.setAttribute("aria-haspopup", "true");
     name.setAttribute("aria-expanded", String(state.openAgent === member));
     name.addEventListener("click", () => toggleAgentPanel(member));
@@ -1195,6 +1254,15 @@ function closePopovers() {
   elements.plusButton.setAttribute("aria-expanded", "false");
   state.plusLevel = "root";
   closeAgentPanel();
+  closeSettingsColorPicker();
+}
+
+function closeSettingsColorPicker() {
+  if (state.openColorAgentId === null) return;
+  const row = elements.settingsAgentList.querySelector(`[data-agent-id="${state.openColorAgentId}"]`);
+  row?.querySelector(".settings-color-panel")?.remove();
+  row?.querySelector(".settings-color-button")?.setAttribute("aria-expanded", "false");
+  state.openColorAgentId = null;
 }
 
 elements.plusButton.addEventListener("click", () => {
@@ -1210,7 +1278,7 @@ document.addEventListener("click", (event) => {
   // 用点击那一刻的祖先链判断：菜单在点击处理里重画后，被点的按钮已经不在页面上，
   // 再从它往上找就找不到所属的菜单，会被误当成点在外面。
   const inside = event.composedPath().some((node) =>
-    node instanceof Element && node.matches(".menu-anchor, .agent-panel, .pick-name")
+    node instanceof Element && node.matches(".menu-anchor, .agent-panel, .pick-name, .settings-color-wrap")
   );
   if (!inside) closePopovers();
 });
@@ -1257,7 +1325,7 @@ function renderPlusMenu() {
   back.classList.add("menu-back");
   const disabled = groupBusy() || !state.authenticated;
   const choices = [
-    ...group.members.map((member) => menuItem(agentName(member), member, disabled, () => {
+    ...group.members.map((member) => menuItem(member, member, disabled, () => {
       closePopovers();
       void compact([member]);
     })),
@@ -1275,6 +1343,7 @@ function menuItem(label, agent, disabled, onClick) {
   button.className = "menu-item";
   if (agent) {
     button.dataset.agent = agent;
+    paintAgent(button, memberColor(state.current?.group, agent));
     button.append(agentDot(agent));
   }
   button.append(document.createTextNode(label));
@@ -1361,6 +1430,7 @@ function renderAgentPanel() {
   // 下拉框正打开时重画会把它收起来，等用户选完再画。
   if (elements.agentPanel.contains(document.activeElement) && document.activeElement?.tagName === "SELECT") return;
   elements.agentPanel.dataset.agent = agent;
+  paintAgent(elements.agentPanel, memberColor(group, agent));
   elements.agentPanel.replaceChildren(memberRow(group, agent));
   positionAgentPanel();
 }
@@ -1369,9 +1439,10 @@ function memberRow(group, agent) {
   const row = document.createElement("div");
   row.className = "member-row";
   row.dataset.agent = agent;
+  paintAgent(row, memberColor(group, agent));
   const name = document.createElement("div");
   name.className = "member-name";
-  name.append(agentDot(agent), document.createTextNode(agentName(agent)));
+  name.append(agentDot(agent), document.createTextNode(agent));
   const compactButton = document.createElement("button");
   compactButton.type = "button";
   compactButton.className = "small";
@@ -1475,7 +1546,7 @@ async function saveSettings(agent, settings) {
     if (state.current === current) current.group = group;
     elements.composerStatus.textContent = "";
   } catch (error) {
-    elements.composerStatus.textContent = `${agentName(agent)} 的设置没有保存：${errorMessage(error)}`;
+    elements.composerStatus.textContent = `${agent} 的设置没有保存：${errorMessage(error)}`;
   } finally {
     state.savingSettings.delete(agent);
     renderAgentPanel();
@@ -1486,80 +1557,474 @@ async function saveSettings(agent, settings) {
 
 elements.settingsButton.addEventListener("click", () => {
   if (!state.settings) return;
+  state.settingsErrors.clear();
+  state.settingsNameDrafts.clear();
+  state.openColorAgentId = null;
   elements.usernameInput.value = state.settings.username;
+  elements.usernameInput.removeAttribute("aria-invalid");
   elements.usernameStatus.textContent = "";
-  elements.defaultsStatus.textContent = "";
+  elements.settingsStatus.textContent = "";
   elements.settingsDialog.showModal();
   renderSettingsDialog();
-  for (const agent of state.agents) void loadSettingsCatalog(agent.id);
+  loadAvailableSettingsCatalogs();
 });
 
-elements.settingsCloseButton.addEventListener("click", () => elements.settingsDialog.close());
+elements.settingsCloseButton.addEventListener("click", () => {
+  state.openColorAgentId = null;
+  elements.settingsDialog.close();
+});
+
+elements.usernameInput.addEventListener("input", () => {
+  elements.usernameInput.removeAttribute("aria-invalid");
+  elements.usernameStatus.textContent = "";
+});
 
 elements.usernameForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   elements.usernameSaveButton.disabled = true;
+  elements.usernameInput.removeAttribute("aria-invalid");
   elements.usernameStatus.textContent = "";
   try {
     const { settings } = await request("settings.username", { username: elements.usernameInput.value });
-    state.settings = settings;
+    applySettings(settings);
     elements.usernameStatus.textContent = "";
     elements.usernameSaveButton.textContent = "已保存";
     setTimeout(() => { elements.usernameSaveButton.textContent = "保存"; }, 1_500);
   } catch (error) {
+    if (error.details?.field === "username") elements.usernameInput.setAttribute("aria-invalid", "true");
     elements.usernameStatus.textContent = errorMessage(error);
   } finally {
     elements.usernameSaveButton.disabled = false;
   }
 });
 
+function settingsAgent(agentId) {
+  return state.settings?.agents.find((agent) => agent.id === agentId) ?? null;
+}
+
+function configuredKind(kind) {
+  return state.agentKinds.find((entry) => entry.kind === kind)?.configured === true;
+}
+
+function loadAvailableSettingsCatalogs() {
+  if (!elements.settingsDialog.open || !state.settings) return;
+  for (const agent of state.settings.agents) {
+    if (agent.kind !== null && configuredKind(agent.kind)) void loadSettingsCatalog(agent);
+  }
+}
+
 async function loadSettingsCatalog(agent) {
+  if (agent.kind === null || !configuredKind(agent.kind)) return;
+  const kind = agent.kind;
+  const key = settingsCatalogKey(agent.id, kind);
+  if (state.settingsCatalogs.has(key)) return;
+  state.settingsCatalogs.set(key, { loading: true });
+  renderSettingsDialog();
   try {
-    state.settingsCatalogs.set(agent, { catalog: await request("settings.catalog", { agent }) });
+    const catalog = await request("settings.catalog", { agentId: agent.id });
+    if (settingsAgent(agent.id)?.kind === kind) state.settingsCatalogs.set(key, { catalog });
   } catch (error) {
-    state.settingsCatalogs.set(agent, { error: errorMessage(error) });
+    if (settingsAgent(agent.id)?.kind === kind) {
+      state.settingsCatalogs.set(key, { error: errorMessage(error) });
+    }
   }
   renderSettingsDialog();
 }
 
-/** 设置页里每个 AI 一行默认设置。 */
 function renderSettingsDialog() {
   if (!elements.settingsDialog.open || !state.settings) return;
-  if (elements.defaultsList.contains(document.activeElement) && document.activeElement?.tagName === "SELECT") return;
-  elements.defaultsList.replaceChildren(...state.agents.map(({ id: agent }) => {
-    const row = document.createElement("div");
-    row.className = "member-row defaults-row";
-    row.dataset.agent = agent;
-    const name = document.createElement("div");
-    name.className = "member-name";
-    name.append(agentDot(agent), document.createTextNode(agentName(agent)));
-    row.append(name);
-    const entry = state.settingsCatalogs.get(agent);
-    if (!entry) row.append(statusLine("正在读取可选的模型和权限……"));
-    else if (entry.error) row.append(statusLine(`读取失败：${entry.error}`, true));
-    else {
-      const settings = state.settings.defaults[agent] ?? { model: null, effort: null, permission: null };
-      const locked = state.savingDefaults.has(agent) || !state.authenticated;
-      row.append(...settingControls(entry.catalog, settings, locked, (next) => void saveDefaults(agent, next)));
-    }
-    return row;
-  }));
+  const active = document.activeElement;
+  const activeAgentId = active?.closest?.(".settings-agent-row")?.dataset.agentId;
+  if (elements.settingsAgentList.contains(active) && settingsAgent(activeAgentId) &&
+      (active?.tagName === "INPUT" || active?.tagName === "SELECT")) {
+    state.settingsRenderPending = true;
+    return;
+  }
+  state.settingsRenderPending = false;
+  if (state.settings.agents.length === 0) {
+    const hint = document.createElement("p");
+    hint.className = "empty-hint settings-agents-empty";
+    hint.textContent = "还没有 AI";
+    elements.settingsAgentList.replaceChildren(hint);
+  } else {
+    elements.settingsAgentList.replaceChildren(...state.settings.agents.map(settingsAgentRow));
+  }
+  updateSettingsActions();
 }
 
-async function saveDefaults(agent, settings) {
-  if (state.savingDefaults.has(agent)) return;
-  state.savingDefaults.add(agent);
+function settingsAgentRow(agent) {
+  const row = document.createElement("div");
+  row.className = "settings-agent-row";
+  row.dataset.agent = agent.id;
+  row.dataset.agentId = agent.id;
+  row.classList.toggle("selected", state.selectedAgentId === agent.id);
+  paintAgent(row, agent.color);
+  row.addEventListener("click", () => selectSettingsAgent(agent.id));
+  row.addEventListener("focusin", () => selectSettingsAgent(agent.id));
+
+  const fields = document.createElement("div");
+  fields.className = "settings-agent-fields";
+  const locked = state.savingAgents.has(agent.id) || state.settingsActionBusy || !state.authenticated;
+  const error = state.settingsErrors.get(agent.id);
+
+  const name = document.createElement("input");
+  name.className = "settings-agent-name";
+  name.type = "text";
+  name.maxLength = 200;
+  name.autocomplete = "off";
+  name.spellcheck = false;
+  name.placeholder = "名字";
+  name.setAttribute("aria-label", "AI 名字");
+  name.value = state.settingsNameDrafts.has(agent.id)
+    ? state.settingsNameDrafts.get(agent.id)
+    : agent.name;
+  name.disabled = locked;
+  if (error?.field === "name") name.setAttribute("aria-invalid", "true");
+  name.addEventListener("input", () => {
+    state.settingsNameDrafts.set(agent.id, name.value);
+    clearSettingsFieldError(agent.id, "name");
+    name.removeAttribute("aria-invalid");
+    row.querySelector(".settings-row-error")?.remove();
+  });
+  name.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      name.blur();
+    }
+  });
+  name.addEventListener("blur", () => void saveAgentName(agent.id, name.value));
+
+  const kind = document.createElement("select");
+  kind.className = "settings-agent-kind";
+  kind.setAttribute("aria-label", "CLI 种类");
+  for (const option of kindOptions(state.agentKinds, agent.kind)) {
+    const element = new Option(option.label || "CLI", option.value);
+    element.disabled = option.disabled;
+    element.selected = option.selected;
+    kind.add(element);
+  }
+  kind.value = agent.kind ?? "";
+  kind.disabled = locked;
+  if (error?.field === "kind") kind.setAttribute("aria-invalid", "true");
+  kind.addEventListener("change", () => {
+    kind.blur();
+    void saveAgentPatch(agent.id, "kind", kind.value || null);
+  });
+
+  const color = colorPicker(agent, locked, error?.field === "color");
+  fields.append(name, kind, color);
+  row.append(fields);
+
+  const defaults = document.createElement("div");
+  defaults.className = "settings-agent-defaults";
+  const defaultsLocked = locked || state.savingDefaults.has(agent.id);
+  const kindAvailable = agent.kind !== null && configuredKind(agent.kind);
+  const entry = kindAvailable ? state.settingsCatalogs.get(settingsCatalogKey(agent.id, agent.kind)) : null;
+  if (!kindAvailable) {
+    defaults.append(...settingControls(
+      { models: [], permissions: [] },
+      agent.defaults,
+      true,
+      () => {},
+    ));
+    defaults.append(statusLine(agent.kind === null
+      ? "选择 CLI 后可以设置默认值。"
+      : "这个 CLI 没有在 config.json 中配置。"));
+  } else if (!entry || entry.loading) {
+    defaults.append(statusLine("正在读取可选的模型和权限……"));
+  } else if (entry.error) {
+    defaults.append(statusLine(`读取失败：${entry.error}`, true));
+  } else {
+    defaults.append(...settingControls(
+      entry.catalog,
+      agent.defaults,
+      defaultsLocked,
+      (next) => void saveDefaults(agent.id, next),
+    ));
+  }
+  if (error?.field === "defaults") {
+    for (const select of defaults.querySelectorAll("select")) select.setAttribute("aria-invalid", "true");
+  }
+  row.append(defaults);
+  if (error) {
+    const line = statusLine(error.message, true);
+    line.classList.add("settings-row-error");
+    row.append(line);
+  }
+  return row;
+}
+
+function colorPicker(agent, locked, invalid) {
+  const wrap = document.createElement("div");
+  wrap.className = "settings-color-wrap";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "settings-color-button";
+  button.setAttribute("aria-label", "选择主色");
+  button.setAttribute("aria-haspopup", "true");
+  button.setAttribute("aria-expanded", String(state.openColorAgentId === agent.id));
+  button.disabled = locked;
+  if (invalid) button.setAttribute("aria-invalid", "true");
+  paintAgent(button, agent.color);
+  button.classList.toggle("empty", agent.color === null);
+  button.addEventListener("click", () => {
+    state.openColorAgentId = state.openColorAgentId === agent.id ? null : agent.id;
+    renderSettingsDialog();
+  });
+  wrap.append(button);
+
+  if (state.openColorAgentId === agent.id) {
+    const panel = document.createElement("div");
+    panel.className = "settings-color-panel";
+    panel.setAttribute("role", "group");
+    panel.setAttribute("aria-label", "主色");
+    colorChoices(state.palette, state.settings.agents, agent.id).forEach((choice) => {
+      const swatch = document.createElement("button");
+      swatch.type = "button";
+      swatch.className = "settings-color-choice";
+      swatch.style.setProperty("--choice-color", choice.color);
+      swatch.setAttribute("aria-label", choice.label);
+      swatch.setAttribute("aria-pressed", String(agent.color === choice.id));
+      swatch.disabled = locked || choice.disabled;
+      swatch.addEventListener("click", () => {
+        closeSettingsColorPicker();
+        void saveAgentPatch(agent.id, "color", choice.id);
+      });
+      panel.append(swatch);
+    });
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "settings-color-clear";
+    clear.setAttribute("aria-label", "不选择主色");
+    clear.setAttribute("aria-pressed", String(agent.color === null));
+    clear.disabled = locked;
+    clear.addEventListener("click", () => {
+      closeSettingsColorPicker();
+      void saveAgentPatch(agent.id, "color", null);
+    });
+    panel.append(clear);
+    wrap.append(panel);
+  }
+  return wrap;
+}
+
+function selectSettingsAgent(agentId) {
+  if (state.selectedAgentId === agentId) return;
+  state.selectedAgentId = agentId;
+  for (const row of elements.settingsAgentList.querySelectorAll(".settings-agent-row")) {
+    row.classList.toggle("selected", row.dataset.agentId === agentId);
+  }
+  updateSettingsActions();
+}
+
+function updateSettingsActions() {
+  const ids = state.settings?.agents.map((agent) => agent.id) ?? [];
+  const index = ids.indexOf(state.selectedAgentId);
+  // 单项保存进行中时不禁用：名字失焦发出的保存就发生在按下按钮和 click 之间。
+  const busy = state.settingsActionBusy || !state.authenticated;
+  elements.settingsAddButton.disabled = busy || ids.length >= 12;
+  elements.settingsRemoveButton.disabled = busy || index < 0;
+  elements.settingsUpButton.disabled = busy || index <= 0;
+  elements.settingsDownButton.disabled = busy || index < 0 || index === ids.length - 1;
+}
+
+/** 顶部按钮的操作先占住 settingsActionBusy，再等进行中的单项保存结束。 */
+async function beginSettingsAction() {
+  if (!state.settings || state.settingsActionBusy) return false;
+  state.settingsActionBusy = true;
+  elements.settingsStatus.textContent = "";
+  updateSettingsActions();
+  await Promise.allSettled([...state.settingsSaves]);
+  return true;
+}
+
+function endSettingsAction() {
+  state.settingsActionBusy = false;
+  renderSettingsDialog();
+}
+
+function trackSettingsSave(promise) {
+  state.settingsSaves.add(promise);
+  void promise.finally(() => state.settingsSaves.delete(promise));
+  return promise;
+}
+
+elements.settingsAgentList.addEventListener("focusout", () => {
+  // 等新焦点落定；焦点离开列表后才补重绘，不在点击途中换掉目标控件。
+  setTimeout(() => {
+    if (state.settingsRenderPending && !elements.settingsAgentList.contains(document.activeElement)) {
+      renderSettingsDialog();
+    }
+  }, 0);
+});
+
+elements.settingsAddButton.addEventListener("click", () => void addSettingsAgent());
+elements.settingsRemoveButton.addEventListener("click", () => void removeSettingsAgent());
+elements.settingsUpButton.addEventListener("click", () => void reorderSelectedAgent(-1));
+elements.settingsDownButton.addEventListener("click", () => void reorderSelectedAgent(1));
+
+async function addSettingsAgent() {
+  if (!(await beginSettingsAction())) return;
+  let addedId = null;
+  try {
+    if (state.settings.agents.length >= 12) return;
+    const { settings, agentId } = await request("settings.agent.add");
+    applySettings(settings);
+    state.selectedAgentId = agentId;
+    addedId = agentId;
+  } catch (error) {
+    elements.settingsStatus.textContent = errorMessage(error);
+  } finally {
+    endSettingsAction();
+    if (addedId) elements.settingsAgentList.querySelector(`[data-agent-id="${addedId}"] input`)?.focus();
+  }
+}
+
+async function removeSettingsAgent() {
+  if (!(await beginSettingsAction())) return;
+  try {
+    const agentId = state.selectedAgentId;
+    if (!agentId) return;
+    const ids = state.settings.agents.map((agent) => agent.id);
+    const nextSelection = selectionAfterRemove(ids, agentId);
+    const { settings } = await request("settings.agent.remove", { agentId });
+    applySettings(settings);
+    state.selectedAgentId = nextSelection;
+  } catch (error) {
+    elements.settingsStatus.textContent = errorMessage(error);
+  } finally {
+    endSettingsAction();
+  }
+}
+
+async function reorderSelectedAgent(delta) {
+  if (!(await beginSettingsAction())) return;
+  try {
+    if (!state.selectedAgentId) return;
+    const ids = state.settings.agents.map((agent) => agent.id);
+    const order = moveAgent(ids, state.selectedAgentId, delta);
+    if (order.every((id, index) => id === ids[index])) return;
+    const { settings } = await request("settings.agent.reorder", { order });
+    applySettings(settings);
+  } catch (error) {
+    elements.settingsStatus.textContent = errorMessage(error);
+  } finally {
+    endSettingsAction();
+  }
+}
+
+async function saveAgentName(agentId, value) {
+  const agent = settingsAgent(agentId);
+  if (!agent) return;
+  if (value === agent.name) {
+    // 这里在失焦时同步执行，新焦点还没落定，不能重绘，只就地更新这一行。
+    state.settingsNameDrafts.delete(agentId);
+    clearSettingsFieldError(agentId, "name");
+    syncSettingsRowError(agentId);
+    return;
+  }
+  await saveAgentPatch(agentId, "name", value);
+}
+
+function saveAgentPatch(agentId, field, value) {
+  return trackSettingsSave(sendAgentPatch(agentId, field, value));
+}
+
+async function sendAgentPatch(agentId, field, value) {
+  beginAgentSave(agentId);
+  clearSettingsFieldError(agentId, field);
+  elements.settingsStatus.textContent = "";
+  if (field === "kind") {
+    for (const key of state.settingsCatalogs.keys()) {
+      if (key.startsWith(`${agentId}:`)) state.settingsCatalogs.delete(key);
+    }
+  }
+  updateSettingsActions();
+  try {
+    const { settings } = await request("settings.agent.update", { agentId, [field]: value });
+    applySettings(settings);
+    if (field === "name" && state.settingsNameDrafts.get(agentId) === value) {
+      state.settingsNameDrafts.delete(agentId);
+    }
+  } catch (error) {
+    setSettingsError(error, agentId, field);
+  } finally {
+    endAgentSave(agentId);
+    renderSettingsDialog();
+    syncSettingsRowError(agentId);
+    loadAvailableSettingsCatalogs();
+  }
+}
+
+function beginAgentSave(agentId) {
+  state.savingAgents.set(agentId, (state.savingAgents.get(agentId) ?? 0) + 1);
+}
+
+function endAgentSave(agentId) {
+  const remaining = (state.savingAgents.get(agentId) ?? 1) - 1;
+  if (remaining > 0) state.savingAgents.set(agentId, remaining);
+  else state.savingAgents.delete(agentId);
+}
+
+function saveDefaults(agentId, settings) {
+  if (state.savingDefaults.has(agentId)) return Promise.resolve();
+  return trackSettingsSave(sendDefaults(agentId, settings));
+}
+
+async function sendDefaults(agentId, settings) {
+  state.savingDefaults.add(agentId);
+  clearSettingsFieldError(agentId, "defaults");
+  elements.settingsStatus.textContent = "";
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-  elements.defaultsStatus.textContent = "";
   renderSettingsDialog();
   try {
-    const { settings: saved } = await request("settings.defaults", { agent, ...settings });
-    state.settings = saved;
+    const { settings: saved } = await request("settings.defaults", { agentId, ...settings });
+    applySettings(saved);
   } catch (error) {
-    elements.defaultsStatus.textContent = `${agentName(agent)} 的默认设置没有保存：${errorMessage(error)}`;
+    setSettingsError(error, agentId, "defaults");
   } finally {
-    state.savingDefaults.delete(agent);
+    state.savingDefaults.delete(agentId);
     renderSettingsDialog();
+    syncSettingsRowError(agentId);
+  }
+}
+
+/** 重绘被跳过时，也要把这一行的错误标记和文字就地更新。 */
+function syncSettingsRowError(agentId) {
+  const row = elements.settingsAgentList.querySelector(`[data-agent-id="${agentId}"]`);
+  if (!row) return;
+  for (const control of row.querySelectorAll("[aria-invalid]")) control.removeAttribute("aria-invalid");
+  row.querySelector(".settings-row-error")?.remove();
+  const error = state.settingsErrors.get(agentId);
+  if (!error) return;
+  const selector = {
+    name: ".settings-agent-name",
+    kind: ".settings-agent-kind",
+    color: ".settings-color-button",
+    defaults: ".settings-agent-defaults select",
+  }[error.field];
+  if (selector) for (const control of row.querySelectorAll(selector)) control.setAttribute("aria-invalid", "true");
+  const line = statusLine(error.message, true);
+  line.classList.add("settings-row-error");
+  row.append(line);
+}
+
+function clearSettingsFieldError(agentId, field) {
+  if (state.settingsErrors.get(agentId)?.field === field) state.settingsErrors.delete(agentId);
+}
+
+function setSettingsError(error, fallbackAgentId, fallbackField) {
+  const field = error.details?.field ?? fallbackField;
+  if (field === "username") {
+    elements.usernameInput.setAttribute("aria-invalid", "true");
+    elements.usernameStatus.textContent = errorMessage(error);
+    return;
+  }
+  const agentId = error.details?.agentId ?? fallbackAgentId;
+  if (field && agentId && settingsAgent(agentId)) {
+    state.settingsErrors.set(agentId, { field, message: errorMessage(error) });
+  } else {
+    elements.settingsStatus.textContent = errorMessage(error);
   }
 }
 
@@ -1677,8 +2142,14 @@ elements.renameForm.addEventListener("submit", async (event) => {
 
 /* ---------- 杂项 ---------- */
 
-function agentName(id) {
-  return state.agents.find((agent) => agent.id === id)?.displayName ?? id;
+function memberColor(group, agent) {
+  return group?.colors?.[agent] ?? null;
+}
+
+function paintAgent(element, colorId) {
+  const color = paletteColor(state.palette, colorId);
+  if (color) element.style.setProperty("--agent", color);
+  else element.style.removeProperty("--agent");
 }
 
 function showLogin() {

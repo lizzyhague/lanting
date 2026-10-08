@@ -45,6 +45,7 @@ const STATIC_FILES: Record<string, { file: string; contentType: string }> = {
   "/index.html": { file: "index.html", contentType: "text/html; charset=utf-8" },
   "/boot.js": { file: "boot.js", contentType: "text/javascript; charset=utf-8" },
   "/app.js": { file: "app.js", contentType: "text/javascript; charset=utf-8" },
+  "/agents.js": { file: "agents.js", contentType: "text/javascript; charset=utf-8" },
   "/markdown.js": { file: "markdown.js", contentType: "text/javascript; charset=utf-8" },
   "/call-order.js": { file: "call-order.js", contentType: "text/javascript; charset=utf-8" },
   "/styles.css": { file: "styles.css", contentType: "text/css; charset=utf-8" },

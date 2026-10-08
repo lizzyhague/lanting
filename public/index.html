@@ -138,12 +138,24 @@
             <input id="username-input" type="text" autocomplete="off" spellcheck="false">
             <button id="username-save-button" type="submit">保存</button>
           </div>
-          <p class="member-note">只影响以后新开的群。英文字母和数字，1～16 位，不能包含 AI 的标签名。</p>
+          <p class="member-note">只影响以后新开的群。英文字母和数字，1～16 位，不能与任一 AI 名字相同（不区分大小写）。</p>
           <p id="username-status" class="form-status" aria-live="polite"></p>
         </form>
-        <p class="popover-heading">每个 AI 的默认设置（新开的群用这些值）</p>
-        <div id="defaults-list" class="defaults-list"></div>
-        <p id="defaults-status" class="form-status" aria-live="polite"></p>
+        <section class="settings-agents" aria-labelledby="settings-agents-title">
+          <div class="settings-agents-heading">
+            <h3 id="settings-agents-title">AI</h3>
+            <div class="settings-agent-actions" role="group" aria-label="AI 列表操作">
+              <button id="settings-add-button" class="small" type="button">添加</button>
+              <button id="settings-remove-button" class="small danger" type="button">删除</button>
+              <button id="settings-up-button" class="small" type="button" aria-label="上移选中的 AI">↑</button>
+              <button id="settings-down-button" class="small" type="button" aria-label="下移选中的 AI">↓</button>
+            </div>
+          </div>
+          <div id="settings-agent-list" class="settings-agent-list"></div>
+        </section>
+        <p class="member-note">切换 CLI 会清空这个 AI 的默认设置。</p>
+        <p class="member-note">群里的 AI 身份（名字、CLI、颜色）在建群时确定，之后修改设置不影响已有的群。</p>
+        <p id="settings-status" class="form-status" aria-live="polite"></p>
       </div>
     </dialog>
 
