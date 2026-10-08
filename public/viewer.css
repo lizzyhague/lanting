@@ -1,0 +1,20 @@
+.file-viewer {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px clamp(16px, 4vw, 48px) 64px;
+}
+
+.viewer-header {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 28px;
+  padding-bottom: 16px;
+}
+
+.viewer-header h1 {
+  font-size: 1.2rem;
+  overflow-wrap: anywhere;
+}
+
+.file-viewer a { color: var(--muted); }
+.file-viewer .markdown-body { line-height: 1.8; overflow-wrap: anywhere; }
+.viewer-image { display: block; max-width: 100%; height: auto; margin: 0 auto; }

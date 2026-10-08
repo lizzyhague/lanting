@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
 import { WebSocket, WebSocketServer, type RawData } from "ws";
@@ -10,6 +11,7 @@ import type { SharedUploadClient } from "../attachments/shared-upload-client.ts"
 import { MAX_UPLOAD_BYTES, SharedUploadError } from "../attachments/types.ts";
 import { CookieAuth, secretsEqual } from "./auth.ts";
 import { BrowserConnection, type BrowserConnectionServices, type BrowserSocket } from "./connection.ts";
+import { openViewableFile } from "./files.ts";
 import { MAX_BROWSER_MESSAGE_BYTES } from "./protocol.ts";
 import { WebAssets } from "./web-assets.ts";
 
@@ -18,6 +20,7 @@ export type ServerAddress = { host: "127.0.0.1"; port: number };
 export type WebServerOptions = {
   token: string;
   services: BrowserConnectionServices;
+  fileRoots?: string[];
   /** 启动恢复尚未完成时返回 starting。 */
   readyState?: () => "starting" | "ok";
   heartbeatIntervalMs?: number;
@@ -35,6 +38,9 @@ const MAX_OUTBOUND_BUFFER_BYTES = 16 * 1_048_576;
  * 而且要重启服务才生效。
  */
 const STATIC_FILES: Record<string, { file: string; contentType: string }> = {
+  "/view": { file: "view.html", contentType: "text/html; charset=utf-8" },
+  "/viewer.js": { file: "viewer.js", contentType: "text/javascript; charset=utf-8" },
+  "/viewer.css": { file: "viewer.css", contentType: "text/css; charset=utf-8" },
   "/": { file: "index.html", contentType: "text/html; charset=utf-8" },
   "/index.html": { file: "index.html", contentType: "text/html; charset=utf-8" },
   "/boot.js": { file: "boot.js", contentType: "text/javascript; charset=utf-8" },
@@ -48,6 +54,7 @@ const STATIC_FILES: Record<string, { file: string; contentType: string }> = {
 export class WebServer {
   readonly #token: string;
   readonly #auth: CookieAuth;
+  readonly #fileRoots: readonly string[];
   readonly #services: BrowserConnectionServices;
   readonly #readyState: () => "starting" | "ok";
   readonly #heartbeatIntervalMs: number;
@@ -64,6 +71,7 @@ export class WebServer {
     if (!options.token) throw new Error("访问令牌不能为空。");
     this.#token = options.token;
     this.#auth = new CookieAuth(options.token);
+    this.#fileRoots = options.fileRoots ?? [];
     this.#services = options.services;
     this.#readyState = options.readyState ?? (() => "ok");
     this.#heartbeatIntervalMs = options.heartbeatIntervalMs ?? 30_000;
@@ -159,7 +167,7 @@ export class WebServer {
       await this.#login(request, response);
       return;
     }
-    if (pathname === "/auth/session" || pathname === "/attachments/upload") {
+    if (["/auth/session", "/raw", "/attachments/upload"].includes(pathname)) {
       if (!this.#originAllowed(request)) {
         sendJson(response, 403, { error: { message: "请求来源不匹配。" } });
         return;
@@ -183,6 +191,10 @@ export class WebServer {
       } else {
         sendJson(response, 200, { authenticated: true });
       }
+      return;
+    }
+    if (pathname === "/raw") {
+      await this.#serveRaw(request, response);
       return;
     }
     if (request.method !== "GET" && request.method !== "HEAD") {
@@ -216,6 +228,41 @@ export class WebServer {
       "x-content-type-options": "nosniff",
     });
     response.end(request.method === "HEAD" ? undefined : body);
+  }
+
+  async #serveRaw(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    response.setHeader("cache-control", "no-store");
+    response.setHeader("x-content-type-options", "nosniff");
+    response.setHeader(
+      "content-security-policy",
+      "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+    );
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      response.setHeader("allow", "GET, HEAD");
+      sendJson(response, 405, { error: { message: "只允许 GET 或 HEAD。" } });
+      return;
+    }
+    const params = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
+    const file = params.getAll("path").length === 1
+      ? await openViewableFile(this.#fileRoots, params.get("path")!)
+      : null;
+    if (!file) {
+      sendJson(response, 404, { error: { message: "文件不存在或不允许查看。" } });
+      return;
+    }
+    try {
+      response.writeHead(200, {
+        "content-type": file.contentType,
+        "content-length": file.size,
+      });
+      if (request.method === "HEAD" || file.size === 0) {
+        response.end();
+      } else {
+        await pipeline(file.handle.createReadStream({ autoClose: false, end: file.size - 1 }), response);
+      }
+    } finally {
+      await file.handle.close();
+    }
   }
 
   async #login(request: IncomingMessage, response: ServerResponse): Promise<void> {

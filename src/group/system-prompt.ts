@@ -47,6 +47,14 @@ What each participant says is wrapped in a tag. Tags are flat and never nested:
 - When you write a file, give its path and key points in your reply. File contents do not go into
   the chat history; other AIs will read the file themselves if needed.
 - The working directory is {cwd}.
+- Markdown documents and images that need to be shown to the user fall into two categories:
+  - Save permanent files in their proper locations inside the current project.
+  - Put temporary previews used only for comparison, selection, or experimentation in
+    \`~/preview\`. Do not separate them by project or add them to Git; the user will delete them after
+    viewing them.
+  - Do not put these files in \`~/.codex\` or \`/tmp\`.
+  - In your reply, provide a Markdown link whose target is \`/view?path=\` followed by the
+    URL-encoded absolute path.
 
 ## Attachments
 

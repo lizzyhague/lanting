@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,8 +23,13 @@ async function startServer(t: test.TestContext) {
   const webRoot = await mkdtemp(path.join(tmpdir(), "lanting-web-"));
   await writeFile(path.join(webRoot, "index.html"),
     '<!doctype html><html><head><script src="/app.js"></script></head><body>lanting</body></html>');
+  await writeFile(path.join(webRoot, "view.html"),
+    '<!doctype html><html><head><script type="module" src="/viewer.js"></script><link href="/viewer.css" rel="stylesheet"></head></html>');
   await writeFile(path.join(webRoot, "app.js"), "console.log('app');\n");
   await writeFile(path.join(webRoot, "boot.js"), "");
+  await writeFile(path.join(webRoot, "markdown.js"), "");
+  await writeFile(path.join(webRoot, "viewer.js"), 'import "./markdown.js";\n');
+  await writeFile(path.join(webRoot, "viewer.css"), ".file-viewer {}\n");
   await writeFile(path.join(webRoot, "styles.css"), "");
   await writeFile(path.join(webRoot, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
   const projectRoot = path.join(webRoot, "projects");
@@ -50,14 +55,20 @@ async function startServer(t: test.TestContext) {
       return { id: "attachment-1", originalName: "a.txt" } as never;
     },
   };
-  const server = new WebServer({ token: TOKEN, services: { hub, groups }, webRoot, uploads });
+  const server = new WebServer({
+    token: TOKEN,
+    services: { hub, groups },
+    fileRoots: [await realpath(projectRoot)],
+    webRoot,
+    uploads,
+  });
   const { port } = await server.listen(0);
   t.after(async () => {
     await server.close();
     await runtime.shutdown();
     await rm(webRoot, { recursive: true, force: true });
   });
-  return { base: `http://127.0.0.1:${port}`, port, hub, claude, uploaded };
+  return { base: `http://127.0.0.1:${port}`, port, hub, claude, uploaded, projectRoot, webRoot };
 }
 
 async function login(base: string, token = TOKEN): Promise<Response> {
@@ -129,6 +140,63 @@ test("serves only allow-listed static files and rewrites assets to versioned pat
 
   assert.equal((await fetch(`${base}/package.json`)).status, 404);
   assert.equal((await fetch(`${base}/`, { method: "POST" })).status, 405);
+});
+
+test("raw serves only caged Markdown and images with authentication and sandbox headers", async (t) => {
+  const { base, projectRoot, webRoot } = await startServer(t);
+  const project = path.join(projectRoot, "demo");
+  const note = path.join(project, "note.md");
+  const image = path.join(project, "image.svg");
+  const source = path.join(project, "source.ts");
+  const secret = path.join(webRoot, "secret.md");
+  await Promise.all([
+    writeFile(note, "# hello"),
+    writeFile(image, '<svg xmlns="http://www.w3.org/2000/svg"></svg>'),
+    writeFile(source, "code"),
+    writeFile(secret, "outside"),
+  ]);
+  await symlink(secret, path.join(project, "escape.md"));
+  const cookie = cookieFrom(await login(base));
+
+  const markdown = await fetch(`${base}/raw?${new URLSearchParams({ path: note })}`, {
+    headers: { cookie },
+  });
+  assert.equal(markdown.status, 200);
+  assert.equal(markdown.headers.get("content-type"), "text/markdown; charset=utf-8");
+  assert.equal(await markdown.text(), "# hello");
+  assert.equal(markdown.headers.get("cache-control"), "no-store");
+  assert.equal(markdown.headers.get("x-content-type-options"), "nosniff");
+  assert.match(markdown.headers.get("content-security-policy") ?? "", /sandbox/u);
+
+  const svg = await fetch(`${base}/raw?${new URLSearchParams({ path: image })}`, {
+    method: "HEAD",
+    headers: { cookie },
+  });
+  assert.equal(svg.status, 200);
+  assert.equal(svg.headers.get("content-type"), "image/svg+xml");
+  assert.match(svg.headers.get("content-security-policy") ?? "", /default-src 'none'/u);
+
+  for (const denied of ["note.md", secret, path.join(project, "escape.md"), source]) {
+    const response = await fetch(`${base}/raw?${new URLSearchParams({ path: denied })}`, {
+      headers: { cookie },
+    });
+    assert.equal(response.status, 404, denied);
+  }
+  assert.equal((await fetch(`${base}/raw?${new URLSearchParams({ path: note })}`)).status, 401);
+  assert.equal((await fetch(`${base}/raw?${new URLSearchParams({ path: note })}`, {
+    headers: { cookie, origin: "https://attacker.example" },
+  })).status, 403);
+  assert.equal((await fetch(`${base}/raw?${new URLSearchParams({ path: note })}`, {
+    method: "POST",
+    headers: { cookie },
+  })).status, 405);
+
+  const view = await (await fetch(`${base}/view?path=anything`)).text();
+  assert.match(view, /\/assets\/[a-f0-9]{64}\/viewer\.js/u);
+  assert.match(view, /\/assets\/[a-f0-9]{64}\/viewer\.css/u);
+  for (const asset of ["/viewer.js", "/viewer.css"]) {
+    assert.equal((await fetch(`${base}${asset}`)).status, 200, asset);
+  }
 });
 
 test("websocket requires login and answers connection.ready", async (t) => {

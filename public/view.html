@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#141413">
+    <meta name="color-scheme" content="dark">
+    <title>文件查看 · lanting</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/viewer.css">
+    <script type="module" src="/viewer.js"></script>
+  </head>
+  <body>
+    <main class="file-viewer">
+      <header class="viewer-header">
+        <a href="/">lanting</a>
+        <h1 id="file-name">文件查看</h1>
+      </header>
+      <p id="viewer-status" role="status">正在读取文件……</p>
+      <a id="viewer-login" hidden>登录后查看</a>
+      <article id="file-content"></article>
+    </main>
+  </body>
+</html>

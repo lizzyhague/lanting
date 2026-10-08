@@ -11,6 +11,9 @@ test("fills the host tag, the other members, and the working directory", () => {
   });
   assert.match(prompt, /^- <alice>: the host, i\.e\. the user\.\n- <codex>: Codex\n- <grok>: Grok\n\n## How/mu);
   assert.match(prompt, /The working directory is \/work\/demo\./u);
+  assert.match(prompt, /temporary previews[\s\S]*`~\/preview`/u);
+  assert.match(prompt, /`~\/\.codex` or `\/tmp`/u);
+  assert.match(prompt, /`\/view\?path=`[\s\S]*URL-encoded absolute path/u);
   assert.match(prompt, /"alice sent an attachment"/u);
   assert.doesNotMatch(prompt, /\{(username|other_members|cwd)\}/u);
 });

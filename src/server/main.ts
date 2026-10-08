@@ -14,6 +14,7 @@ import { GroupStore } from "../state/group-store.ts";
 import { SettingsStore } from "../state/settings-store.ts";
 import { ConnectionHub } from "./hub.ts";
 import { WebServer } from "./http-server.ts";
+import { buildViewableRoots, ensurePreviewRoot } from "./viewable-roots.ts";
 
 const DEFAULT_PORT = "3010";
 
@@ -23,6 +24,7 @@ export async function main(): Promise<void> {
 
   const configPath = path.resolve(process.env.CONFIG_PATH ?? "config.json");
   const config = await loadConfig(configPath);
+  const previewRoot = await ensurePreviewRoot();
   const dataDirectory = path.resolve(process.env.DATA_DIR ?? "data");
 
   // 群数据读不动或校验不过时直接退出，绝不能用空状态覆盖原文件。
@@ -48,6 +50,7 @@ export async function main(): Promise<void> {
   });
   const server = new WebServer({
     token,
+    fileRoots: buildViewableRoots([config.projectRoot], [previewRoot]),
     services: { hub, groups },
     uploads,
     allowedOrigins: readAllowedOrigins(process.env.ALLOWED_ORIGINS),

@@ -204,6 +204,14 @@ async function connect(token) {
     }
     if (!response.ok) throw new Error("登录服务暂时不可用。");
     elements.tokenInput.value = "";
+    const returnTo = new URLSearchParams(location.search).get("returnTo");
+    if (returnTo?.startsWith("/view?")) {
+      const target = new URL(returnTo, location.origin);
+      if (target.origin === location.origin && target.pathname === "/view") {
+        location.replace(target.href);
+        return;
+      }
+    }
   } catch (error) {
     if (generation !== state.generation) return;
     elements.loginStatus.textContent = errorMessage(error);
