@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
-import type { AgentRegistry } from "../agents/registry.ts";
-import type { AgentCatalog, AgentSettings } from "../agents/types.ts";
+import type { PaletteId } from "../agents/palette.ts";
+import { kindDisplayName, type AgentRegistry } from "../agents/registry.ts";
+import type { AgentAdapter, AgentCatalog, AgentSettings } from "../agents/types.ts";
 import type { ApprovalEvent, ApprovalRequest } from "../approvals/registry.ts";
 import { publicAttachment, type StoredAttachment } from "../attachments/prompt.ts";
 import { PathRedactor } from "../attachments/redact.ts";
@@ -17,7 +18,12 @@ import {
   type UploadTicket,
 } from "../attachments/types.ts";
 import type { GroupStore } from "../state/group-store.ts";
-import type { Settings, SettingsStore } from "../state/settings-store.ts";
+import {
+  isAgentComplete,
+  type AgentRecord,
+  type Settings,
+  type SettingsStore,
+} from "../state/settings-store.ts";
 import { listDirectories, resolveDirectory } from "./directories.ts";
 import {
   GroupError,
@@ -44,6 +50,8 @@ export type GroupSummary = {
   directory: string;
   members: string[];
   callOrder: string[];
+  /** 每个冻结标签的主色。 */
+  colors: Record<string, PaletteId>;
   /** 每个成员在这个群里的模型、思考强度和权限。 */
   settings: Record<string, AgentSettings>;
   createdAt: string;
@@ -135,20 +143,18 @@ export class GroupService {
     return () => this.#listeners.delete(listener);
   }
 
-  agents(): { id: string; displayName: string }[] {
-    return this.#agents.kinds.map((id) => ({ id, displayName: this.#agents.get(id).displayName }));
+  agents(): (Pick<AgentRecord, "id" | "name" | "kind" | "color"> & { complete: boolean })[] {
+    return this.#settings.get().agents.map((agent) => ({
+      id: agent.id,
+      name: agent.name,
+      kind: agent.kind,
+      color: agent.color,
+      complete: isAgentComplete(agent, this.#agents.kinds),
+    }));
   }
 
-  /** 页面用的设置：只列已接入的 AI 的默认设置。 */
   settings(): Settings {
-    const settings = this.#settings.get();
-    return {
-      ...settings,
-      defaults: Object.fromEntries(this.#agents.kinds.map((id) => [id, this.#settings.defaultsFor(id)])),
-      createMembers: settings.createMembers === null
-        ? null
-        : this.#agents.kinds.filter((id) => settings.createMembers!.includes(id)),
-    };
+    return this.#settings.get();
   }
 
   /** 改用户名只影响以后新开的群。 */
@@ -162,16 +168,24 @@ export class GroupService {
   }
 
   /** 设置页里这个 AI 能选的模型和权限，按项目根目录查。 */
-  async settingsCatalog(agent: string): Promise<AgentCatalog> {
-    if (!this.#agents.has(agent)) throw new GroupError("agent_unavailable", `${agent} 目前没有接入。`);
-    return this.#agents.get(agent).catalog(this.#projectRoot);
+  async settingsCatalog(agentId: string): Promise<AgentCatalog> {
+    const agent = this.#settingsAgent(this.#settings.get(), agentId);
+    return this.#adapterForSettings(agent).catalog(this.#projectRoot);
   }
 
   /** 每个 AI 的默认设置，新开的群复制一份；已经开的群不受影响。 */
-  async setDefaultSettings(agent: string, settings: AgentSettings): Promise<Settings> {
-    this.#checkSettings(agent, await this.settingsCatalog(agent), settings);
+  async setDefaultSettings(agentId: string, settings: AgentSettings): Promise<Settings> {
+    const agent = this.#settingsAgent(this.#settings.get(), agentId);
+    const kind = agent.kind;
+    const catalog = await this.#adapterForSettings(agent).catalog(this.#projectRoot);
+    this.#checkSettings(agent.name, catalog, settings);
     await this.#settings.update((next) => {
-      next.defaults[agent] = { ...settings };
+      const current = next.agents.find((item) => item.id === agentId);
+      if (!current) throw new GroupError("agent_not_found", `没有这个 AI：${agentId}`);
+      if (current.kind !== kind) {
+        throw new GroupError("agent_changed", `${current.name} 的 CLI 已经变化，请重试。`);
+      }
+      current.defaults = { ...settings };
     });
     return this.#emitSettings();
   }
@@ -193,28 +207,41 @@ export class GroupService {
     if (new Set(input.members).size !== input.members.length) {
       throw new GroupError("invalid_members", "成员里有重复的 AI。");
     }
-    for (const member of input.members) {
-      if (!this.#agents.has(member)) throw new GroupError("invalid_members", `${member} 目前没有接入。`);
-    }
-    // 成员按界面顺序（登记顺序）保存，和勾选先后无关。
-    const members = this.#agents.kinds.filter((id) => input.members.includes(id));
-    const title = input.title.trim().slice(0, MAX_TITLE_LENGTH) || input.directory;
-    // 用户名和每个 AI 的设置从当前设置复制一份，之后改设置不影响这个群。
-    // 新群的点名默认是全部成员，按界面顺序。
     const settings = this.#settings.get();
+    const requested = new Set(input.members);
+    const selected = settings.agents.filter((agent) => requested.has(agent.id));
+    if (selected.length !== input.members.length) {
+      const known = new Set(selected.map((agent) => agent.id));
+      const missing = input.members.find((id) => !known.has(id));
+      throw new GroupError("invalid_members", `没有这个 AI：${missing ?? "未知"}`);
+    }
+    for (const agent of selected) {
+      if (!isAgentComplete(agent, this.#agents.kinds)) {
+        throw new GroupError("invalid_members", `${agent.name} 的设置不完整。`);
+      }
+    }
+    const memberIds = selected.map((agent) => agent.id);
+    const members = selected.map((agent) => ({
+      tag: agent.name,
+      kind: agent.kind!,
+      color: agent.color!,
+      settings: { ...agent.defaults },
+    }));
+    const tags = members.map((member) => member.tag);
+    const title = input.title.trim().slice(0, MAX_TITLE_LENGTH) || input.directory;
+    // 用户名和每个 AI 的身份、设置从同一份快照复制，之后改设置不影响这个群。
     const group = await this.#store.create({
       title,
       cwd,
       username: settings.username,
       members,
-      callOrder: members,
-      settings: Object.fromEntries(members.map((member) => [member, this.#settings.defaultsFor(member)])),
+      callOrder: tags,
     });
     const summary = this.#summary(group);
     this.#emit({ scope: "global", payload: { type: "group.created", group: summary } });
     // 记住这次勾了哪些 AI，下次新建时照这个勾，换设备也一样。
     await this.#settings.update((next) => {
-      next.createMembers = [...members];
+      next.createMembers = [...memberIds];
     });
     this.#emitSettings();
     return summary;
@@ -252,7 +279,7 @@ export class GroupService {
   async catalog(groupId: string, agent: string): Promise<AgentCatalog> {
     const group = this.#requireActive(groupId);
     this.#requireMember(group, agent);
-    return this.#agents.get(agent).catalog(group.cwd);
+    return this.#adapterFor(group, agent).catalog(group.cwd);
   }
 
   /**
@@ -262,7 +289,7 @@ export class GroupService {
   async setAgentSettings(groupId: string, agent: string, settings: AgentSettings): Promise<GroupSummary> {
     const group = this.#requireActive(groupId);
     this.#requireMember(group, agent);
-    this.#checkSettings(agent, await this.#agents.get(agent).catalog(group.cwd), settings);
+    this.#checkSettings(agent, await this.#adapterFor(group, agent).catalog(group.cwd), settings);
     const updated = await this.#store.update(groupId, (next) => {
       const state = next.agents[agent];
       if (state) state.settings = { ...settings };
@@ -390,11 +417,18 @@ export class GroupService {
       }
       const failures: string[] = [];
       for (const agent of group.members) {
-        const nativeId = group.agents[agent]?.nativeSessionId;
-        if (!nativeId) continue;
+        const state = group.agents[agent];
+        if (!state?.nativeSessionId) continue;
+        const nativeId = state.nativeSessionId;
+        if (!this.#agents.has(state.kind)) {
+          await this.#store.update(groupId, (next) => {
+            const current = next.agents[agent];
+            if (current) current.nativeSessionId = null;
+          });
+          continue;
+        }
         try {
-          if (!this.#agents.has(agent)) throw new Error("目前没有接入，删不了它的原生会话");
-          await this.#agents.get(agent).deleteSession(nativeId, group.cwd);
+          await this.#agents.get(state.kind).deleteSession(nativeId, group.cwd);
           await this.#store.update(groupId, (next) => {
             const state = next.agents[agent];
             if (state) state.nativeSessionId = null;
@@ -552,7 +586,37 @@ export class GroupService {
 
   #requireMember(group: Group, agent: string): void {
     if (!group.members.includes(agent)) throw new GroupError("invalid_agent", `${agent} 不是这个群的成员。`);
-    if (!this.#agents.has(agent)) throw new GroupError("agent_unavailable", `${agent} 目前没有接入。`);
+  }
+
+  #adapterFor(group: Group, agent: string): AgentAdapter {
+    const state = group.agents[agent];
+    if (!state) throw new GroupError("invalid_agent", `${agent} 不是这个群的成员。`);
+    if (!this.#agents.has(state.kind)) {
+      throw new GroupError(
+        "agent_unavailable",
+        `${agent} 使用的 ${kindDisplayName(state.kind)} 没有在 config.json 中配置。`,
+      );
+    }
+    return this.#agents.get(state.kind);
+  }
+
+  #settingsAgent(settings: Settings, agentId: string): AgentRecord {
+    const agent = settings.agents.find((item) => item.id === agentId);
+    if (!agent) throw new GroupError("agent_not_found", `没有这个 AI：${agentId}`);
+    return agent;
+  }
+
+  #adapterForSettings(agent: AgentRecord): AgentAdapter {
+    if (agent.kind === null) {
+      throw new GroupError("agent_unavailable", `${agent.name} 还没有选择 CLI。`);
+    }
+    if (!this.#agents.has(agent.kind)) {
+      throw new GroupError(
+        "agent_unavailable",
+        `${agent.name} 选择的 ${kindDisplayName(agent.kind)} 没有在 config.json 中配置。`,
+      );
+    }
+    return this.#agents.get(agent.kind);
   }
 
   #summary(group: Group): GroupSummary {
@@ -562,6 +626,7 @@ export class GroupService {
       directory: path.basename(group.cwd),
       members: group.members,
       callOrder: group.callOrder,
+      colors: Object.fromEntries(group.members.map((member) => [member, group.agents[member]!.color])),
       settings: Object.fromEntries(group.members.map((member) => [member, group.agents[member]!.settings])),
       createdAt: group.createdAt,
       updatedAt: group.updatedAt,

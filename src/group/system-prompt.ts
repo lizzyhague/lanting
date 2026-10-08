@@ -65,12 +65,12 @@ file may be gone; if you cannot read it, just say so.
 export type SystemPromptInput = {
   username: string;
   /** 除自己以外的 AI，按界面顺序。 */
-  others: readonly { tag: string; name: string }[];
+  others: readonly string[];
 };
 
 /** 只列群主和其他 AI，不告诉 AI“你是谁”。 */
 export function buildSystemPrompt(input: SystemPromptInput): string {
-  const others = input.others.map(({ tag, name }) => `- <${tag}>: ${name}`).join("\n");
+  const others = input.others.map((tag) => `- <${tag}>`).join("\n");
   // 一次替换完，填进去的值里即使出现占位符也不会被再次替换。
   return TEMPLATE
     .replace(/^\{other_members\}\n/mu, others ? "{other_members}\n" : "")

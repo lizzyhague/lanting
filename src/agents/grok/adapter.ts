@@ -48,7 +48,6 @@ const ALWAYS_APPROVE = "always-approve";
 
 export class GrokAdapter implements AgentAdapter {
   readonly kind = "grok";
-  readonly displayName = "Grok";
   /** 照 Grok Remote：每轮结束就关掉 Grok 进程。 */
   readonly closeAfterTurn = true;
   readonly #options: GrokAdapterOptions;

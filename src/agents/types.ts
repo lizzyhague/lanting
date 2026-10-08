@@ -107,8 +107,6 @@ export interface AgentSession {
 export interface AgentAdapter {
   /** 这个适配器接入的 CLI 种类。 */
   readonly kind: AgentKind;
-  /** 写进 system prompt 的名字，比如 Codex。 */
-  readonly displayName: string;
   /**
    * 为 true 时每次发言结束就关掉 CLI 进程，下次点名再恢复会话；
    * 为 false 时进程留着复用，空闲一段时间后才关。照各家参照项目的做法选。

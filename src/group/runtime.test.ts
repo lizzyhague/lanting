@@ -12,10 +12,21 @@ import { DEFAULT_AGENT_SETTINGS } from "../agents/types.ts";
 import { GroupStore } from "../state/group-store.ts";
 import { GroupError, GroupRuntime, type GroupEvent } from "./runtime.ts";
 
-async function setup(t: test.TestContext, members: AgentKind[] = [...AGENT_KINDS]) {
+type TestMember = { tag: string; kind: AgentKind };
+
+async function setup(
+  t: test.TestContext,
+  input: readonly (AgentKind | TestMember)[] = AGENT_KINDS,
+  configured?: readonly AgentKind[],
+) {
   const directory = await mkdtemp(path.join(tmpdir(), "lanting-runtime-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const adapters = Object.fromEntries(members.map((id) => [id, new FakeAdapter(id)]));
+  const members = input.map((member): TestMember =>
+    typeof member === "string" ? { tag: member, kind: member } : member
+  );
+  const configuredKinds = configured ?? [...new Set(members.map((member) => member.kind))];
+  const adapters: Partial<Record<AgentKind, FakeAdapter>> = {};
+  for (const kind of configuredKinds) adapters[kind] = new FakeAdapter(kind);
   const store = await GroupStore.open(directory);
   const runtime = new GroupRuntime({ store, agents: new AgentRegistry(Object.values(adapters)) });
   t.after(() => runtime.shutdown());
@@ -25,9 +36,9 @@ async function setup(t: test.TestContext, members: AgentKind[] = [...AGENT_KINDS
     title: "demo",
     cwd: "/work/demo",
     username: "host",
-    members: members.map((tag, index) => ({
-      tag,
-      kind: tag,
+    members: members.map((member, index) => ({
+      tag: member.tag,
+      kind: member.kind,
       color: PALETTE[index]!.id,
       settings: { ...DEFAULT_AGENT_SETTINGS },
     })),
@@ -158,7 +169,7 @@ test("system prompts list the host and the other members, not the agent itself",
   const { adapters, runtime, groupId } = await setup(t);
   await runtime.startRound(groupId, "q", ["codex"]).done;
   const prompt = adapters.codex!.calls[0]!.options.systemPrompt;
-  assert.match(prompt, /- <host>: the host, i\.e\. the user\.\n- <claude>: Claude\n- <grok>: Grok\n/u);
+  assert.match(prompt, /- <host>: the host, i\.e\. the user\.\n- <claude>\n- <grok>\n/u);
   assert.doesNotMatch(prompt, /<codex>/u);
   assert.equal(adapters.codex!.calls[0]!.options.cwd, "/work/demo");
 });
@@ -320,9 +331,9 @@ test("compaction runs agents in order, skips agents without a session, and only 
   assert.equal(adapters.codex!.sessions.at(-1)!.closed, true);
   assert.equal(adapters.claude!.sessions.length, 1);
   assert.deepEqual(store.transcript(groupId).slice(-3).map((entry) => [entry.from, entry.text]), [
-    [{ role: "notice", agent: "codex" }, "已压缩 Codex 的上下文。"],
-    [{ role: "notice", agent: "grok" }, "Grok 还没有发过言，没有可压缩的上下文。"],
-    [{ role: "notice", agent: "claude" }, "已压缩 Claude 的上下文。"],
+    [{ role: "notice", agent: "codex" }, "已压缩 codex 的上下文。"],
+    [{ role: "notice", agent: "grok" }, "grok 还没有发过言，没有可压缩的上下文。"],
+    [{ role: "notice", agent: "claude" }, "已压缩 claude 的上下文。"],
   ]);
   assert.deepEqual(events.filter((event) => event.type.startsWith("compact.")).map((event) => event.type), [
     "compact.started",
@@ -342,7 +353,7 @@ test("a failed compaction is reported and the session is reopened next time", as
   await runtime.startRound(groupId, "q1", ["claude"]).done;
   adapters.claude!.compactError = new Error("context too small");
   await runtime.compact(groupId, ["claude"]).done;
-  assert.equal(store.transcript(groupId).at(-1)?.text, "Claude 的上下文没有压缩成功：context too small");
+  assert.equal(store.transcript(groupId).at(-1)?.text, "claude 的上下文没有压缩成功：context too small");
   assert.equal(adapters.claude!.sessions[0]!.closed, true);
   await runtime.startRound(groupId, "q2", ["claude"]).done;
   assert.equal(adapters.claude!.calls.at(-1)?.kind, "resume");
@@ -352,4 +363,109 @@ test("compaction rejects agents outside the group", async (t) => {
   const { runtime, groupId } = await setup(t, ["claude"]);
   assert.throws(() => runtime.compact(groupId, []), /至少要选一个/u);
   assert.throws(() => runtime.compact(groupId, ["codex"]), /不是这个群的成员/u);
+});
+
+test("two members sharing one CLI keep distinct native sessions across resumes", async (t) => {
+  const { adapters, store, runtime, groupId } = await setup(t, [
+    { tag: "alice", kind: "codex" },
+    { tag: "bob", kind: "codex" },
+  ]);
+  const adapter = adapters.codex!;
+  adapter.closeAfterTurn = true;
+
+  await runtime.startRound(groupId, "first", ["alice", "bob"]).done;
+  assert.deepEqual(adapter.calls.map((call) => [call.kind, call.nativeId]), [
+    ["start", null],
+    ["start", null],
+  ]);
+  assert.equal(store.get(groupId)?.agents.alice?.nativeSessionId, "codex-session-1");
+  assert.equal(store.get(groupId)?.agents.bob?.nativeSessionId, "codex-session-2");
+
+  await runtime.startRound(groupId, "alice again", ["alice"]).done;
+  await runtime.startRound(groupId, "bob again", ["bob"]).done;
+  assert.deepEqual(adapter.calls.slice(2).map((call) => [call.kind, call.nativeId]), [
+    ["resume", "codex-session-1"],
+    ["resume", "codex-session-2"],
+  ]);
+});
+
+test("members sharing one CLI keep approvals and interruption tied to their tags", async (t) => {
+  const { adapters, runtime, events, groupId } = await setup(t, [
+    { tag: "alice", kind: "codex" },
+    { tag: "bob", kind: "codex" },
+  ]);
+  const adapter = adapters.codex!;
+  const approvals: string[] = [];
+  adapter.script = () => [
+    { type: "ask", toolName: "Bash" },
+    { type: "end", outcome: "completed", text: "done" },
+  ];
+  runtime.approvals.onEvent((event) => {
+    if (event.type !== "approval.requested") return;
+    approvals.push(event.approval.agent);
+    runtime.approvals.respond(event.approval.approvalId, "allow");
+  });
+  await runtime.startRound(groupId, "approve", ["alice", "bob"]).done;
+  assert.deepEqual(approvals, ["alice", "bob"]);
+
+  adapter.script = () => "hang";
+  const round = runtime.startRound(groupId, "stop alice", ["alice"]);
+  while (!events.some((event) => event.type === "agent.text" && event.agent === "alice")) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  await runtime.interrupt(groupId);
+  assert.equal(await round.done, "interrupted");
+
+  adapter.script = () => [{ type: "end", outcome: "completed", text: "bob is fine" }];
+  assert.equal(await runtime.startRound(groupId, "call bob", ["bob"]).done, "completed");
+  assert.equal(adapter.sessions.at(-1)?.nativeId, "codex-session-2");
+});
+
+test("members sharing one CLI compact their own sessions", async (t) => {
+  const { adapters, store, runtime, groupId } = await setup(t, [
+    { tag: "alice", kind: "codex" },
+    { tag: "bob", kind: "codex" },
+  ]);
+  const adapter = adapters.codex!;
+  await runtime.startRound(groupId, "open", ["alice", "bob"]).done;
+  await runtime.compact(groupId, ["bob", "alice"]).done;
+
+  assert.deepEqual(adapter.compacted, ["codex-session-2", "codex-session-1"]);
+  assert.deepEqual(store.transcript(groupId).slice(-2).map((entry) => entry.text), [
+    "已压缩 bob 的上下文。",
+    "已压缩 alice 的上下文。",
+  ]);
+});
+
+test("an unavailable frozen kind fails when its turn arrives", async (t) => {
+  const { adapters, store, runtime, groupId } = await setup(t, [
+    { tag: "helper", kind: "claude" },
+    { tag: "alice", kind: "codex" },
+  ], ["claude"]);
+
+  assert.equal(await runtime.startRound(groupId, "question", ["helper", "alice"]).done, "failed");
+  assert.equal(adapters.claude!.received.length, 1);
+  assert.match(adapters.claude!.calls[0]!.options.systemPrompt, /- <alice>/u);
+  const failed = store.transcript(groupId).at(-1)!;
+  assert.deepEqual(failed.from, { role: "agent", agent: "alice" });
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.error, "alice 使用的 Codex CLI 没有在 config.json 中配置。");
+});
+
+test("compaction records an unavailable kind and continues with later members", async (t) => {
+  const { adapters, store, runtime, groupId } = await setup(t, [
+    { tag: "alice", kind: "codex" },
+    { tag: "helper", kind: "claude" },
+  ], ["claude"]);
+  await runtime.startRound(groupId, "open helper", ["helper"]).done;
+  await store.update(groupId, (group) => {
+    group.agents.alice!.nativeSessionId = "orphan-codex-session";
+  });
+
+  await runtime.compact(groupId, ["alice", "helper"]).done;
+  assert.deepEqual(store.transcript(groupId).slice(-2).map((entry) => entry.text), [
+    "alice 的上下文没有压缩成功：alice 使用的 Codex CLI 没有在 config.json 中配置。",
+    "已压缩 helper 的上下文。",
+  ]);
+  assert.deepEqual(adapters.claude!.compacted, ["claude-session-1"]);
 });

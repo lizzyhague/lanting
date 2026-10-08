@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 
-import type { AgentRegistry } from "../agents/registry.ts";
+import { kindDisplayName, type AgentRegistry } from "../agents/registry.ts";
 import {
-  DEFAULT_AGENT_SETTINGS,
+  type AgentAdapter,
   type AgentEvent,
   type AgentSession,
   type AgentSettings,
@@ -161,9 +161,6 @@ export class GroupRuntime {
       if (!group.members.includes(agent)) {
         throw new GroupError("invalid_order", `${agent} 不是这个群的成员。`);
       }
-      if (!this.#agents.has(agent)) {
-        throw new GroupError("agent_unavailable", `${agent} 目前没有接入，不能点名。`);
-      }
     }
     if (this.#rounds.has(groupId)) throw new GroupError("busy", "这个群还有一轮没有结束。");
     if (this.#compactions.has(groupId)) throw new GroupError("busy", "这个群正在压缩上下文，请等压缩结束。");
@@ -193,7 +190,6 @@ export class GroupRuntime {
     if (new Set(agents).size !== agents.length) throw new GroupError("invalid_agents", "有重复的 AI。");
     for (const agent of agents) {
       if (!group.members.includes(agent)) throw new GroupError("invalid_agents", `${agent} 不是这个群的成员。`);
-      if (!this.#agents.has(agent)) throw new GroupError("agent_unavailable", `${agent} 目前没有接入。`);
     }
     if (this.isBusy(groupId)) throw new GroupError("busy", "这个群正忙，请等这一轮或这次压缩结束。");
     const compaction: CompactionSnapshot = { agents: [...agents], current: null };
@@ -316,20 +312,19 @@ export class GroupRuntime {
   /** 返回写进群聊记录的提示。 */
   async #compactOne(groupId: string, agent: string): Promise<string> {
     const group = this.#requireGroup(groupId);
-    const name = this.#agents.get(agent).displayName;
-    if (!group.agents[agent]?.nativeSessionId) return `${name} 还没有发过言，没有可压缩的上下文。`;
+    if (!group.agents[agent]?.nativeSessionId) return `${agent} 还没有发过言，没有可压缩的上下文。`;
     let session: AgentSession | null = null;
     let failed = false;
     try {
       session = await this.#session(group, agent);
       await session.compact();
-      return `已压缩 ${name} 的上下文。`;
+      return `已压缩 ${agent} 的上下文。`;
     } catch (error) {
       failed = true;
-      return `${name} 的上下文没有压缩成功：${errorMessage(error)}`;
+      return `${agent} 的上下文没有压缩成功：${errorMessage(error)}`;
     } finally {
       this.#touch(groupId, agent);
-      if (session && (failed || this.#agents.get(agent).closeAfterTurn)) {
+      if (session && (failed || this.#adapter(group, agent).closeAfterTurn)) {
         await this.#dropSession(groupId, agent, session);
       }
     }
@@ -407,7 +402,7 @@ export class GroupRuntime {
       // 出错时不确定消息有没有送到，不推进：下次重发，宁可重复也不漏。
       if (final.outcome !== "failed") state.cursor = entry.seq;
     });
-    if (session && (final.outcome === "failed" || this.#agents.get(agent).closeAfterTurn)) {
+    if (session && (final.outcome === "failed" || this.#adapter(group, agent).closeAfterTurn)) {
       // 等进程确实关掉再结束这次发言，免得下一次点名时新旧两个进程同时接着同一个会话。
       await this.#dropSession(groupId, agent, session);
     }
@@ -416,7 +411,9 @@ export class GroupRuntime {
 
   async #session(group: Group, agent: string): Promise<AgentSession> {
     const key = sessionKey(group.id, agent);
-    const settings = group.agents[agent]?.settings ?? DEFAULT_AGENT_SETTINGS;
+    const state = group.agents[agent];
+    if (!state) throw new GroupError("invalid_agent", `${agent} 不是这个群的成员。`);
+    const settings = state.settings;
     const cached = this.#sessions.get(key);
     // 设置变了就关掉重开，用新设置恢复会话：三家的设置都在开会话时应用，路径只有一条。
     if (cached?.session.alive && sameSettings(cached.settings, settings)) {
@@ -425,19 +422,17 @@ export class GroupRuntime {
     }
     if (cached) await this.#dropSession(group.id, agent, cached.session);
 
-    const adapter = this.#agents.get(agent);
+    const adapter = this.#adapter(group, agent);
     const options: SessionOptions = {
       cwd: group.cwd,
       settings: { ...settings },
       systemPrompt: buildSystemPrompt({
         username: group.username,
-        others: group.members
-          .filter((member) => member !== agent && this.#agents.has(member))
-          .map((member) => ({ tag: member, name: this.#agents.get(member).displayName })),
+        others: group.members.filter((member) => member !== agent),
       }),
       requestApproval: (ask, signal) => this.#approvals.request(group.id, agent, ask, signal),
     };
-    const nativeId = group.agents[agent]?.nativeSessionId ?? null;
+    const nativeId = state.nativeSessionId;
     const session = nativeId
       ? await adapter.resumeSession(nativeId, options)
       : await adapter.startSession(options);
@@ -472,6 +467,18 @@ export class GroupRuntime {
     await session.close().catch((error: unknown) => {
       console.error(`关闭 ${agent} 的会话失败：${errorMessage(error)}`);
     });
+  }
+
+  #adapter(group: Group, agent: string): AgentAdapter {
+    const state = group.agents[agent];
+    if (!state) throw new GroupError("invalid_agent", `${agent} 不是这个群的成员。`);
+    if (!this.#agents.has(state.kind)) {
+      throw new GroupError(
+        "agent_unavailable",
+        `${agent} 使用的 ${kindDisplayName(state.kind)} 没有在 config.json 中配置。`,
+      );
+    }
+    return this.#agents.get(state.kind);
   }
 
   #requireGroup(groupId: string): Group {

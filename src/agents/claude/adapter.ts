@@ -46,7 +46,6 @@ const DEFAULT_MODEL_ID = "default";
 
 export class ClaudeAdapter implements AgentAdapter {
   readonly kind = "claude";
-  readonly displayName = "Claude";
   /** 照 Relayu：Claude Code 进程常驻，空闲后回收。 */
   readonly closeAfterTurn = false;
   readonly #options: ClaudeAdapterOptions;

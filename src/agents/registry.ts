@@ -11,6 +11,10 @@ const DISPLAY_NAMES: Readonly<Record<AgentKind, string>> = {
 export const SUPPORTED_AGENT_KINDS: readonly { kind: AgentKind; displayName: string }[] =
   AGENT_KINDS.map((kind) => ({ kind, displayName: DISPLAY_NAMES[kind] }));
 
+export function kindDisplayName(kind: AgentKind): string {
+  return DISPLAY_NAMES[kind];
+}
+
 /** 当前 config 已登记的 CLI 适配器。 */
 export class AgentRegistry {
   readonly #adapters = new Map<AgentKind, AgentAdapter>();

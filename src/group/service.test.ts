@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { FakeAdapter } from "../agents/fake-adapter.test-support.ts";
 import { AgentRegistry } from "../agents/registry.ts";
+import { DEFAULT_AGENT_SETTINGS, type AgentCatalog } from "../agents/types.ts";
 import type { SharedUploadClient } from "../attachments/shared-upload-client.ts";
 import type { AttachmentBinding, AttachmentLease } from "../attachments/types.ts";
 import { GroupStore } from "../state/group-store.ts";
@@ -20,7 +21,8 @@ async function setup(t: test.TestContext) {
   await mkdir(path.join(projectRoot, "demo"), { recursive: true });
   const store = await GroupStore.open(path.join(directory, "data"));
   const adapter = new FakeAdapter("claude");
-  const agents = new AgentRegistry([adapter, new FakeAdapter("codex")]);
+  const codexAdapter = new FakeAdapter("codex");
+  const agents = new AgentRegistry([adapter, codexAdapter]);
   const runtime = new GroupRuntime({ store, agents });
   t.after(() => runtime.shutdown());
   const settings = await SettingsStore.open(path.join(directory, "data"), ["claude", "codex"]);
@@ -28,8 +30,24 @@ async function setup(t: test.TestContext) {
   const service = new GroupService({ projectRoot, store, runtime, agents, settings, uploads });
   const events: ServiceEvent[] = [];
   service.onEvent((event) => events.push(event));
-  const group = await service.create({ directory: "demo", members: ["claude"], title: "" });
-  return { service, store, settings, events, adapter, uploads, directory, groupId: group.id };
+  const records = settings.get().agents;
+  const agentIds = {
+    claude: records.find((record) => record.kind === "claude")!.id,
+    codex: records.find((record) => record.kind === "codex")!.id,
+  };
+  const group = await service.create({ directory: "demo", members: [agentIds.claude], title: "" });
+  return {
+    service,
+    store,
+    settings,
+    events,
+    adapter,
+    codexAdapter,
+    uploads,
+    directory,
+    agentIds,
+    groupId: group.id,
+  };
 }
 
 /** 假的 ai-remote-upload：记录票据、租约的申请和释放。 */
@@ -109,6 +127,49 @@ test("invalid agent settings are rejected with a clear reason", async (t) => {
   await assert.rejects(service.catalog(groupId, "codex"), /不是这个群的成员/u);
 });
 
+test("the settings AI list keeps its order and incomplete records cannot join a group", async (t) => {
+  const { service, settings, agentIds } = await setup(t);
+  assert.deepEqual(service.agents(), [
+    { id: agentIds.claude, name: "claude", kind: "claude", color: "orange", complete: true },
+    { id: agentIds.codex, name: "codex", kind: "codex", color: "mint", complete: true },
+  ]);
+
+  await assert.rejects(
+    service.create({ directory: "demo", members: ["missing"], title: "" }),
+    /没有这个 AI/u,
+  );
+  await settings.update((next) => {
+    next.agents.find((agent) => agent.id === agentIds.codex)!.color = null;
+  });
+  assert.equal(service.agents()[1]?.complete, false);
+  await assert.rejects(
+    service.create({ directory: "demo", members: [agentIds.codex], title: "" }),
+    /设置不完整/u,
+  );
+});
+
+test("default settings are not saved if the AI kind changes while its catalog is loading", async (t) => {
+  const { service, settings, codexAdapter, agentIds } = await setup(t);
+  let resolveCatalog!: (catalog: AgentCatalog) => void;
+  codexAdapter.catalog = () => new Promise((resolve) => {
+    resolveCatalog = resolve;
+  });
+  const saving = service.setDefaultSettings(
+    agentIds.codex,
+    { model: "large", effort: "high", permission: "yolo" },
+  );
+  await settings.update((next) => {
+    next.agents.find((agent) => agent.id === agentIds.codex)!.kind = "claude";
+  });
+  resolveCatalog(structuredClone(codexAdapter.catalogValue));
+
+  await assert.rejects(saving, /CLI 已经变化/u);
+  assert.deepEqual(
+    settings.get().agents.find((agent) => agent.id === agentIds.codex)?.defaults,
+    DEFAULT_AGENT_SETTINGS,
+  );
+});
+
 async function idle(service: GroupService, groupId: string) {
   while (service.groups().find((group) => group.id === groupId)?.busy) {
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -131,8 +192,8 @@ test("renaming changes only the lanting title and rejects empty names", async (t
 });
 
 test("group summaries use Relayu recency ordering and visible changes refresh it", async (t) => {
-  const { service, store, groupId } = await setup(t);
-  const other = await service.create({ directory: "demo", members: ["claude"], title: "other" });
+  const { service, store, agentIds, groupId } = await setup(t);
+  const other = await service.create({ directory: "demo", members: [agentIds.claude], title: "other" });
   await store.update(groupId, (group) => {
     group.updatedAt = 100;
   });
@@ -189,6 +250,28 @@ test("purging deletes each agent's native session before the group's own data", 
   assert.ok(events.some((event) => event.scope === "global" && event.payload.type === "group.removed"));
 });
 
+test("purging abandons a native session whose frozen CLI is no longer configured", async (t) => {
+  const { service, store, directory } = await setup(t);
+  const group = await store.create({
+    title: "orphan",
+    cwd: path.join(directory, "projects", "demo"),
+    username: "host",
+    members: [{
+      tag: "orphan",
+      kind: "grok",
+      color: "yellow",
+      settings: { ...DEFAULT_AGENT_SETTINGS },
+    }],
+  });
+  await store.update(group.id, (next) => {
+    next.agents.orphan!.nativeSessionId = "grok-session-left-behind";
+    next.trashedAt = new Date().toISOString();
+  });
+
+  assert.deepEqual(await service.purge([group.id]), { done: [group.id], failed: [] });
+  assert.equal(store.get(group.id), null);
+});
+
 test("a failed purge stays in the trash as deleting and is finished by the next sweep", async (t) => {
   const { service, store, groupId, adapter } = await setup(t);
   await withSession(service, groupId);
@@ -206,8 +289,8 @@ test("a failed purge stays in the trash as deleting and is finished by the next 
 });
 
 test("the sweep permanently deletes groups whose 30 days in the trash are over", async (t) => {
-  const { service, store, groupId } = await setup(t);
-  const other = await service.create({ directory: "demo", members: ["claude"], title: "keep" });
+  const { service, store, agentIds, groupId } = await setup(t);
+  const other = await service.create({ directory: "demo", members: [agentIds.claude], title: "keep" });
   await service.trash([groupId, other.id]);
   const trashedAt = Date.parse(store.get(groupId)!.trashedAt!);
 
@@ -222,32 +305,53 @@ test("the sweep permanently deletes groups whose 30 days in the trash are over",
 });
 
 test("the username is validated, and a new group copies the username, default settings and member choice", async (t) => {
-  const { service, store, settings, events } = await setup(t);
-  assert.deepEqual(service.settings().createMembers, ["claude"]);
+  const { service, store, settings, events, agentIds } = await setup(t);
+  assert.deepEqual(service.settings().createMembers, [agentIds.claude]);
   await settings.update((next) => {
-    next.createMembers = ["missing", "codex"];
+    next.createMembers = ["missing", agentIds.codex];
   });
-  assert.deepEqual(service.settings().createMembers, ["codex"]);
-  await assert.rejects(service.setUsername("MyClaude"), /“claude”/u);
+  assert.deepEqual(service.settings().createMembers, [agentIds.codex]);
+  assert.equal((await service.setUsername("MyClaude")).username, "MyClaude");
+  await assert.rejects(service.setUsername("Claude"), /“claude”/u);
   await assert.rejects(service.setUsername(""), /不能为空/u);
   assert.equal((await service.setUsername("lizzy")).username, "lizzy");
   await assert.rejects(
-    service.setDefaultSettings("codex", { model: null, effort: "high", permission: null }),
+    service.setDefaultSettings(agentIds.codex, { model: null, effort: "high", permission: null }),
     /要先选模型/u,
   );
-  await service.setDefaultSettings("codex", { model: "large", effort: "high", permission: "yolo" });
+  await service.setDefaultSettings(agentIds.codex, { model: "large", effort: "high", permission: "yolo" });
   assert.ok(events.some((event) => event.scope === "global" && event.payload.type === "settings.updated"));
 
-  const group = await service.create({ directory: "demo", members: ["codex", "claude"], title: "" });
+  const group = await service.create({
+    directory: "demo",
+    members: [agentIds.codex, agentIds.claude],
+    title: "",
+  });
   const saved = store.get(group.id)!;
   assert.equal(saved.username, "lizzy");
+  assert.deepEqual(saved.members, ["claude", "codex"]);
+  assert.deepEqual(group.colors, { claude: "orange", codex: "mint" });
   assert.deepEqual(saved.agents.codex?.settings, { model: "large", effort: "high", permission: "yolo" });
   assert.deepEqual(saved.agents.claude?.settings, { model: null, effort: null, permission: null });
-  assert.deepEqual(service.settings().createMembers, ["claude", "codex"]);
+  assert.deepEqual(service.settings().createMembers, [agentIds.claude, agentIds.codex]);
 
-  // 改设置不影响已经开的群。
+  // 改名、换 CLI、改色、删除设置记录，都不影响已经开的群。
+  await settings.update((next) => {
+    const claude = next.agents.find((record) => record.id === agentIds.claude)!;
+    claude.name = "renamed";
+    claude.kind = "grok";
+    claude.color = "yellow";
+    next.agents = next.agents.filter((record) => record.id !== agentIds.codex);
+  });
   await service.setUsername("other");
-  assert.equal(store.get(group.id)?.username, "lizzy");
+  const unchanged = store.get(group.id)!;
+  assert.equal(unchanged.username, "lizzy");
+  assert.deepEqual(unchanged.members, ["claude", "codex"]);
+  assert.equal(unchanged.agents.claude?.kind, "claude");
+  assert.equal(unchanged.agents.claude?.color, "orange");
+  assert.equal(unchanged.agents.codex?.kind, "codex");
+  assert.equal(unchanged.agents.codex?.color, "mint");
+  assert.deepEqual(unchanged.agents.codex?.settings, { model: "large", effort: "high", permission: "yolo" });
 });
 
 test("attachments are leased for the round, reach only the called agents, and never carry paths to the browser", async (t) => {

@@ -6,9 +6,9 @@ import { buildSystemPrompt } from "./system-prompt.ts";
 test("fills the host tag and the other members", () => {
   const prompt = buildSystemPrompt({
     username: "alice",
-    others: [{ tag: "codex", name: "Codex" }, { tag: "grok", name: "Grok" }],
+    others: ["codex", "grok"],
   });
-  assert.match(prompt, /^- <alice>: the host, i\.e\. the user\.\n- <codex>: Codex\n- <grok>: Grok\n\n## How/mu);
+  assert.match(prompt, /^- <alice>: the host, i\.e\. the user\.\n- <codex>\n- <grok>\n\n## How/mu);
   assert.doesNotMatch(prompt, /working directory/u);
   assert.match(prompt, /temporary previews[\s\S]*`~\/preview`/u);
   assert.match(prompt, /without creating subdirectories/u);
@@ -24,6 +24,6 @@ test("drops the member line when there are no other AIs", () => {
 });
 
 test("does not expand placeholders that appear inside filled values", () => {
-  const prompt = buildSystemPrompt({ username: "host", others: [{ tag: "codex", name: "{username}" }] });
-  assert.match(prompt, /^- <codex>: \{username\}$/mu);
+  const prompt = buildSystemPrompt({ username: "host", others: ["{username}"] });
+  assert.match(prompt, /^- <\{username\}>$/mu);
 });

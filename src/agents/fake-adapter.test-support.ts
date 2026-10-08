@@ -16,7 +16,6 @@ export type FakeCall = {
 /** 不调用任何 CLI 的假 AI，记录收到的每条消息。 */
 export class FakeAdapter implements AgentAdapter {
   readonly kind: AgentKind;
-  readonly displayName: string;
   closeAfterTurn = false;
   readonly calls: FakeCall[] = [];
   readonly received: string[] = [];
@@ -39,7 +38,6 @@ export class FakeAdapter implements AgentAdapter {
 
   constructor(kind: AgentKind, script?: Script) {
     this.kind = kind;
-    this.displayName = kind[0]!.toUpperCase() + kind.slice(1);
     this.script = script ?? ((_, call) => [
       { type: "text", delta: `${kind} reply ` },
       { type: "end", outcome: "completed", text: `${kind} reply ${call}` },
