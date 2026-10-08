@@ -826,7 +826,7 @@ function closeGroup() {
 function renderHeader() {
   const group = state.current?.group;
   if (!group) return;
-  elements.groupTitle.textContent = group.title;
+  updateGroupTitle();
   elements.groupMeta.replaceChildren(
     ...group.members.map((member) => agentDot(member, group)),
     document.createTextNode(group.directory),
@@ -880,6 +880,14 @@ function syncSidebarState() {
   elements.sidebarBackdrop.setAttribute("aria-hidden", String(!(
     mobileNavigationQuery.matches && elements.appView.dataset.mobileSidebarOpen === "true"
   )));
+  updateGroupTitle();
+}
+
+function updateGroupTitle() {
+  const privateTitle = mobileNavigationQuery.matches || state.sidebarCollapsed;
+  elements.groupTitle.textContent = privateTitle
+    ? "lanting"
+    : (state.current?.group.title ?? "lanting");
 }
 
 elements.openSidebarButton.addEventListener("click", openSidebar);
