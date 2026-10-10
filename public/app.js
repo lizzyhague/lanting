@@ -480,10 +480,12 @@ function handleEvent(event) {
     case "approval.requested":
       current.approvals.set(event.approval.approvalId, event.approval);
       renderApprovals();
+      renderLive();
       return;
     case "approval.settled":
       current.approvals.delete(event.approval.approvalId);
       renderApprovals();
+      renderLive();
       return;
   }
 }
@@ -1202,14 +1204,34 @@ function speakerLabel(agent, status) {
   const label = document.createElement("div");
   label.className = "speaker";
   label.append(agentDot(agent), document.createTextNode(agent));
-  const note = { interrupted: "已打断", failed: "出错", speaking: "正在发言" }[status];
+  const note = {
+    interrupted: "已打断",
+    failed: "出错",
+    thinking: "正在思考",
+    tool: "正在执行工具",
+    replying: "正在回复",
+    approval: "等待批准",
+    stopping: "正在停止",
+  }[status];
   if (note) {
     const badge = document.createElement("span");
     badge.className = `status-badge ${status}`;
-    badge.textContent = note;
+    badge.append(document.createTextNode(note));
+    if (!["interrupted", "failed"].includes(status)) {
+      badge.classList.add("live-status");
+      badge.append(thinkingDots());
+    }
     label.append(badge);
   }
   return label;
+}
+
+function thinkingDots() {
+  const dots = document.createElement("span");
+  dots.className = "thinking-dots";
+  dots.setAttribute("aria-hidden", "true");
+  dots.append(document.createElement("i"), document.createElement("i"), document.createElement("i"));
+  return dots;
 }
 
 function activityDetails(activities) {
@@ -1255,9 +1277,13 @@ function renderLive() {
     if (!round && compaction) {
       const waiting = document.createElement("p");
       waiting.className = "live-waiting";
-      waiting.textContent = compaction.current
-        ? `正在压缩 ${compaction.current} 的上下文……`
-        : "准备压缩上下文……";
+      waiting.append(document.createTextNode(compaction.current
+        ? `正在压缩 ${compaction.current} 的上下文`
+        : "准备压缩上下文"), thinkingDots());
+      if (compaction.current) {
+        waiting.dataset.agent = compaction.current;
+        paintAgent(waiting, memberColor(state.current?.group, compaction.current));
+      }
       live.replaceChildren(waiting);
       return;
     }
@@ -1268,7 +1294,7 @@ function renderLive() {
     if (!round.speaking) {
       const waiting = document.createElement("p");
       waiting.className = "live-waiting";
-      waiting.textContent = "等待发言……";
+      waiting.append(document.createTextNode("等待发言"), thinkingDots());
       live.replaceChildren(waiting);
       return;
     }
@@ -1276,7 +1302,7 @@ function renderLive() {
     article.className = "message agent live";
     article.dataset.agent = round.speaking;
     paintAgent(article, memberColor(state.current?.group, round.speaking));
-    article.append(speakerLabel(round.speaking, "speaking"));
+    article.append(speakerLabel(round.speaking, liveStage(round)));
     if (round.activities.length > 0) article.append(activityList(round.activities));
     if (round.text) {
       const text = document.createElement("pre");
@@ -1286,6 +1312,16 @@ function renderLive() {
     }
     live.replaceChildren(article);
   });
+}
+
+function liveStage(round) {
+  if (state.interrupting) return "stopping";
+  if ([...(state.current?.approvals.values() ?? [])].some((approval) => approval.agent === round.speaking)) {
+    return "approval";
+  }
+  if (round.text) return "replying";
+  if (round.activities.at(-1)?.kind === "tool") return "tool";
+  return "thinking";
 }
 
 function keepBottom(change) {
@@ -1456,6 +1492,7 @@ async function interrupt() {
   if (!current || elements.taskButton.dataset.action !== "stop" || elements.taskButton.disabled) return;
   state.interrupting = true;
   renderComposer();
+  renderLive();
   try {
     await request("round.interrupt", { groupId: current.group.id });
   } catch (error) {
@@ -1463,6 +1500,7 @@ async function interrupt() {
   } finally {
     state.interrupting = false;
     renderComposer();
+    renderLive();
   }
 }
 
