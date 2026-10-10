@@ -11,16 +11,17 @@ import type { SharedUploadClient } from "../attachments/shared-upload-client.ts"
 import type { AttachmentBinding, AttachmentLease } from "../attachments/types.ts";
 import { GroupStore } from "../state/group-store.ts";
 import { SettingsError, SettingsStore } from "../state/settings-store.ts";
+import type { AgentFeatureId } from "../features/index.ts";
 import { GroupError, GroupRuntime } from "./runtime.ts";
 import { GroupService, type ServiceEvent } from "./service.ts";
 
-async function setup(t: test.TestContext) {
+async function setup(t: test.TestContext, claudeWithout: readonly AgentFeatureId[] = []) {
   const directory = await mkdtemp(path.join(tmpdir(), "lanting-service-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const projectRoot = path.join(directory, "projects");
   await mkdir(path.join(projectRoot, "demo"), { recursive: true });
   const store = await GroupStore.open(path.join(directory, "data"));
-  const adapter = new FakeAdapter("claude");
+  const adapter = new FakeAdapter("claude", undefined, { without: claudeWithout });
   const codexAdapter = new FakeAdapter("codex");
   const agents = new AgentRegistry([adapter, codexAdapter]);
   const runtime = new GroupRuntime({ store, agents });
@@ -101,6 +102,44 @@ class FakeUploads implements Pick<SharedUploadClient, "createTicket" | "createLe
     return Promise.resolve();
   }
 }
+
+test("summaries list the features of configured CLIs", async (t) => {
+  const { service, groupId } = await setup(t);
+  const all = ["compact", "deleteSession", "models", "permissions"];
+  assert.deepEqual(service.groups().find((group) => group.id === groupId)?.features, { claude: all });
+  assert.deepEqual(service.agentKinds(), [
+    { kind: "claude", displayName: "Claude Code", configured: true, features: all },
+    { kind: "codex", displayName: "Codex CLI", configured: true, features: all },
+    { kind: "grok", displayName: "Grok Build", configured: false, features: [] },
+  ]);
+});
+
+test("missing catalog features return empty lists and require null settings", async (t) => {
+  const { service, agentIds, groupId } = await setup(t, ["models", "permissions"]);
+  assert.deepEqual(await service.catalog(groupId, "claude"), { models: [], permissions: [] });
+  await service.setAgentSettings(groupId, "claude", { model: null, effort: null, permission: null });
+  await assert.rejects(
+    service.setAgentSettings(groupId, "claude", { model: "large", effort: null, permission: null }),
+    /不支持选择模型或思考强度/u,
+  );
+  await assert.rejects(
+    service.setAgentSettings(groupId, "claude", { model: null, effort: "high", permission: null }),
+    /不支持选择模型或思考强度/u,
+  );
+  await assert.rejects(
+    service.setAgentSettings(groupId, "claude", { model: null, effort: null, permission: "yolo" }),
+    /不支持选择权限/u,
+  );
+  await service.setDefaultSettings(agentIds.claude, { model: null, effort: null, permission: null });
+  await assert.rejects(
+    service.setDefaultSettings(agentIds.claude, { model: "large", effort: null, permission: null }),
+    /不支持选择模型或思考强度/u,
+  );
+  await assert.rejects(
+    service.setDefaultSettings(agentIds.claude, { model: null, effort: null, permission: "yolo" }),
+    /不支持选择权限/u,
+  );
+});
 
 test("agent settings are checked against the agent's catalog and stored per group", async (t) => {
   const { service, store, events, groupId } = await setup(t);
@@ -414,6 +453,22 @@ test("purging abandons a native session whose frozen CLI is no longer configured
 
   assert.deepEqual(await service.purge([group.id]), { done: [group.id], failed: [] });
   assert.equal(store.get(group.id), null);
+});
+
+test("purging clears a native session when its CLI does not support deletion", async (t) => {
+  const { service, store, codexAdapter, agentIds } = await setup(t, ["deleteSession"]);
+  const group = await service.create({
+    directory: "demo",
+    members: [agentIds.claude, agentIds.codex],
+    title: "mixed deletion",
+  });
+  await service.startRound(group.id, "hello", ["claude", "codex"]);
+  await idle(service, group.id);
+  await service.trash([group.id]);
+  codexAdapter.deleteError = new Error("disk busy");
+
+  assert.match((await service.purge([group.id])).failed[0]?.message ?? "", /disk busy/u);
+  assert.equal(store.get(group.id)?.agents.claude?.nativeSessionId, null);
 });
 
 test("a failed purge stays in the trash as deleting and is finished by the next sweep", async (t) => {

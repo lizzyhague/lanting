@@ -1,6 +1,6 @@
 import type { AgentKind } from "./kinds.ts";
 import type { AgentAdapter, AgentCatalog, AgentEvent, AgentSession, SessionOptions } from "./types.ts";
-import type { AgentFeatures } from "../features/index.ts";
+import type { AgentFeatureId, AgentFeatures } from "../features/index.ts";
 
 /** 剧本里的一步：普通事件，或者向群主申请审批（结果作为 activity 发出）。 */
 export type FakeStep = AgentEvent | { type: "ask"; toolName: string; detail?: string };
@@ -14,16 +14,15 @@ export type FakeCall = {
   options: SessionOptions;
 };
 
+export type FakeAdapterOptions = {
+  without?: readonly AgentFeatureId[];
+};
+
 /** 不调用任何 CLI 的假 AI，记录收到的每条消息。 */
 export class FakeAdapter implements AgentAdapter {
   readonly kind: AgentKind;
   closeAfterTurn = false;
-  readonly features: AgentFeatures = {
-    compact: (session) => asOwnSession(session).compact(),
-    deleteSession: (nativeId) => this.#deleteSession(nativeId),
-    models: async (cwd) => (await this.#catalog(cwd)).models,
-    permissions: async (cwd) => (await this.#catalog(cwd)).permissions,
-  };
+  readonly features: AgentFeatures;
   readonly calls: FakeCall[] = [];
   readonly received: string[] = [];
   readonly sessions: FakeSession[] = [];
@@ -43,12 +42,19 @@ export class FakeAdapter implements AgentAdapter {
   compactError: Error | null = null;
   #nextSession = 1;
 
-  constructor(kind: AgentKind, script?: Script) {
+  constructor(kind: AgentKind, script?: Script, options?: FakeAdapterOptions) {
     this.kind = kind;
     this.script = script ?? ((_, call) => [
       { type: "text", delta: `${kind} reply ` },
       { type: "end", outcome: "completed", text: `${kind} reply ${call}` },
     ]);
+    this.features = {
+      compact: (session) => asOwnSession(session).compact(),
+      deleteSession: (nativeId) => this.#deleteSession(nativeId),
+      models: async (cwd) => (await this.#catalog(cwd)).models,
+      permissions: async (cwd) => (await this.#catalog(cwd)).permissions,
+    };
+    for (const feature of options?.without ?? []) delete this.features[feature];
   }
 
   startSession(options: SessionOptions): Promise<AgentSession> {

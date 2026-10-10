@@ -9,6 +9,7 @@ import { AGENT_KINDS, type AgentKind } from "../agents/kinds.ts";
 import { PALETTE } from "../agents/palette.ts";
 import { AgentRegistry } from "../agents/registry.ts";
 import { DEFAULT_AGENT_SETTINGS } from "../agents/types.ts";
+import type { AgentFeatureId } from "../features/index.ts";
 import { GroupStore } from "../state/group-store.ts";
 import { GroupError, GroupRuntime, type GroupEvent } from "./runtime.ts";
 
@@ -18,6 +19,7 @@ async function setup(
   t: test.TestContext,
   input: readonly (AgentKind | TestMember)[] = AGENT_KINDS,
   configured?: readonly AgentKind[],
+  without: Readonly<Record<string, readonly AgentFeatureId[] | undefined>> = {},
 ) {
   const directory = await mkdtemp(path.join(tmpdir(), "lanting-runtime-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -26,7 +28,10 @@ async function setup(
   );
   const configuredKinds = configured ?? [...new Set(members.map((member) => member.kind))];
   const adapters: Partial<Record<AgentKind, FakeAdapter>> = {};
-  for (const kind of configuredKinds) adapters[kind] = new FakeAdapter(kind);
+  for (const kind of configuredKinds) {
+    const missing = without[kind];
+    adapters[kind] = new FakeAdapter(kind, undefined, missing ? { without: missing } : undefined);
+  }
   const store = await GroupStore.open(directory);
   const configuredAdapters = Object.values(adapters)
     .filter((adapter): adapter is FakeAdapter => adapter !== undefined);
@@ -469,5 +474,24 @@ test("compaction records an unavailable kind and continues with later members", 
     "alice 的上下文没有压缩成功：alice 使用的 Codex CLI 没有在 config.json 中配置。",
     "已压缩 helper 的上下文。",
   ]);
+  assert.deepEqual(adapters.claude!.compacted, ["claude-session-1"]);
+});
+
+test("compaction records an unsupported member and continues without opening its session", async (t) => {
+  const { adapters, store, runtime, groupId } = await setup(t, [
+    { tag: "alice", kind: "codex" },
+    { tag: "helper", kind: "claude" },
+  ], undefined, { codex: ["compact"] });
+  await runtime.startRound(groupId, "open helper", ["helper"]).done;
+  await store.update(groupId, (group) => {
+    group.agents.alice!.nativeSessionId = "codex-session-left-behind";
+  });
+
+  await runtime.compact(groupId, ["alice", "helper"]).done;
+  assert.deepEqual(store.transcript(groupId).slice(-2).map((entry) => entry.text), [
+    "alice 的上下文没有压缩成功：这个 CLI 不支持压缩上下文。",
+    "已压缩 helper 的上下文。",
+  ]);
+  assert.deepEqual(adapters.codex!.calls, []);
   assert.deepEqual(adapters.claude!.compacted, ["claude-session-1"]);
 });

@@ -316,14 +316,19 @@ test("a browser can create a group, run a round, and answer an approval over the
       initialized: boolean;
       createMembers: string[] | null;
     };
-    agentKinds: { kind: string; displayName: string; configured: boolean }[];
+    agentKinds: { kind: string; displayName: string; configured: boolean; features: string[] }[];
     palette: unknown;
   };
   assert.deepEqual(state.directories, ["demo"]);
   assert.deepEqual(state.agentKinds, [
-    { kind: "claude", displayName: "Claude Code", configured: true },
-    { kind: "codex", displayName: "Codex CLI", configured: false },
-    { kind: "grok", displayName: "Grok Build", configured: false },
+    {
+      kind: "claude",
+      displayName: "Claude Code",
+      configured: true,
+      features: ["compact", "deleteSession", "models", "permissions"],
+    },
+    { kind: "codex", displayName: "Codex CLI", configured: false, features: [] },
+    { kind: "grok", displayName: "Grok Build", configured: false, features: [] },
   ]);
   assert.deepEqual(state.palette, PALETTE);
   assert.equal(state.settings.agents.length, 1);

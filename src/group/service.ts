@@ -9,6 +9,7 @@ import type { ApprovalEvent, ApprovalRequest } from "../approvals/registry.ts";
 import { publicAttachment, type StoredAttachment } from "../attachments/prompt.ts";
 import { PathRedactor } from "../attachments/redact.ts";
 import type { SharedUploadClient } from "../attachments/shared-upload-client.ts";
+import { featureIds, type AgentFeatureId } from "../features/index.ts";
 import {
   ATTACHMENT_LEASE_RENEW_INTERVAL_MS,
   MAX_MESSAGE_ATTACHMENTS,
@@ -58,6 +59,8 @@ export type GroupSummary = {
   colors: Record<string, PaletteId>;
   /** 每个成员在这个群里的模型、思考强度和权限。 */
   settings: Record<string, AgentSettings>;
+  /** 每个成员的 CLI 支持的子功能。 */
+  features: Record<string, AgentFeatureId[]>;
   createdAt: string;
   updatedAt: number;
   /** 是否固定显示在最近群会话顶部。 */
@@ -157,10 +160,11 @@ export class GroupService {
     return this.#publicSettings(this.#settings.get());
   }
 
-  agentKinds(): { kind: AgentKind; displayName: string; configured: boolean }[] {
+  agentKinds(): { kind: AgentKind; displayName: string; configured: boolean; features: AgentFeatureId[] }[] {
     return SUPPORTED_AGENT_KINDS.map((entry) => ({
       ...entry,
       configured: this.#agents.has(entry.kind),
+      features: this.#agents.has(entry.kind) ? featureIds(this.#agents.get(entry.kind).features) : [],
     }));
   }
 
@@ -184,8 +188,9 @@ export class GroupService {
   async setDefaultSettings(agentId: string, settings: AgentSettings): Promise<PublicSettings> {
     const agent = this.#settingsAgent(this.#settings.get(), agentId);
     const kind = agent.kind;
-    const catalog = await this.#catalogOf(this.#adapterForSettings(agent), this.#projectRoot);
-    this.#checkSettings(agent.name, catalog, settings, { field: "defaults", agentId });
+    const adapter = this.#adapterForSettings(agent);
+    const catalog = await this.#catalogOf(adapter, this.#projectRoot);
+    this.#checkSettings(agent.name, adapter, catalog, settings, { field: "defaults", agentId });
     await this.#settings.update((next) => {
       const current = next.agents.find((item) => item.id === agentId);
       if (!current) throw new GroupError("agent_not_found", `没有这个 AI：${agentId}`);
@@ -353,7 +358,8 @@ export class GroupService {
   async setAgentSettings(groupId: string, agent: string, settings: AgentSettings): Promise<GroupSummary> {
     const group = this.#requireActive(groupId);
     this.#requireMember(group, agent);
-    this.#checkSettings(agent, await this.#catalogOf(this.#adapterFor(group, agent), group.cwd), settings);
+    const adapter = this.#adapterFor(group, agent);
+    this.#checkSettings(agent, adapter, await this.#catalogOf(adapter, group.cwd), settings);
     const updated = await this.#store.update(groupId, (next) => {
       const state = next.agents[agent];
       if (state) state.settings = { ...settings };
@@ -684,10 +690,17 @@ export class GroupService {
   /** 按 CLI 给出的列表校验设置。思考强度要先选模型，取值限于那个模型支持的档位。 */
   #checkSettings(
     agent: string,
+    adapter: AgentAdapter,
     catalog: AgentCatalog,
     settings: AgentSettings,
     details?: Record<string, string>,
   ): void {
+    if (!adapter.features.models && (settings.model !== null || settings.effort !== null)) {
+      throw new GroupError("invalid_settings", `${agent} 使用的 CLI 不支持选择模型或思考强度。`, details);
+    }
+    if (!adapter.features.permissions && settings.permission !== null) {
+      throw new GroupError("invalid_settings", `${agent} 使用的 CLI 不支持选择权限。`, details);
+    }
     const model = settings.model === null ? null : catalog.models.find((item) => item.id === settings.model);
     if (model === undefined) {
       throw new GroupError("invalid_settings", `${agent} 没有这个模型：${settings.model}`, details);
@@ -763,6 +776,10 @@ export class GroupService {
       callOrder: group.callOrder,
       colors: Object.fromEntries(group.members.map((member) => [member, group.agents[member]!.color])),
       settings: Object.fromEntries(group.members.map((member) => [member, group.agents[member]!.settings])),
+      features: Object.fromEntries(group.members.map((member) => {
+        const kind = group.agents[member]!.kind;
+        return [member, this.#agents.has(kind) ? featureIds(this.#agents.get(kind).features) : []];
+      })),
       createdAt: group.createdAt,
       updatedAt: group.updatedAt,
       pinned: group.pinned,
