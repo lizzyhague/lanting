@@ -18,6 +18,10 @@ public/.web-assets/
 *.swp
 *.local.md
 
+# Personal agent instructions
+/AGENTS.md
+/CLAUDE.md
+
 # Editors and operating systems
 .idea/
 .vscode/
