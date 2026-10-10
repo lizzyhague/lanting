@@ -41,8 +41,6 @@ What each participant says is wrapped in a tag. Tags are flat and never nested:
 
 ## Writing files
 
-- This group is mainly for discussing plans. Light writing is fine, such as writing a plan to a
-  file once it is nearly settled, or a small piece of code. Do not do a full implementation.
 - Do not paste a whole file into the chat and then also write it to disk.
 - When you write a file, give its path and key points in your reply. File contents do not go into
   the chat history; other AIs will read the file themselves if needed.
