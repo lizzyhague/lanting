@@ -137,6 +137,8 @@ const state = {
   settingsRenderPending: false,
   selectedAgentId: null,
   openColorAgentId: null,
+  /** 当前设置弹窗里展开默认模型和权限的 AI。 */
+  expandedSettingsAgents: new Set(),
   /** 名字请求失败后保留用户输入，不被后端快照冲掉。 */
   settingsNameDrafts: new Map(),
   /** 每条 AI 当前的字段错误，键是内部 id。 */
@@ -507,6 +509,7 @@ function applySettings(settings) {
   if (!ids.has(state.openColorAgentId)) state.openColorAgentId = null;
   for (const id of state.settingsNameDrafts.keys()) if (!ids.has(id)) state.settingsNameDrafts.delete(id);
   for (const id of state.settingsErrors.keys()) if (!ids.has(id)) state.settingsErrors.delete(id);
+  for (const id of state.expandedSettingsAgents) if (!ids.has(id)) state.expandedSettingsAgents.delete(id);
   const catalogKeys = new Set(settings.agents
     .filter((agent) => agent.kind !== null)
     .map((agent) => settingsCatalogKey(agent.id, agent.kind)));
@@ -1813,6 +1816,7 @@ elements.settingsButton.addEventListener("click", () => {
   state.settingsErrors.clear();
   state.settingsNameDrafts.clear();
   state.openColorAgentId = null;
+  state.expandedSettingsAgents.clear();
   elements.usernameInput.value = state.settings.username;
   elements.usernameInput.removeAttribute("aria-invalid");
   elements.usernameStatus.textContent = "";
@@ -1965,31 +1969,48 @@ function settingsAgentRow(agent) {
   });
 
   const color = colorPicker(agent, locked, error?.field === "color");
-  fields.append(name, kind, color);
+  const expanded = state.expandedSettingsAgents.has(agent.id);
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "quiet settings-agent-toggle";
+  toggle.setAttribute("aria-label", `${expanded ? "收起" : "展开"}${agent.name}的模型和权限设置`);
+  toggle.setAttribute("aria-expanded", String(expanded));
+  toggle.addEventListener("click", () => {
+    const nextExpanded = !state.expandedSettingsAgents.has(agent.id);
+    if (nextExpanded) state.expandedSettingsAgents.add(agent.id);
+    else state.expandedSettingsAgents.delete(agent.id);
+    syncSettingsRowExpansion(agent.id, nextExpanded);
+  });
+  fields.append(name, kind, color, toggle);
   row.append(fields);
 
   const defaults = document.createElement("div");
   defaults.className = "settings-agent-defaults";
+  defaults.classList.toggle("expanded", expanded);
+  defaults.setAttribute("aria-hidden", String(!expanded));
+  defaults.inert = !expanded;
+  const defaultsContent = document.createElement("div");
+  defaultsContent.className = "settings-agent-defaults-content";
   const defaultsLocked = locked || state.savingDefaults.has(agent.id);
   const kindAvailable = agent.kind !== null && configuredKind(agent.kind);
   const entry = kindAvailable ? state.settingsCatalogs.get(settingsCatalogKey(agent.id, agent.kind)) : null;
   if (!kindAvailable) {
-    defaults.append(...settingControls(
+    defaultsContent.append(...settingControls(
       { models: [], permissions: [] },
       agent.defaults,
       true,
       { model: true, permission: true },
       () => {},
     ));
-    defaults.append(statusLine(agent.kind === null
+    defaultsContent.append(statusLine(agent.kind === null
       ? "选择 CLI 后可以设置默认值。"
       : "这个 CLI 没有在 config.json 中配置。"));
   } else if (!entry || entry.loading) {
-    defaults.append(statusLine("正在读取可选的模型和权限……"));
+    defaultsContent.append(statusLine("正在读取可选的模型和权限……"));
   } else if (entry.error) {
-    defaults.append(statusLine(`读取失败：${entry.error}`, true));
+    defaultsContent.append(statusLine(`读取失败：${entry.error}`, true));
   } else {
-    defaults.append(...settingControls(
+    defaultsContent.append(...settingControls(
       entry.catalog,
       agent.defaults,
       defaultsLocked,
@@ -2001,8 +2022,9 @@ function settingsAgentRow(agent) {
     ));
   }
   if (error?.field === "defaults") {
-    for (const select of defaults.querySelectorAll("select")) select.setAttribute("aria-invalid", "true");
+    for (const select of defaultsContent.querySelectorAll("select")) select.setAttribute("aria-invalid", "true");
   }
+  defaults.append(defaultsContent);
   row.append(defaults);
   if (error) {
     const line = statusLine(error.message, true);
@@ -2267,6 +2289,19 @@ function syncSettingsRowError(agentId) {
   row.append(line);
 }
 
+function syncSettingsRowExpansion(agentId, expanded) {
+  const row = elements.settingsAgentList.querySelector(`[data-agent-id="${agentId}"]`);
+  const agent = settingsAgent(agentId);
+  if (!row || !agent) return;
+  const toggle = row.querySelector(".settings-agent-toggle");
+  const defaults = row.querySelector(".settings-agent-defaults");
+  toggle?.setAttribute("aria-label", `${expanded ? "收起" : "展开"}${agent.name}的模型和权限设置`);
+  toggle?.setAttribute("aria-expanded", String(expanded));
+  defaults?.classList.toggle("expanded", expanded);
+  defaults?.setAttribute("aria-hidden", String(!expanded));
+  if (defaults) defaults.inert = !expanded;
+}
+
 function clearSettingsFieldError(agentId, field) {
   if (state.settingsErrors.get(agentId)?.field === field) state.settingsErrors.delete(agentId);
 }
@@ -2281,6 +2316,10 @@ function setSettingsError(error, fallbackAgentId, fallbackField) {
   const agentId = error.details?.agentId ?? fallbackAgentId;
   if (field && agentId && settingsAgent(agentId)) {
     state.settingsErrors.set(agentId, { field, message: errorMessage(error) });
+    if (field === "defaults") {
+      state.expandedSettingsAgents.add(agentId);
+      syncSettingsRowExpansion(agentId, true);
+    }
   } else {
     elements.settingsStatus.textContent = errorMessage(error);
   }
