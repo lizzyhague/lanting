@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,7 +9,12 @@ import { CodexAdapter } from "./adapter.ts";
 
 /** 假的 codex app-server：一轮里先说一句过渡的话、跑一条要审批的命令，再给最终回答。 */
 const FAKE_APP_SERVER = `#!/usr/bin/env node
+import { appendFileSync, existsSync, unlinkSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { createInterface } from "node:readline";
+const directory = path.dirname(fileURLToPath(import.meta.url));
+appendFileSync(path.join(directory, "starts"), "x");
 const send = (message) => console.log(JSON.stringify(message));
 let instructions = null;
 let turn = 0;
@@ -33,6 +38,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     settings.push(p);
     send({ id: m.id, result: {} });
   } else if (m.method === "model/list") {
+    const crash = path.join(directory, "crash-on-model-list");
+    if (existsSync(crash)) {
+      unlinkSync(crash);
+      process.exit(1);
+    }
     send({ id: m.id, result: { nextCursor: null, data: [
       { id: "gpt-a", displayName: "GPT A", description: "fast", hidden: false, defaultReasoningEffort: "medium",
         supportedReasoningEfforts: [{ reasoningEffort: "low", description: "" }, { reasoningEffort: "medium", description: "" }] },
@@ -102,7 +112,15 @@ async function setup(t: test.TestContext) {
       return { decision: "allow", message: "" };
     },
   };
-  return { adapter: new CodexAdapter({ executable }), options, asks };
+  const adapter = new CodexAdapter({ executable });
+  t.after(() => adapter.close());
+  return {
+    adapter,
+    options,
+    asks,
+    starts: path.join(directory, "starts"),
+    crashOnModelList: path.join(directory, "crash-on-model-list"),
+  };
 }
 
 async function collect(events: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
@@ -142,7 +160,8 @@ test("interrupting a Codex turn ends it as interrupted, and resume keeps the thr
 });
 
 test("the Codex catalog lists visible models and the allowed permission profiles", async (t) => {
-  const { adapter, options } = await setup(t);
+  const { adapter, options, starts } = await setup(t);
+  adapter.start();
   const catalog = {
     models: await adapter.features.models!(options.cwd),
     permissions: await adapter.features.permissions!(options.cwd),
@@ -155,6 +174,24 @@ test("the Codex catalog lists visible models and the allowed permission profiles
     [":workspace", "自动（可修改项目）", false],
     [":danger-full-access", "完全访问", true],
   ]);
+  assert.equal((await readFile(starts, "utf8")).length, 1, "模型和权限共用同一个常驻进程");
+});
+
+test("the resident Codex process restarts on the next catalog request after it exits", async (t) => {
+  const { adapter, options, starts, crashOnModelList } = await setup(t);
+  await adapter.features.permissions!(options.cwd);
+  await writeFile(crashOnModelList, "");
+  await assert.rejects(adapter.features.models!(options.cwd), /退出/u);
+  await adapter.features.models!(options.cwd);
+  assert.equal((await readFile(starts, "utf8")).length, 2);
+});
+
+test("a closed Codex adapter does not restart its resident process", async (t) => {
+  const { adapter, options, starts } = await setup(t);
+  await adapter.features.models!(options.cwd);
+  await adapter.close();
+  await assert.rejects(adapter.features.models!(options.cwd), /已关闭/u);
+  assert.equal((await readFile(starts, "utf8")).length, 1);
 });
 
 test("Codex settings are applied after the thread opens, and compaction waits for its turn to finish", async (t) => {

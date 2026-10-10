@@ -57,6 +57,7 @@ export async function main(): Promise<void> {
     const address = await server.listen(readPort(process.env.PORT ?? DEFAULT_PORT));
     console.log(`服务正在监听 http://${address.host}:${address.port}/`);
     console.log(`已接入的 CLI：${agents.kinds.join("、") || "无"}`);
+    for (const adapter of adapters) adapter.start?.();
     runtime.startIdleSweeper();
     groups.startTrashSweeper();
     await waitForShutdownSignal();
@@ -64,6 +65,7 @@ export async function main(): Promise<void> {
     groups.stopTrashSweeper();
     await server.close();
     await runtime.shutdown();
+    await Promise.all(adapters.map((adapter) => adapter.close?.()));
   }
 }
 

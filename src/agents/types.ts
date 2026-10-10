@@ -109,6 +109,10 @@ export interface AgentAdapter {
    */
   readonly closeAfterTurn: boolean;
   readonly features: AgentFeatures;
+  /** 后端开始监听后启动适配器持有的常驻资源；不能阻塞服务启动。 */
+  start?(): void;
+  /** 后端退出时关闭适配器持有的常驻资源。 */
+  close?(): Promise<void>;
   startSession(options: SessionOptions): Promise<AgentSession>;
   resumeSession(nativeId: string, options: SessionOptions): Promise<AgentSession>;
 }

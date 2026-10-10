@@ -1,9 +1,7 @@
 import type { AgentFeatures } from "../../features/index.ts";
-import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
 import type {
   AgentAdapter,
-  AgentCatalog,
   AgentEvent,
   AgentSession,
   ApprovalAnswer,
@@ -13,6 +11,7 @@ import type {
   SessionOptions,
 } from "../types.ts";
 import { AppServerClient, AppServerRpcError, type JsonObject, type RequestId } from "./client.ts";
+import { ResidentAppServer } from "./resident.ts";
 
 export type CodexAdapterOptions = {
   executable: string;
@@ -33,34 +32,26 @@ export class CodexAdapter implements AgentAdapter {
   readonly features: AgentFeatures = {
     compact: (session) => asOwnSession(session).compact(),
     deleteSession: (nativeId, cwd) => this.#deleteSession(nativeId, cwd),
-    models: async (cwd) => (await this.#catalog(cwd)).models,
-    permissions: async (cwd) => (await this.#catalog(cwd)).permissions,
+    models: () => listModels(this.#resident),
+    permissions: (cwd) => listPermissions(this.#resident, cwd),
   };
   readonly #options: CodexAdapterOptions;
-  readonly #catalogs = new CatalogCache();
+  readonly #resident: ResidentAppServer;
 
   constructor(options: CodexAdapterOptions) {
     this.#options = options;
+    this.#resident = new ResidentAppServer({
+      executable: options.executable,
+      initializeParams: INITIALIZE_PARAMS,
+    });
   }
 
-  /** 权限档案会读项目里的配置，所以按工作目录分别缓存。 */
-  #catalog(cwd: string): Promise<AgentCatalog> {
-    return this.#catalogs.get(cwd, async () => {
-      const client = new AppServerClient({
-        codexBinary: this.#options.executable,
-        workingDirectory: cwd,
-        processGroup: true,
-      });
-      try {
-        await client.initialize(INITIALIZE_PARAMS);
-        return {
-          models: await listModels(client),
-          permissions: await listPermissions(client, cwd),
-        };
-      } finally {
-        await client.close();
-      }
-    });
+  start(): void {
+    this.#resident.start();
+  }
+
+  close(): Promise<void> {
+    return this.#resident.close();
   }
 
   /** 照 Codex Remote：临时起一个 app-server 调 thread/delete；已经不存在也算删掉了。 */
@@ -367,7 +358,7 @@ function settingsUpdate(options: SessionOptions): JsonObject | null {
   return Object.keys(update).length > 0 ? update : null;
 }
 
-async function listModels(client: AppServerClient): Promise<ModelOption[]> {
+async function listModels(client: Pick<AppServerClient, "request">): Promise<ModelOption[]> {
   const models: ModelOption[] = [];
   let cursor: string | null = null;
   const seen = new Set<string>();
@@ -401,7 +392,7 @@ async function listModels(client: AppServerClient): Promise<ModelOption[]> {
 }
 
 /** 权限档案只有 id 和说明，照 Codex Remote 按名字给出中文标签。不可选的档案不列出。 */
-async function listPermissions(client: AppServerClient, cwd: string): Promise<PermissionOption[]> {
+async function listPermissions(client: Pick<AppServerClient, "request">, cwd: string): Promise<PermissionOption[]> {
   const response = asObject(await client.request("permissionProfile/list", { cursor: null, limit: 100, cwd }));
   if (!response || !Array.isArray(response.data)) throw new Error("Codex 返回了无法识别的权限列表。");
   return response.data.flatMap((value) => {
