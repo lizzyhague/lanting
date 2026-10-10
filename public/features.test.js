@@ -49,8 +49,11 @@ test("member controls disable unavailable or unsupported actions with an explici
 
 test("the usage menu lists usable members, marks the choice, and keeps an off item", () => {
   const menu = body("function renderPlusMenu()", "function menuItem(");
-  assert.match(menu, /usageCandidates\(group\)\.length > 0/u);
+  assert.match(menu, /const usageMembers = usageCandidates\(group\)/u);
+  assert.match(menu, /usageMembers\.length > 0/u);
   assert.match(menu, /"AI usage"/u);
+  assert.match(menu, /elements\.plusMenu\.replaceChildren/u);
+  assert.match(menu, /elements\.plusSubmenu\.replaceChildren/u);
   assert.match(menu, /setUsageAgent\(selected \? null : member\)/u);
   assert.match(menu, /aria-checked", String\(selected\)/u);
   assert.match(menu, /menuItem\("关闭"/u);

@@ -1464,8 +1464,14 @@ button[aria-invalid="true"] {
 .plus-menu {
   left: 0;
   min-width: 180px;
+  max-height: 70dvh;
+  overflow-y: auto;
   display: grid;
   gap: 0.25rem;
+}
+
+.plus-submenu {
+  z-index: 11;
 }
 
 .agent-panel {
@@ -1493,6 +1499,11 @@ button[aria-invalid="true"] {
 }
 
 .menu-item:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.menu-item.submenu-open {
+  border-color: var(--border-strong);
   background: var(--surface-3);
 }
 

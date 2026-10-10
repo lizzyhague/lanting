@@ -99,6 +99,7 @@ const elements = {
   callPicks: byId("call-picks"),
   plusButton: byId("plus-button"),
   plusMenu: byId("plus-menu"),
+  plusSubmenu: byId("plus-submenu"),
   agentPanel: byId("agent-panel"),
   taskButton: byId("task-button"),
   composerStatus: byId("composer-status"),
@@ -1463,6 +1464,7 @@ async function interrupt() {
 
 function closePopovers() {
   elements.plusMenu.hidden = true;
+  elements.plusSubmenu.hidden = true;
   elements.plusButton.setAttribute("aria-expanded", "false");
   state.plusLevel = "root";
   closeAgentPanel();
@@ -1511,41 +1513,42 @@ function groupBusy() {
 function renderPlusMenu() {
   const group = state.current?.group;
   if (!group || elements.plusMenu.hidden) return;
+  const usageMembers = usageCandidates(group);
+  if (state.plusLevel === "usage" && usageMembers.length === 0) state.plusLevel = "root";
+  const submenuItem = (label, level) => {
+    const item = menuItem(label, null, false, () => {
+      state.plusLevel = state.plusLevel === level ? "root" : level;
+      renderPlusMenu();
+    });
+    item.classList.add("has-submenu");
+    item.classList.toggle("submenu-open", state.plusLevel === level);
+    item.setAttribute("aria-expanded", String(state.plusLevel === level));
+    return item;
+  };
+  const compactItem = submenuItem("压缩上下文", "compact");
+  const settingsItem = submenuItem("AI 设置", "settings");
+  // 没有能选的成员时不出现，不置灰。
+  const usageItem = usageMembers.length > 0 ? submenuItem("AI usage", "usage") : null;
+  const attachItem = menuItem("添加附件", null, !state.authenticated, () => {
+    closePopovers();
+    elements.fileInput.click();
+  });
+  elements.plusMenu.replaceChildren(
+    ...[attachItem, compactItem, settingsItem, usageItem].filter(Boolean),
+  );
+
   if (state.plusLevel === "root") {
-    const compactItem = menuItem("压缩上下文", null, false, () => {
-      state.plusLevel = "compact";
-      renderPlusMenu();
-    });
-    compactItem.classList.add("has-submenu");
-    const settingsItem = menuItem("AI 设置", null, false, () => {
-      state.plusLevel = "settings";
-      renderPlusMenu();
-    });
-    settingsItem.classList.add("has-submenu");
-    // 没有能选的成员时不出现，不置灰。
-    const usageItem = usageCandidates(group).length > 0
-      ? menuItem("AI usage", null, false, () => {
-        state.plusLevel = "usage";
-        renderPlusMenu();
-      })
-      : null;
-    usageItem?.classList.add("has-submenu");
-    const attachItem = menuItem("添加附件", null, !state.authenticated, () => {
-      closePopovers();
-      elements.fileInput.click();
-    });
-    elements.plusMenu.replaceChildren(
-      ...[attachItem, compactItem, settingsItem, usageItem].filter(Boolean),
-    );
+    elements.plusSubmenu.hidden = true;
     return;
   }
+  elements.plusSubmenu.hidden = false;
   if (state.plusLevel === "usage") {
     const back = menuItem("‹ AI usage", null, false, () => {
       state.plusLevel = "root";
       renderPlusMenu();
     });
     back.classList.add("menu-back");
-    const choices = usageCandidates(group).map((member) => {
+    const choices = usageMembers.map((member) => {
       const selected = group.usageAgent === member;
       const item = menuItem(member, member, !state.authenticated, () => {
         // 再点当前已选的成员等于关闭。
@@ -1560,10 +1563,8 @@ function renderPlusMenu() {
       if (group.usageAgent !== null) void setUsageAgent(null);
     });
     off.setAttribute("aria-checked", String(group.usageAgent === null));
-    elements.plusMenu.replaceChildren(back, ...choices, off);
-    return;
-  }
-  if (state.plusLevel === "settings") {
+    elements.plusSubmenu.replaceChildren(back, ...choices, off);
+  } else if (state.plusLevel === "settings") {
     const back = menuItem("‹ AI 设置", null, false, () => {
       state.plusLevel = "root";
       renderPlusMenu();
@@ -1575,33 +1576,43 @@ function renderPlusMenu() {
         toggleAgentPanel(member);
       });
     });
-    elements.plusMenu.replaceChildren(back, ...choices);
-    return;
-  }
-  const back = menuItem("‹ 压缩上下文", null, false, () => {
-    state.plusLevel = "root";
-    renderPlusMenu();
-  });
-  back.classList.add("menu-back");
-  const disabled = groupBusy() || !state.authenticated;
-  const choices = [
-    ...group.members.map((member) => {
-      const unavailable = group.unavailable.includes(member);
-      const unsupported = !unavailable && !memberSupports(group, member, "compact");
-      const label = unavailable
-        ? `${member}（未接入）`
-        : unsupported ? `${member}（不支持）` : member;
-      return menuItem(label, member, disabled || unavailable || unsupported, () => {
+    elements.plusSubmenu.replaceChildren(back, ...choices);
+  } else {
+    const back = menuItem("‹ 压缩上下文", null, false, () => {
+      state.plusLevel = "root";
+      renderPlusMenu();
+    });
+    back.classList.add("menu-back");
+    const disabled = groupBusy() || !state.authenticated;
+    const choices = [
+      ...group.members.map((member) => {
+        const unavailable = group.unavailable.includes(member);
+        const unsupported = !unavailable && !memberSupports(group, member, "compact");
+        const label = unavailable
+          ? `${member}（未接入）`
+          : unsupported ? `${member}（不支持）` : member;
+        return menuItem(label, member, disabled || unavailable || unsupported, () => {
+          closePopovers();
+          void compact([member]);
+        });
+      }),
+      menuItem("全部", null, disabled, () => {
         closePopovers();
-        void compact([member]);
-      });
-    }),
-    menuItem("全部", null, disabled, () => {
-      closePopovers();
-      void compact([...group.members]);
-    }),
-  ];
-  elements.plusMenu.replaceChildren(back, ...choices);
+        void compact([...group.members]);
+      }),
+    ];
+    elements.plusSubmenu.replaceChildren(back, ...choices);
+  }
+  positionPlusSubmenu();
+}
+
+function positionPlusSubmenu() {
+  const gap = 6;
+  const edge = 8;
+  const anchorLeft = elements.plusMenu.parentElement.getBoundingClientRect().left;
+  const preferredLeft = elements.plusMenu.offsetLeft + elements.plusMenu.offsetWidth + gap;
+  const maxLeft = window.innerWidth - anchorLeft - elements.plusSubmenu.offsetWidth - edge;
+  elements.plusSubmenu.style.left = `${Math.max(0, Math.min(preferredLeft, maxLeft))}px`;
 }
 
 function menuItem(label, agent, disabled, onClick) {
