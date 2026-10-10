@@ -471,7 +471,7 @@ test("compaction records an unavailable kind and continues with later members", 
 
   await runtime.compact(groupId, ["alice", "helper"]).done;
   assert.deepEqual(store.transcript(groupId).slice(-2).map((entry) => entry.text), [
-    "alice 的上下文没有压缩成功：alice 使用的 Codex CLI 没有在 config.json 中配置。",
+    "alice 未接入，跳过。",
     "已压缩 helper 的上下文。",
   ]);
   assert.deepEqual(adapters.claude!.compacted, ["claude-session-1"]);
@@ -489,7 +489,7 @@ test("compaction records an unsupported member and continues without opening its
 
   await runtime.compact(groupId, ["alice", "helper"]).done;
   assert.deepEqual(store.transcript(groupId).slice(-2).map((entry) => entry.text), [
-    "alice 的上下文没有压缩成功：这个 CLI 不支持压缩上下文。",
+    "alice 不支持，跳过。",
     "已压缩 helper 的上下文。",
   ]);
   assert.deepEqual(adapters.codex!.calls, []);

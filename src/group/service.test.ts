@@ -106,7 +106,9 @@ class FakeUploads implements Pick<SharedUploadClient, "createTicket" | "createLe
 test("summaries list the features of configured CLIs", async (t) => {
   const { service, groupId } = await setup(t);
   const all = ["compact", "deleteSession", "models", "permissions"];
-  assert.deepEqual(service.groups().find((group) => group.id === groupId)?.features, { claude: all });
+  const group = service.groups().find((item) => item.id === groupId);
+  assert.deepEqual(group?.features, { claude: all });
+  assert.deepEqual(group?.unavailable, []);
   assert.deepEqual(service.agentKinds(), [
     { kind: "claude", displayName: "Claude Code", configured: true, features: all },
     { kind: "codex", displayName: "Codex CLI", configured: true, features: all },
@@ -450,6 +452,8 @@ test("purging abandons a native session whose frozen CLI is no longer configured
     next.agents.orphan!.nativeSessionId = "grok-session-left-behind";
     next.trashedAt = new Date().toISOString();
   });
+
+  assert.deepEqual(service.groups().find((item) => item.id === group.id)?.unavailable, ["orphan"]);
 
   assert.deepEqual(await service.purge([group.id]), { done: [group.id], failed: [] });
   assert.equal(store.get(group.id), null);

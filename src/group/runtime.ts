@@ -314,12 +314,14 @@ export class GroupRuntime {
   /** 返回写进群聊记录的提示。 */
   async #compactOne(groupId: string, agent: string): Promise<string> {
     const group = this.#requireGroup(groupId);
+    const state = group.agents[agent]!;
+    if (!this.#agents.has(state.kind)) return `${agent} 未接入，跳过。`;
+    const compact = this.#agents.get(state.kind).features.compact;
+    if (!compact) return `${agent} 不支持，跳过。`;
     if (!group.agents[agent]?.nativeSessionId) return `${agent} 还没有发过言，没有可压缩的上下文。`;
     let session: AgentSession | null = null;
     let failed = false;
     try {
-      const compact = this.#adapter(group, agent).features.compact;
-      if (!compact) throw new Error("这个 CLI 不支持压缩上下文。");
       session = await this.#session(group, agent);
       await compact(session);
       return `已压缩 ${agent} 的上下文。`;

@@ -371,10 +371,12 @@ test("a browser can create a group, run a round, and answer an approval over the
   assert.deepEqual(updateConflict.details, { field: "name", agentId: added.agentId });
 
   const { group } = await call("group.create", { directory: "demo", members: [claudeId], title: "" }) as {
-    group: { id: string; title: string; directory: string };
+    group: { id: string; title: string; directory: string; features: Record<string, string[]>; unavailable: string[] };
   };
   assert.equal(group.title, "新群");
   assert.equal(group.directory, "demo");
+  assert.deepEqual(group.features.claude, ["compact", "deleteSession", "models", "permissions"]);
+  assert.deepEqual(group.unavailable, []);
   await event("group.created");
 
   const pinned = await call("group.pin", { groupId: group.id, pinned: true }) as {

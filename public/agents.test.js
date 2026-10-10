@@ -5,7 +5,9 @@ import {
   colorChoices,
   createCandidates,
   effectiveCreateMembers,
+  kindSupports,
   kindOptions,
+  memberSupports,
   moveAgent,
   paletteColor,
   selectionAfterRemove,
@@ -68,4 +70,19 @@ test("moving and removing records preserve the intended selection", () => {
 test("settings catalogs are separated by record and CLI kind", () => {
   assert.equal(settingsCatalogKey("a", "claude"), "a:claude");
   assert.equal(settingsCatalogKey("a", "codex"), "a:codex");
+});
+
+test("feature support comes from the group member or CLI kind", () => {
+  const group = { features: { alice: ["compact"], bob: [] } };
+  assert.equal(memberSupports(group, "alice", "compact"), true);
+  assert.equal(memberSupports(group, "alice", "models"), false);
+  assert.equal(memberSupports(group, "bob", "compact"), false);
+
+  const kinds = [
+    { kind: "claude", features: ["models", "permissions"] },
+    { kind: "codex", features: [] },
+  ];
+  assert.equal(kindSupports(kinds, "claude", "models"), true);
+  assert.equal(kindSupports(kinds, "codex", "models"), false);
+  assert.equal(kindSupports(kinds, "missing", "models"), false);
 });

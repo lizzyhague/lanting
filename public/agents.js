@@ -51,3 +51,11 @@ export function settingsCatalogKey(id, kind) {
 export function paletteColor(palette, id) {
   return palette.find((entry) => entry.id === id)?.color ?? null;
 }
+
+export function memberSupports(group, agent, feature) {
+  return group.features[agent].includes(feature);
+}
+
+export function kindSupports(agentKinds, kind, feature) {
+  return agentKinds.find((entry) => entry.kind === kind)?.features.includes(feature) ?? false;
+}

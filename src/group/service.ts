@@ -61,6 +61,8 @@ export type GroupSummary = {
   settings: Record<string, AgentSettings>;
   /** 每个成员的 CLI 支持的子功能。 */
   features: Record<string, AgentFeatureId[]>;
+  /** CLI 没有接入当前服务的成员。 */
+  unavailable: string[];
   createdAt: string;
   updatedAt: number;
   /** 是否固定显示在最近群会话顶部。 */
@@ -780,6 +782,7 @@ export class GroupService {
         const kind = group.agents[member]!.kind;
         return [member, this.#agents.has(kind) ? featureIds(this.#agents.get(kind).features) : []];
       })),
+      unavailable: group.members.filter((member) => !this.#agents.has(group.agents[member]!.kind)),
       createdAt: group.createdAt,
       updatedAt: group.updatedAt,
       pinned: group.pinned,

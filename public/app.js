@@ -3,7 +3,9 @@ import {
   colorChoices,
   createCandidates,
   effectiveCreateMembers,
+  kindSupports,
   kindOptions,
+  memberSupports,
   moveAgent,
   paletteColor,
   selectionAfterRemove,
@@ -155,6 +157,8 @@ const state = {
   callOrder: [],
   /** 点名正在保存：成员按钮和发送按钮都锁住。 */
   savingOrder: false,
+  /** 自动移除未接入成员的保存刚失败；恢复后重画时不要立刻再发同一个请求。 */
+  skipUnavailableOrderSave: false,
   sending: false,
   interrupting: false,
   /** 成员面板用的模型和权限列表，按 “群 id:AI” 存；值为 { catalog } 或 { error }。 */
@@ -1217,15 +1221,22 @@ function renderApprovals() {
 function renderCallPicks() {
   const group = state.current?.group;
   if (!group) return;
+  const availableOrder = state.callOrder.filter((member) => !group.unavailable.includes(member));
+  if (availableOrder.length !== state.callOrder.length) {
+    state.callOrder = availableOrder;
+    if (state.skipUnavailableOrderSave) state.skipUnavailableOrderSave = false;
+    else if (!state.savingOrder) void saveCallOrder(availableOrder, true);
+  }
   elements.callPicks.replaceChildren(...group.members.map((member) => {
+    const unavailable = group.unavailable.includes(member);
     const selected = state.callOrder.includes(member);
     const pick = document.createElement("button");
     pick.type = "button";
     pick.className = "call-pick";
     pick.dataset.agent = member;
     paintAgent(pick, memberColor(group, member));
-    pick.textContent = member;
-    pick.disabled = state.savingOrder;
+    pick.textContent = unavailable ? `${member}（未接入）` : member;
+    pick.disabled = state.savingOrder || unavailable;
     pick.setAttribute("aria-pressed", String(selected));
     pick.addEventListener("click", () => {
       void saveCallOrder(toggleMember(state.callOrder, member, !selected));
@@ -1235,7 +1246,7 @@ function renderCallPicks() {
 }
 
 /** 每次点名变化都存到后端；保存期间锁住成员按钮和发送，失败时恢复成后端的状态。 */
-async function saveCallOrder(order) {
+async function saveCallOrder(order, removingUnavailable = false) {
   const current = state.current;
   if (!current || state.savingOrder) return;
   state.savingOrder = true;
@@ -1252,6 +1263,7 @@ async function saveCallOrder(order) {
   } catch (error) {
     if (state.current === current) {
       state.callOrder = [...current.group.callOrder];
+      if (removingUnavailable) state.skipUnavailableOrderSave = true;
     }
     elements.composerStatus.textContent = `点名没有保存：${errorMessage(error)}`;
   } finally {
@@ -1412,9 +1424,12 @@ function renderPlusMenu() {
       renderPlusMenu();
     });
     back.classList.add("menu-back");
-    const choices = group.members.map((member) => menuItem(member, member, false, () => {
-      toggleAgentPanel(member);
-    }));
+    const choices = group.members.map((member) => {
+      const unavailable = group.unavailable.includes(member);
+      return menuItem(unavailable ? `${member}（未接入）` : member, member, unavailable, () => {
+        toggleAgentPanel(member);
+      });
+    });
     elements.plusMenu.replaceChildren(back, ...choices);
     return;
   }
@@ -1425,10 +1440,17 @@ function renderPlusMenu() {
   back.classList.add("menu-back");
   const disabled = groupBusy() || !state.authenticated;
   const choices = [
-    ...group.members.map((member) => menuItem(member, member, disabled, () => {
-      closePopovers();
-      void compact([member]);
-    })),
+    ...group.members.map((member) => {
+      const unavailable = group.unavailable.includes(member);
+      const unsupported = !unavailable && !memberSupports(group, member, "compact");
+      const label = unavailable
+        ? `${member}（未接入）`
+        : unsupported ? `${member}（不支持）` : member;
+      return menuItem(label, member, disabled || unavailable || unsupported, () => {
+        closePopovers();
+        void compact([member]);
+      });
+    }),
     menuItem("全部", null, disabled, () => {
       closePopovers();
       void compact([...group.members]);
@@ -1530,16 +1552,32 @@ function memberRow(group, agent) {
   name.className = "member-name";
   name.append(agentDot(agent), document.createTextNode(agent));
   const compactButton = document.createElement("button");
+  const unavailable = group.unavailable.includes(agent);
+  const supportsCompact = !unavailable && memberSupports(group, agent, "compact");
   compactButton.type = "button";
   compactButton.className = "small";
-  compactButton.textContent = "压缩";
-  compactButton.disabled = groupBusy() || !state.authenticated;
+  compactButton.textContent = unavailable ? "压缩（未接入）" : supportsCompact ? "压缩" : "压缩（不支持）";
+  compactButton.disabled = groupBusy() || !state.authenticated || unavailable || !supportsCompact;
   compactButton.addEventListener("click", () => {
     closePopovers();
     void compact([agent]);
   });
   name.append(compactButton);
   row.append(name);
+
+  const settings = group.settings?.[agent] ?? { model: null, effort: null, permission: null };
+  if (unavailable) {
+    row.append(...settingControls(
+      { models: [], permissions: [] },
+      settings,
+      true,
+      { model: true, permission: true },
+      () => {},
+      true,
+    ));
+    row.append(statusLine("这个 CLI 未接入。"));
+    return row;
+  }
 
   const entry = state.catalogs.get(catalogKey(group.id, agent));
   if (!entry) {
@@ -1550,30 +1588,40 @@ function memberRow(group, agent) {
     row.append(statusLine(`读取失败：${entry.error}`, true));
     return row;
   }
-  const settings = group.settings?.[agent] ?? { model: null, effort: null, permission: null };
   const locked = state.savingSettings.has(agent) || !state.authenticated;
-  row.append(...settingControls(entry.catalog, settings, locked, (next) => void saveSettings(agent, next)));
+  row.append(...settingControls(
+    entry.catalog,
+    settings,
+    locked,
+    {
+      model: memberSupports(group, agent, "models"),
+      permission: memberSupports(group, agent, "permissions"),
+    },
+    (next) => void saveSettings(agent, next),
+  ));
   row.append(statusLine("只影响这个群，下次发言时生效。"));
   return row;
 }
 
 /** 模型、思考强度、权限三个下拉框，加当前权限的说明。成员设置框和设置页共用。 */
-function settingControls(catalog, settings, locked, save) {
+function settingControls(catalog, settings, locked, supports, save, unavailable = false) {
   const model = catalog.models.find((item) => item.id === settings.model) ?? null;
   const modelSelect = settingSelect("模型", settings.model, catalog.models.map((item) => ({
     value: item.id,
     label: item.label,
     title: item.description,
-  })), locked);
+  })), locked || !supports.model, unavailable ? "（未接入）" : supports.model ? "默认" : "（不支持）");
   const effortSelect = settingSelect("思考强度", settings.effort, (model?.efforts ?? []).map((effort) => ({
     value: effort,
     label: effort,
-  })), locked || !model || model.efforts.length === 0);
+  })), locked || !supports.model || !model || model.efforts.length === 0,
+  unavailable ? "（未接入）" : supports.model ? "默认" : "（不支持）");
   const permissionSelect = settingSelect("权限", settings.permission, catalog.permissions.map((item) => ({
     value: item.id,
     label: item.danger ? `${item.label} ⚠` : item.label,
     title: item.description,
-  })), locked);
+  })), locked || !supports.permission,
+  unavailable ? "（未接入）" : supports.permission ? "默认" : "（不支持）");
 
   modelSelect.select.addEventListener("change", () => {
     const nextModel = modelSelect.select.value || null;
@@ -1594,21 +1642,23 @@ function settingControls(catalog, settings, locked, save) {
   return controls;
 }
 
-/** 第一项是“默认”（不指定，跟随 CLI）；当前值不在列表里时也照样显示出来。 */
-function settingSelect(labelText, value, options, disabled) {
+/** 第一项显示“默认”或不可用原因；可用时，当前值不在列表里也照样显示出来。 */
+function settingSelect(labelText, value, options, disabled, defaultLabel = "默认") {
   const label = document.createElement("label");
   label.className = "setting";
   const caption = document.createElement("span");
   caption.textContent = labelText;
   const select = document.createElement("select");
-  select.add(new Option("默认", ""));
+  select.add(new Option(defaultLabel, ""));
   for (const option of options) {
     const element = new Option(option.label, option.value);
     if (option.title) element.title = option.title;
     select.add(element);
   }
-  if (value && !options.some((option) => option.value === value)) select.add(new Option(`${value}（不在列表里）`, value));
-  select.value = value ?? "";
+  if (defaultLabel === "默认" && value && !options.some((option) => option.value === value)) {
+    select.add(new Option(`${value}（不在列表里）`, value));
+  }
+  select.value = defaultLabel === "默认" ? value ?? "" : "";
   select.disabled = disabled;
   label.append(caption, select);
   return { label, select };
@@ -1811,6 +1861,7 @@ function settingsAgentRow(agent) {
       { models: [], permissions: [] },
       agent.defaults,
       true,
+      { model: true, permission: true },
       () => {},
     ));
     defaults.append(statusLine(agent.kind === null
@@ -1825,6 +1876,10 @@ function settingsAgentRow(agent) {
       entry.catalog,
       agent.defaults,
       defaultsLocked,
+      {
+        model: kindSupports(state.agentKinds, agent.kind, "models"),
+        permission: kindSupports(state.agentKinds, agent.kind, "permissions"),
+      },
       (next) => void saveDefaults(agent.id, next),
     ));
   }
