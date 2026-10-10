@@ -7,6 +7,8 @@ import {
   type PermissionResult,
   type Query,
   type SDKAssistantMessage,
+  type SDKControlGetContextUsageResponse,
+  type SDKControlGetUsageResponse,
   type SDKMessage,
   type SDKResultMessage,
   type SDKUserMessage,
@@ -19,7 +21,7 @@ import { createPreToolUseHook } from "./tool-policy.ts";
 
 /*
  * Claude Code 的底层运行时，搬自 Relayu `src/claude/session-runtime.ts`，去掉了 Relayu 自己的
- * 产品功能（伴、routine、rewind、用量查询等），只留启动、发消息、打断、compact、关闭。
+ * 产品功能（伴、routine、rewind 等），只留启动、发消息、打断、compact、用量查询、关闭。
  */
 
 export type RuntimeEvent =
@@ -192,6 +194,17 @@ export class ClaudeRuntime {
   async listModels(): Promise<ModelInfo[]> {
     if (!this.#query) throw new Error("运行时尚未就绪。");
     return this.#query.supportedModels();
+  }
+
+  /** 套餐额度：SDK 的实验性接口，字段可能变。 */
+  async getUsage(): Promise<SDKControlGetUsageResponse> {
+    if (!this.#query) throw new Error("运行时尚未就绪。");
+    return this.#query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET();
+  }
+
+  async getContextUsage(): Promise<SDKControlGetContextUsageResponse> {
+    if (!this.#query) throw new Error("运行时尚未就绪。");
+    return this.#query.getContextUsage();
   }
 
   async #canUseTool(toolName: string, input: Record<string, unknown>): Promise<PermissionResult> {

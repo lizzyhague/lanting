@@ -176,3 +176,22 @@ test("parses rename and trash requests", () => {
   rejectsWith(JSON.stringify({ type: "group.rename", requestId: "r5", groupId, title: "" }), "invalid_field", "r5");
   rejectsWith(JSON.stringify({ type: "group.pin", requestId: "r6", groupId, pinned: 1 }), "invalid_field", "r6");
 });
+
+test("usage requests carry a member tag or null", () => {
+  const groupId = "00000000-0000-4000-8000-000000000001";
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({ type: "group.usage", requestId: "r1", groupId, agent: "claude" })),
+    { type: "group.usage", requestId: "r1", groupId, agent: "claude" },
+  );
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({ type: "group.usage", requestId: "r2", groupId, agent: null })),
+    { type: "group.usage", requestId: "r2", groupId, agent: null },
+  );
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({ type: "group.usage.refresh", requestId: "r3", groupId })),
+    { type: "group.usage.refresh", requestId: "r3", groupId },
+  );
+  rejectsWith(JSON.stringify({ type: "group.usage", requestId: "r4", groupId }), "invalid_field", "r4");
+  rejectsWith(JSON.stringify({ type: "group.usage", requestId: "r5", groupId, agent: "Bad" }), "invalid_field", "r5");
+  rejectsWith(JSON.stringify({ type: "group.usage.refresh", requestId: "r6", groupId: "x" }), "invalid_field", "r6");
+});

@@ -1,6 +1,6 @@
 import type { AgentKind } from "./kinds.ts";
 import type { AgentAdapter, AgentCatalog, AgentEvent, AgentSession, SessionOptions } from "./types.ts";
-import type { AgentFeatureId, AgentFeatures } from "../features/index.ts";
+import type { AgentFeatureId, AgentFeatures, UsagePart, UsageRequest } from "../features/index.ts";
 
 /** 剧本里的一步：普通事件，或者向群主申请审批（结果作为 activity 发出）。 */
 export type FakeStep = AgentEvent | { type: "ask"; toolName: string; detail?: string };
@@ -40,6 +40,10 @@ export class FakeAdapter implements AgentAdapter {
   /** 每次压缩的会话 id；compactError 不为 null 时压缩失败。 */
   readonly compacted: string[] = [];
   compactError: Error | null = null;
+  /** usage 的剧本；默认不碰会话，返回一段固定文字。 */
+  usageScript: (request: UsageRequest) => Promise<UsagePart[] | null> = () =>
+    Promise.resolve([{ text: `${this.kind} usage` }]);
+  readonly usageRequests: UsageRequest[] = [];
   #nextSession = 1;
 
   constructor(kind: AgentKind, script?: Script, options?: FakeAdapterOptions) {
@@ -53,6 +57,10 @@ export class FakeAdapter implements AgentAdapter {
       deleteSession: (nativeId) => this.#deleteSession(nativeId),
       models: async (cwd) => (await this.#catalog(cwd)).models,
       permissions: async (cwd) => (await this.#catalog(cwd)).permissions,
+      usage: (request) => {
+        this.usageRequests.push(request);
+        return this.usageScript(request);
+      },
     };
     for (const feature of options?.without ?? []) delete this.features[feature];
   }

@@ -8,6 +8,7 @@ test("lists implemented agent features in fixed order", () => {
     permissions: async () => [],
     compact: async () => {},
     models: async () => [],
-  }), ["compact", "models", "permissions"]);
+    usage: async () => null,
+  }), ["compact", "models", "permissions", "usage"]);
   assert.deepEqual(featureIds({}), []);
 });

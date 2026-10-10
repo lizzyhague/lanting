@@ -495,3 +495,207 @@ test("compaction records an unsupported member and continues without opening its
   assert.deepEqual(adapters.codex!.calls, []);
   assert.deepEqual(adapters.claude!.compacted, ["claude-session-1"]);
 });
+
+function deferred<T = void>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+test("usage is not_started without a native session and does not call the module", async (t) => {
+  const { adapters, runtime, groupId } = await setup(t, ["claude"]);
+  assert.deepEqual(await runtime.readUsage(groupId, "claude", "view"), { status: "not_started" });
+  assert.equal(adapters.claude!.usageRequests.length, 0);
+});
+
+test("usage passes the native id and maps null to none", async (t) => {
+  const { adapters, runtime, groupId } = await setup(t, ["claude"]);
+  await runtime.startRound(groupId, "hi", ["claude"]).done;
+  assert.deepEqual(await runtime.readUsage(groupId, "claude", "turn"), {
+    status: "ok",
+    parts: [{ text: "claude usage" }],
+  });
+  const request = adapters.claude!.usageRequests[0]!;
+  assert.equal(request.nativeId, "claude-session-1");
+  assert.equal(request.cwd, "/work/demo");
+  assert.equal(request.reason, "turn");
+  adapters.claude!.usageScript = () => Promise.resolve(null);
+  assert.deepEqual(await runtime.readUsage(groupId, "claude", "visible"), { status: "none" });
+});
+
+test("session(false) only returns a running session; session(true) resumes one", async (t) => {
+  const { adapters, runtime, groupId } = await setup(t, ["claude"]);
+  await runtime.startRound(groupId, "hi", ["claude"]).done;
+  const adapter = adapters.claude!;
+  const seen: unknown[] = [];
+  adapter.usageScript = async (request) => {
+    seen.push(await request.session(false));
+    return [];
+  };
+  await runtime.readUsage(groupId, "claude", "visible");
+  assert.equal(seen[0], adapter.sessions[0]);
+
+  await runtime.closeSessions(groupId);
+  await runtime.readUsage(groupId, "claude", "visible");
+  assert.equal(seen[1], null);
+  assert.equal(adapter.calls.length, 1);
+
+  adapter.usageScript = async (request) => {
+    seen.push(await request.session(true));
+    return [];
+  };
+  await runtime.readUsage(groupId, "claude", "view");
+  assert.deepEqual(adapter.calls.map((call) => call.kind), ["start", "resume"]);
+  assert.equal(seen[2], adapter.sessions[1]);
+});
+
+test("usage gets no session while this member speaks, but other members speaking do not matter", async (t) => {
+  const { adapters, runtime, groupId, events } = await setup(t, ["claude", "codex"]);
+  await runtime.startRound(groupId, "hi", ["claude", "codex"]).done;
+  adapters.codex!.script = () => "hang";
+  const before = events.length;
+  const round = runtime.startRound(groupId, "again", ["codex"]);
+  while (!events.slice(before).some((event) => event.type === "agent.text" && event.agent === "codex")) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  const sessions: unknown[] = [];
+  for (const adapter of [adapters.claude!, adapters.codex!]) {
+    adapter.usageScript = async (request) => {
+      sessions.push(await request.session(true));
+      return [];
+    };
+  }
+  await runtime.readUsage(groupId, "codex", "view");
+  await runtime.readUsage(groupId, "claude", "view");
+  assert.equal(sessions[0], null);
+  assert.equal(sessions[1], adapters.claude!.sessions[0]);
+  await runtime.interrupt(groupId);
+  await round.done;
+});
+
+test("agent.settled comes after the native id is saved and the process is closed", async (t) => {
+  const { adapters, runtime, store, groupId } = await setup(t, ["codex"]);
+  const adapter = adapters.codex!;
+  adapter.closeAfterTurn = true;
+  const gap: unknown[] = [];
+  adapter.usageScript = async (request) => {
+    gap.push(await request.session(true));
+    return [];
+  };
+  const settled: { nativeId: string | null; closed: boolean | undefined }[] = [];
+  runtime.onEvent((event) => {
+    // 发言已经写进记录、进程还没关：这段空隙里 usage 也拿不到会话。
+    if (event.type === "entry.appended" && event.entry.from.role === "agent") {
+      void runtime.readUsage(groupId, "codex", "view");
+    }
+    if (event.type === "agent.settled") {
+      settled.push({
+        nativeId: store.get(groupId)!.agents.codex!.nativeSessionId,
+        closed: adapter.sessions[0]?.closed,
+      });
+    }
+  });
+  await runtime.startRound(groupId, "hi", ["codex"]).done;
+  await runtime.startRound(groupId, "again", ["codex"]).done;
+  assert.deepEqual(settled, [
+    { nativeId: "codex-session-1", closed: true },
+    { nativeId: "codex-session-1", closed: true },
+  ]);
+  // 空隙里的 usage 没有拉起进程：只有两次发言各开了一次。
+  assert.deepEqual(gap, [null, null]);
+  assert.deepEqual(adapter.calls.map((call) => call.kind), ["start", "resume"]);
+});
+
+test("compaction settles after the member is no longer marked busy", async (t) => {
+  const { adapters, runtime, groupId, events } = await setup(t, ["claude"]);
+  await runtime.startRound(groupId, "hi", ["claude"]).done;
+  const seen: unknown[] = [];
+  adapters.claude!.usageScript = async (request) => {
+    seen.push(await request.session(false));
+    return [];
+  };
+  runtime.onEvent((event) => {
+    if (event.type === "agent.settled") void runtime.readUsage(groupId, "claude", "turn");
+  });
+  await runtime.compact(groupId, ["claude"]).done;
+  const types = events.map((event) => event.type);
+  assert.ok(types.lastIndexOf("agent.settled") > types.lastIndexOf("entry.appended"));
+  assert.equal(seen[0], adapters.claude!.sessions[0]);
+});
+
+test("concurrent session opens share one process", async (t) => {
+  const { adapters, runtime, groupId } = await setup(t, ["claude"]);
+  await runtime.startRound(groupId, "hi", ["claude"]).done;
+  await runtime.closeSessions(groupId);
+  const adapter = adapters.claude!;
+  const gate = deferred();
+  const resume = adapter.resumeSession.bind(adapter);
+  adapter.resumeSession = async (nativeId, options) => {
+    await gate.promise;
+    return resume(nativeId, options);
+  };
+  const sessions: unknown[] = [];
+  adapter.usageScript = async (request) => {
+    sessions.push(await request.session(true));
+    return [];
+  };
+  const reads = [runtime.readUsage(groupId, "claude", "view"), runtime.readUsage(groupId, "claude", "view")];
+  gate.resolve();
+  await Promise.all(reads);
+  assert.deepEqual(adapter.calls.map((call) => call.kind), ["start", "resume"]);
+  assert.equal(sessions[0], sessions[1]);
+});
+
+test("a settings change while opening reopens before any waiter gets the session", async (t) => {
+  const { adapters, runtime, store, groupId } = await setup(t, ["claude"]);
+  await runtime.startRound(groupId, "hi", ["claude"]).done;
+  await runtime.closeSessions(groupId);
+  const adapter = adapters.claude!;
+  const gate = deferred();
+  const resume = adapter.resumeSession.bind(adapter);
+  adapter.resumeSession = async (nativeId, options) => {
+    if (adapter.calls.length === 1) await gate.promise;
+    return resume(nativeId, options);
+  };
+  const sessions: unknown[] = [];
+  adapter.usageScript = async (request) => {
+    sessions.push(await request.session(true));
+    return [];
+  };
+  const reads = [runtime.readUsage(groupId, "claude", "view"), runtime.readUsage(groupId, "claude", "view")];
+  await store.update(groupId, (next) => {
+    next.agents.claude!.settings = { model: "large", effort: null, permission: null };
+  });
+  gate.resolve();
+  await Promise.all(reads);
+  assert.deepEqual(adapter.calls.map((call) => call.options.settings.model), [null, null, "large"]);
+  assert.equal(adapter.sessions[1]!.closed, true);
+  assert.equal(sessions[0], adapter.sessions[2]);
+  assert.equal(sessions[1], adapter.sessions[2]);
+});
+
+test("closing a group's sessions waits for an opening session and closes it too", async (t) => {
+  const { adapters, runtime, groupId } = await setup(t, ["claude"]);
+  await runtime.startRound(groupId, "hi", ["claude"]).done;
+  await runtime.closeSessions(groupId);
+  const adapter = adapters.claude!;
+  const gate = deferred();
+  const resume = adapter.resumeSession.bind(adapter);
+  adapter.resumeSession = async (nativeId, options) => {
+    await gate.promise;
+    return resume(nativeId, options);
+  };
+  adapter.usageScript = async (request) => {
+    await request.session(true);
+    return [];
+  };
+  const read = runtime.readUsage(groupId, "claude", "view");
+  await new Promise((resolve) => setTimeout(resolve, 1));
+  const closing = runtime.closeSessions(groupId);
+  gate.resolve();
+  await closing;
+  await read;
+  assert.equal(adapter.sessions[1]!.closed, true);
+});

@@ -325,7 +325,7 @@ test("a browser can create a group, run a round, and answer an approval over the
       kind: "claude",
       displayName: "Claude Code",
       configured: true,
-      features: ["compact", "deleteSession", "models", "permissions"],
+      features: ["compact", "deleteSession", "models", "permissions", "usage"],
     },
     { kind: "codex", displayName: "Codex CLI", configured: false, features: [] },
     { kind: "grok", displayName: "Grok Build", configured: false, features: [] },
@@ -375,7 +375,7 @@ test("a browser can create a group, run a round, and answer an approval over the
   };
   assert.equal(group.title, "新群");
   assert.equal(group.directory, "demo");
-  assert.deepEqual(group.features.claude, ["compact", "deleteSession", "models", "permissions"]);
+  assert.deepEqual(group.features.claude, ["compact", "deleteSession", "models", "permissions", "usage"]);
   assert.deepEqual(group.unavailable, []);
   await event("group.created");
 
@@ -383,6 +383,16 @@ test("a browser can create a group, run a round, and answer an approval over the
     group: { pinned: boolean };
   };
   assert.equal(pinned.group.pinned, true);
+
+  const usage = await call("group.usage", { groupId: group.id, agent: "claude" }) as {
+    group: { usageAgent: string | null };
+  };
+  assert.equal(usage.group.usageAgent, "claude");
+  assert.deepEqual(await call("group.usage.refresh", { groupId: group.id }), {});
+  const closed = await call("group.usage", { groupId: group.id, agent: null }) as {
+    group: { usageAgent: string | null };
+  };
+  assert.equal(closed.group.usageAgent, null);
   assert.equal((await event("group.updated") as unknown as { group: { pinned: boolean } }).group.pinned, true);
 
   const snapshot = await call("group.subscribe", { groupId: group.id });

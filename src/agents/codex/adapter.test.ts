@@ -61,6 +61,26 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     send({ id: m.id, result: {} });
     send({ method: "turn/started", params: { threadId: "thread-1", turn: { id: turnId } } });
     send({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: turnId, status: "completed", error: null } } });
+  } else if (m.method === "account/rateLimits/read") {
+    appendFileSync(path.join(directory, "quota-reads"), "x");
+    if (existsSync(path.join(directory, "quota-fails"))) {
+      send({ id: m.id, error: { code: -32603, message: "quota down" } });
+      return;
+    }
+    setTimeout(() => send({ id: m.id, result: { rateLimits: null, rateLimitsByLimitId: { codex: {
+      limitId: "codex", limitName: null,
+      primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: 1700000000 },
+      secondary: { usedPercent: null, windowDurationMins: 10080, resetsAt: null },
+    } } } }), 20);
+  } else if (m.method === "turn/start" && p.input[0].text === "usage") {
+    turn += 1;
+    const turnId = "turn-" + turn;
+    send({ id: m.id, result: { turn: { id: turnId } } });
+    // 用量通知不属于这一轮也要记下。
+    send({ method: "thread/tokenUsage/updated", params: { threadId: "thread-1", turnId: "other",
+      tokenUsage: { last: { totalTokens: 2500 }, total: { totalTokens: 9000 }, modelContextWindow: 10000 } } });
+    send({ method: "item/completed", params: { threadId: "thread-1", turnId, item: { type: "agentMessage", id: "u", text: "ok" } } });
+    send({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: turnId, status: "completed", error: null } } });
   } else if (m.method === "turn/start" && p.input[0].text === "settings") {
     turn += 1;
     const turnId = "turn-" + turn;
@@ -119,6 +139,8 @@ async function setup(t: test.TestContext) {
     options,
     asks,
     starts: path.join(directory, "starts"),
+    quotaReads: path.join(directory, "quota-reads"),
+    quotaFails: path.join(directory, "quota-fails"),
     crashOnModelList: path.join(directory, "crash-on-model-list"),
   };
 }
@@ -219,4 +241,28 @@ test("deleting a Codex thread treats an already missing thread as deleted", asyn
   await adapter.features.deleteSession!("thread-1", options.cwd);
   await adapter.features.deleteSession!("gone", options.cwd);
   await assert.rejects(adapter.features.deleteSession!("broken", options.cwd), /disk error/u);
+});
+
+test("Codex usage reads quota from the resident server and context from the turn's token usage", async (t) => {
+  const { adapter, options, quotaReads, quotaFails } = await setup(t);
+  const usage = adapter.features.usage!;
+  const request = { nativeId: "thread-1", cwd: options.cwd, reason: "view" as const, session: async () => null };
+  const quota = [
+    { text: "5 小时剩余 75.0%，{time} 重置", time: new Date(1700000000 * 1000).toISOString() },
+    { text: "7 天剩余 未知" },
+  ];
+  assert.deepEqual(await usage(request), [{ text: "上下文等待更新" }, ...quota]);
+
+  const session = await adapter.startSession(options);
+  await collect(session.send("usage"));
+  await session.close();
+  // 进程关掉以后上下文仍然保留；同时来的两次查询共用一个请求。
+  const before = (await readFile(quotaReads, "utf8")).length;
+  const [first, second] = await Promise.all([usage(request), usage(request)]);
+  assert.deepEqual(first, [{ text: "上下文约 25.0%" }, ...quota]);
+  assert.deepEqual(second, first);
+  assert.equal((await readFile(quotaReads, "utf8")).length, before + 1);
+
+  await writeFile(quotaFails, "");
+  assert.deepEqual(await usage(request), [{ text: "上下文约 25.0%" }, { text: "额度查询不可用" }]);
 });

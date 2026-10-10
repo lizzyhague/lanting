@@ -36,6 +36,8 @@ export type Group = {
   updatedAt: number;
   /** 是否固定显示在最近群会话顶部。 */
   pinned: boolean;
+  /** 标题栏下面 usage 行显示哪个成员；null 表示关闭。 */
+  usageAgent: string | null;
   /** 移入回收站的时间；不在回收站时为 null。到期时间由它推出来，不另存。 */
   trashedAt: string | null;
   /**

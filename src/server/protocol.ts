@@ -38,6 +38,8 @@ export type BrowserRequest =
   | { type: "group.compact"; requestId: string; groupId: string; agents: string[] }
   | { type: "group.rename"; requestId: string; groupId: string; title: string }
   | { type: "group.pin"; requestId: string; groupId: string; pinned: boolean }
+  | { type: "group.usage"; requestId: string; groupId: string; agent: string | null }
+  | { type: "group.usage.refresh"; requestId: string; groupId: string }
   | {
     type: "attachment.ticket";
     requestId: string;
@@ -126,6 +128,7 @@ export function parseBrowserRequest(source: string): BrowserRequest {
       };
     case "group.subscribe":
     case "group.unsubscribe":
+    case "group.usage.refresh":
     case "round.interrupt":
       return { type: value.type, requestId, groupId: requireUuid(value.groupId, "群 ID", requestId) };
     case "group.callOrder":
@@ -203,6 +206,13 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         requestId,
         groupId: requireUuid(value.groupId, "群 ID", requestId),
         pinned: value.pinned,
+      };
+    case "group.usage":
+      return {
+        type: "group.usage",
+        requestId,
+        groupId: requireUuid(value.groupId, "群 ID", requestId),
+        agent: value.agent === null ? null : requireTag(value.agent, requestId),
       };
     case "attachment.ticket": {
       const size = value.expectedSize;

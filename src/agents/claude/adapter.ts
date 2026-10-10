@@ -3,10 +3,12 @@ import {
   type EffortLevel,
   type ModelInfo,
   type PermissionMode,
+  type SDKControlGetContextUsageResponse,
+  type SDKControlGetUsageResponse,
 } from "@anthropic-ai/claude-agent-sdk";
 import { randomUUID } from "node:crypto";
 
-import type { AgentFeatures } from "../../features/index.ts";
+import type { AgentFeatures, UsagePart } from "../../features/index.ts";
 import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
 import type {
@@ -54,6 +56,11 @@ export class ClaudeAdapter implements AgentAdapter {
     deleteSession: (nativeId, cwd) => this.#deleteSession(nativeId, cwd),
     models: async (cwd) => (await this.#catalog(cwd)).models,
     permissions: async (cwd) => (await this.#catalog(cwd)).permissions,
+    // 照 Relayu：打开群或切换成员时没有进程就拉起来；发言结束和切回前台只读运行中的。
+    usage: async (request) => {
+      const session = await request.session(request.reason === "view");
+      return session ? asOwnSession(session).usage() : null;
+    },
   };
   readonly #options: ClaudeAdapterOptions;
   readonly #catalogs = new CatalogCache();
@@ -181,6 +188,23 @@ class ClaudeSession implements AgentSession {
     }
   }
 
+  /**
+   * 照 Relayu 的 metrics：先读上下文；额度读取失败只记日志，上下文照常返回。
+   * 两个都是 SDK 的控制请求，不和发言抢，也不等发言结束。
+   */
+  async usage(): Promise<UsagePart[]> {
+    const runtime = this.#runtime;
+    if (!runtime || runtime.closed) throw new Error("Claude Code 运行时已关闭。");
+    const context = await runtime.getContextUsage();
+    let usage: SDKControlGetUsageResponse | null = null;
+    try {
+      usage = await runtime.getUsage();
+    } catch (error) {
+      console.error(`读取 Claude Code 套餐额度失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    return usageParts(context, usage);
+  }
+
   async close(): Promise<void> {
     await this.#runtime?.close("会话已关闭。");
   }
@@ -248,6 +272,36 @@ export function modelOptions(models: readonly ModelInfo[]): ModelOption[] {
     });
   }
   return options;
+}
+
+type RateWindow = { utilization: number | null; resets_at: string | null } | null | undefined;
+
+/** 窗口照 Relayu 的 sessionMetricsOf，文字照它的 renderMetrics。 */
+export function usageParts(
+  context: Pick<SDKControlGetContextUsageResponse, "percentage">,
+  usage: Pick<SDKControlGetUsageResponse, "rate_limits_available" | "rate_limits"> | null,
+): UsagePart[] {
+  const parts: UsagePart[] = [{ text: `上下文 ${Number(context.percentage || 0).toFixed(1)}%` }];
+  const rateLimits = usage?.rate_limits;
+  if (usage?.rate_limits_available !== true || !rateLimits) {
+    parts.push({ text: "额度查询不可用" });
+    return parts;
+  }
+  const windows: Array<[string, RateWindow]> = [
+    ["5 小时", rateLimits.five_hour],
+    ["7 天", rateLimits.seven_day],
+    ["Opus 7 天", rateLimits.seven_day_opus],
+    ["Sonnet 7 天", rateLimits.seven_day_sonnet],
+    ["OAuth Apps 7 天", rateLimits.seven_day_oauth_apps],
+  ];
+  for (const [label, window] of windows) {
+    if (!window) continue;
+    const left = window.utilization === null ? "未知" : `${Math.max(0, 100 - window.utilization).toFixed(1)}%`;
+    parts.push(window.resets_at
+      ? { text: `${label}剩余 ${left}，{time} 重置`, time: window.resets_at }
+      : { text: `${label}剩余 ${left}` });
+  }
+  return parts;
 }
 
 function isSessionNotFoundError(error: unknown): boolean {

@@ -1,4 +1,4 @@
-import type { AgentFeatures } from "../../features/index.ts";
+import type { AgentFeatures, UsagePart } from "../../features/index.ts";
 import { EventChannel } from "../event-channel.ts";
 import type {
   AgentAdapter,
@@ -34,9 +34,17 @@ export class CodexAdapter implements AgentAdapter {
     deleteSession: (nativeId, cwd) => this.#deleteSession(nativeId, cwd),
     models: () => listModels(this.#resident),
     permissions: (cwd) => listPermissions(this.#resident, cwd),
+    usage: (request) => this.#usage(request.nativeId),
   };
   readonly #options: CodexAdapterOptions;
   readonly #resident: ResidentAppServer;
+  /**
+   * 照 Codex Remote：上下文只在发言时从 thread/tokenUsage/updated 记下，不为读上下文去恢复会话。
+   * 只放内存，进程关掉后仍保留；lanting 重启后要等这个成员再发言。
+   */
+  readonly #contexts = new Map<string, number>();
+  /** 同一时间只有一个额度查询在途，并发调用共用它。 */
+  #quota: Promise<QuotaWindow[]> | null = null;
 
   constructor(options: CodexAdapterOptions) {
     this.#options = options;
@@ -72,18 +80,88 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   startSession(options: SessionOptions): Promise<AgentSession> {
-    return CodexSession.open(null, options, this.#options);
+    return CodexSession.open(null, options, this.#options, this.#onTokenUsage);
   }
 
   resumeSession(nativeId: string, options: SessionOptions): Promise<AgentSession> {
-    return CodexSession.open(nativeId, options, this.#options);
+    return CodexSession.open(nativeId, options, this.#options, this.#onTokenUsage);
   }
+
+  /** 照 Codex Remote：按最近一次调用的 token 用量估算上下文。 */
+  readonly #onTokenUsage: TokenUsageListener = (threadId, tokenUsage) => {
+    const usage = asObject(tokenUsage);
+    const used = finiteNumber(asObject(usage?.last)?.totalTokens);
+    const max = finiteNumber(usage?.modelContextWindow);
+    if (used !== null && used >= 0 && max !== null && max > 0) this.#contexts.set(threadId, used / max * 100);
+    else this.#contexts.delete(threadId);
+  };
+
+  async #usage(threadId: string): Promise<UsagePart[]> {
+    this.#quota ??= readQuota(this.#resident).finally(() => {
+      this.#quota = null;
+    });
+    const windows = await this.#quota;
+    const context = this.#contexts.get(threadId);
+    return usageParts(context ?? null, windows);
+  }
+}
+
+export type QuotaWindow = { label: string; remainingPercent: number | null; resetsAt: number | null };
+
+/** 照 Codex Remote 的 #refreshQuota。查询失败时返回空数组，不把上次的额度冒充为当前值。 */
+async function readQuota(client: Pick<ResidentAppServer, "request">): Promise<QuotaWindow[]> {
+  try {
+    const response = asObject(await client.request("account/rateLimits/read", undefined));
+    const byId = asObject(response?.rateLimitsByLimitId);
+    const snapshots = byId && Object.keys(byId).length ? Object.values(byId) : [response?.rateLimits];
+    return snapshots.flatMap((value) => {
+      const snapshot = asObject(value);
+      if (!snapshot) return [];
+      const name = typeof snapshot.limitName === "string" ? snapshot.limitName
+        : typeof snapshot.limitId === "string" ? snapshot.limitId : "Codex";
+      return [snapshot.primary, snapshot.secondary].flatMap((value) => {
+        const window = asObject(value);
+        if (!window) return [];
+        const minutes = finiteNumber(window.windowDurationMins);
+        const duration = minutes === null ? "" : minutes % 1440 === 0
+          ? `${minutes / 1440} 天` : minutes % 60 === 0 ? `${minutes / 60} 小时` : `${minutes} 分钟`;
+        const used = finiteNumber(window.usedPercent);
+        return [{
+          label: `${name}${duration ? `（${duration}）` : ""}`,
+          remainingPercent: used === null ? null : Math.max(0, Math.min(100, 100 - used)),
+          resetsAt: finiteNumber(window.resetsAt),
+        }];
+      });
+    });
+  } catch (error) {
+    console.error(`读取 Codex 套餐额度失败：${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  }
+}
+
+/** 文字照 Codex Remote 的 renderSessionMetrics。resetsAt 是 unix 秒，交出前换成 ISO 字符串。 */
+export function usageParts(context: number | null, windows: readonly QuotaWindow[]): UsagePart[] {
+  const parts: UsagePart[] = [{ text: context === null ? "上下文等待更新" : `上下文约 ${context.toFixed(1)}%` }];
+  if (windows.length === 0) {
+    parts.push({ text: "额度查询不可用" });
+    return parts;
+  }
+  for (const quota of windows) {
+    const left = typeof quota.remainingPercent === "number" ? `${quota.remainingPercent.toFixed(1)}%` : "未知";
+    const label = quota.label.replace(/^codex（(.+)）$/iu, "$1");
+    parts.push(quota.resetsAt === null
+      ? { text: `${label}剩余 ${left}` }
+      : { text: `${label}剩余 ${left}，{time} 重置`, time: new Date(quota.resetsAt * 1000).toISOString() });
+  }
+  return parts;
 }
 
 function asOwnSession(session: AgentSession): CodexSession {
   if (!(session instanceof CodexSession)) throw new Error("会话不属于 Codex CLI。");
   return session;
 }
+
+type TokenUsageListener = (threadId: string, tokenUsage: unknown) => void;
 
 type Turn = {
   channel: EventChannel<AgentEvent>;
@@ -103,14 +181,16 @@ type Turn = {
 class CodexSession implements AgentSession {
   readonly #client: AppServerClient;
   readonly #options: SessionOptions;
+  readonly #onTokenUsage: TokenUsageListener;
   readonly #approvals = new Map<RequestId, AbortController>();
   #threadId = "";
   #turn: Turn | null = null;
   #exited = false;
 
-  private constructor(client: AppServerClient, options: SessionOptions) {
+  private constructor(client: AppServerClient, options: SessionOptions, onTokenUsage: TokenUsageListener) {
     this.#client = client;
     this.#options = options;
+    this.#onTokenUsage = onTokenUsage;
     client.onNotification((message) => this.#onNotification(message));
     client.onServerRequest((message) => this.#onServerRequest(message));
     void client.whenExited().then(() => {
@@ -123,13 +203,14 @@ class CodexSession implements AgentSession {
     threadId: string | null,
     options: SessionOptions,
     adapter: CodexAdapterOptions,
+    onTokenUsage: TokenUsageListener,
   ): Promise<CodexSession> {
     const client = new AppServerClient({
       codexBinary: adapter.executable,
       workingDirectory: options.cwd,
       processGroup: true,
     });
-    const session = new CodexSession(client, options);
+    const session = new CodexSession(client, options, onTokenUsage);
     try {
       await client.initialize(INITIALIZE_PARAMS);
       const response = threadId
@@ -258,6 +339,11 @@ class CodexSession implements AgentSession {
       return;
     }
     if (params.threadId !== this.#threadId) return;
+    // 上下文用量不按 turn 过滤：压缩、恢复之后的用量也要记下。
+    if (message.method === "thread/tokenUsage/updated") {
+      this.#onTokenUsage(this.#threadId, params.tokenUsage);
+      return;
+    }
     const turn = this.#turn;
     if (!turn) return;
     // 只认这一轮的通知；turn id 还不知道时先记下第一个出现的。
@@ -509,6 +595,10 @@ function readTurnId(value: unknown): string {
   const id = asObject(asObject(value)?.turn)?.id;
   if (typeof id !== "string" || !id) throw new Error("Codex 返回了无法识别的任务启动结果。");
   return id;
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function asObject(value: unknown): JsonObject | null {

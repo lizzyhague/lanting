@@ -123,6 +123,8 @@ export class BrowserConnection implements EventSink {
         const snapshot = groups.snapshot(request.groupId);
         this.#subscriptions.add(request.groupId);
         this.#respondOk(request.requestId, snapshot);
+        // 回复快照之后再读 usage，usage.updated 一定排在快照之后。
+        void groups.refreshUsage(request.groupId, "view");
         return;
       }
       case "group.unsubscribe": {
@@ -169,6 +171,17 @@ export class BrowserConnection implements EventSink {
       case "group.pin": {
         const group = await groups.setPinned(request.groupId, request.pinned);
         this.#respondOk(request.requestId, { group });
+        return;
+      }
+      case "group.usage": {
+        const group = await groups.setUsageAgent(request.groupId, request.agent);
+        this.#respondOk(request.requestId, { group });
+        return;
+      }
+      case "group.usage.refresh": {
+        // 结果走 usage.updated；usage 关着时 refreshUsage 什么也不做。
+        void groups.refreshUsage(request.groupId, "visible");
+        this.#respondOk(request.requestId, {});
         return;
       }
       case "attachment.ticket": {

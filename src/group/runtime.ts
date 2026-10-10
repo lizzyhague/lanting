@@ -11,6 +11,7 @@ import {
 import { ApprovalRegistry } from "../approvals/registry.ts";
 import type { StoredAttachment } from "../attachments/prompt.ts";
 import { PathRedactor } from "../attachments/redact.ts";
+import type { UsagePart } from "../features/index.ts";
 import type { GroupStore } from "../state/group-store.ts";
 import { assembleMessage } from "./assemble.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
@@ -27,7 +28,18 @@ export type GroupEvent =
   | { type: "round.ended"; groupId: string; roundId: string; outcome: RoundOutcome }
   | { type: "compact.started"; groupId: string; agents: string[] }
   | { type: "compact.progress"; groupId: string; agent: string }
-  | { type: "compact.ended"; groupId: string };
+  | { type: "compact.ended"; groupId: string }
+  /**
+   * 这个 AI 的一次发言或压缩收尾全部做完：原生会话 id 已存好，要关的进程也已经关掉。
+   * 只供服务层刷新 usage，不转发给浏览器。
+   */
+  | { type: "agent.settled"; groupId: string; agent: string };
+
+export type UsageResult =
+  | { status: "not_started" }
+  | { status: "ok"; parts: UsagePart[] }
+  /** 这次没有新数据，保留上一次的结果。 */
+  | { status: "none" };
 
 /** 进行中的压缩，供页面刷新或换设备后接着显示。 */
 export type CompactionSnapshot = {
@@ -96,6 +108,12 @@ export class GroupRuntime {
   readonly #rounds = new Map<string, ActiveRound>();
   readonly #sessions = new Map<string, CachedSession>();
   readonly #compactions = new Map<string, CompactionSnapshot>();
+  /** 正在打开的原生会话，同一个 (群, AI) 只打开一次，等待者共用结果。 */
+  readonly #opening = new Map<string, Promise<AgentSession>>();
+  /** 从开始发言或压缩到收尾全部做完的 (群, AI)。这期间 usage 不碰它的会话。 */
+  readonly #settling = new Set<string>();
+  /** 正在关闭全部会话的群，这期间 usage 不再拉起进程。 */
+  readonly #closing = new Set<string>();
   #sweeper: NodeJS.Timeout | null = null;
 
   constructor(options: {
@@ -213,13 +231,54 @@ export class GroupRuntime {
   /** 关掉这个群缓存的所有原生会话，等进程确实退出。群必须空闲。 */
   async closeSessions(groupId: string): Promise<void> {
     if (this.isBusy(groupId)) throw new GroupError("busy", "这个群正忙，请等这一轮或这次压缩结束。");
-    const closing: AgentSession[] = [];
-    for (const [key, cached] of this.#sessions) {
-      if (key.split("\0")[0] !== groupId) continue;
-      this.#sessions.delete(key);
-      closing.push(cached.session);
+    this.#closing.add(groupId);
+    try {
+      // 先等正在打开的会话（比如 usage 拉起的）开完，再一起关掉。
+      await this.#settleOpening((key) => key.split("\0")[0] === groupId);
+      const closing: AgentSession[] = [];
+      for (const [key, cached] of this.#sessions) {
+        if (key.split("\0")[0] !== groupId) continue;
+        this.#sessions.delete(key);
+        closing.push(cached.session);
+      }
+      await Promise.allSettled(closing.map((session) => session.close()));
+    } finally {
+      this.#closing.delete(groupId);
     }
-    await Promise.allSettled(closing.map((session) => session.close()));
+  }
+
+  /**
+   * 读这个 AI 的上下文和额度。还没有原生会话时不调用模块。
+   * 传给模块的 session(open)：这个 AI 正在发言或压缩时一律返回 null；open 为 false 时只取运行中的会话，
+   * 不拉进程，也不推迟空闲回收。
+   */
+  async readUsage(groupId: string, agent: string, reason: "view" | "turn" | "visible"): Promise<UsageResult> {
+    const group = this.#requireGroup(groupId);
+    const state = group.agents[agent];
+    if (!state) throw new GroupError("invalid_agent", `${agent} 不是这个群的成员。`);
+    const nativeId = state.nativeSessionId;
+    if (!nativeId) return { status: "not_started" };
+    const usage = this.#adapter(group, agent).features.usage;
+    if (!usage) throw new GroupError("unsupported", `${agent} 不支持 usage。`);
+    const key = sessionKey(groupId, agent);
+    let opened = false;
+    const session = async (open: boolean): Promise<AgentSession | null> => {
+      if (this.#settling.has(key) || this.#closing.has(groupId)) return null;
+      if (!open) {
+        const cached = this.#sessions.get(key);
+        return cached?.session.alive ? cached.session : null;
+      }
+      const current = this.#requireGroup(groupId);
+      if (current.trashedAt || current.deletingAt) return null;
+      opened = true;
+      return this.#session(current, agent);
+    };
+    try {
+      const parts = await usage({ nativeId, cwd: group.cwd, reason, session });
+      return parts ? { status: "ok", parts } : { status: "none" };
+    } finally {
+      if (opened) this.#touch(groupId, agent);
+    }
   }
 
   /** 定时关掉空闲的原生会话。 */
@@ -247,6 +306,7 @@ export class GroupRuntime {
     if (this.#sweeper) clearInterval(this.#sweeper);
     this.#sweeper = null;
     await Promise.allSettled([...this.#rounds.keys()].map((groupId) => this.interrupt(groupId)));
+    await this.#settleOpening(() => true);
     const sessions = [...this.#sessions.values()].map((cached) => cached.session);
     this.#sessions.clear();
     await Promise.allSettled(sessions.map((session) => session.close()));
@@ -298,9 +358,11 @@ export class GroupRuntime {
       for (const agent of compaction.agents) {
         compaction.current = agent;
         this.#emit({ type: "compact.progress", groupId, agent });
-        const text = await this.#compactOne(groupId, agent);
-        const entry = await this.#store.append(groupId, { from: { role: "notice", agent }, text });
-        this.#emit({ type: "entry.appended", groupId, entry });
+        await this.#settle(groupId, agent, async () => {
+          const text = await this.#compactOne(groupId, agent);
+          const entry = await this.#store.append(groupId, { from: { role: "notice", agent }, text });
+          this.#emit({ type: "entry.appended", groupId, entry });
+        });
       }
     } catch (error) {
       console.error(`群 ${groupId} 压缩上下文出错：${errorMessage(error)}`);
@@ -336,7 +398,23 @@ export class GroupRuntime {
     }
   }
 
-  async #speak(groupId: string, round: ActiveRound, agent: string): Promise<ReplyStatus> {
+  #speak(groupId: string, round: ActiveRound, agent: string): Promise<ReplyStatus> {
+    return this.#settle(groupId, agent, () => this.#reply(groupId, round, agent));
+  }
+
+  /** 发言或压缩期间标记这个 AI 正在收尾，全部做完后才发 agent.settled。 */
+  async #settle<T>(groupId: string, agent: string, work: () => Promise<T>): Promise<T> {
+    const key = sessionKey(groupId, agent);
+    this.#settling.add(key);
+    try {
+      return await work();
+    } finally {
+      this.#settling.delete(key);
+      this.#emit({ type: "agent.settled", groupId, agent });
+    }
+  }
+
+  async #reply(groupId: string, round: ActiveRound, agent: string): Promise<ReplyStatus> {
     const group = this.#requireGroup(groupId);
     const cursor = group.agents[agent]?.cursor ?? 0;
     const message = assembleMessage(
@@ -415,7 +493,32 @@ export class GroupRuntime {
     return final.outcome;
   }
 
-  async #session(group: Group, agent: string): Promise<AgentSession> {
+  /**
+   * 取这个 AI 的会话，没有就打开。同一个 (群, AI) 同一时间只有一个打开任务，
+   * 发言、压缩和 usage 同时要会话时共用它，免得两个进程接着同一个原生会话。
+   */
+  #session(group: Group, agent: string): Promise<AgentSession> {
+    const key = sessionKey(group.id, agent);
+    const opening = this.#opening.get(key);
+    if (opening) return opening;
+    const task = this.#openSession(group.id, agent).finally(() => {
+      if (this.#opening.get(key) === task) this.#opening.delete(key);
+    });
+    this.#opening.set(key, task);
+    return task;
+  }
+
+  /** 每次都从 store 取当前设置；打开途中设置变了，关掉按旧设置开的会话再开，直到设置稳定。 */
+  async #openSession(groupId: string, agent: string): Promise<AgentSession> {
+    for (;;) {
+      const group = this.#requireGroup(groupId);
+      const session = await this.#openOnce(group, agent);
+      const latest = this.#store.get(groupId)?.agents[agent]?.settings;
+      if (!latest || sameSettings(latest, group.agents[agent]!.settings)) return session;
+    }
+  }
+
+  async #openOnce(group: Group, agent: string): Promise<AgentSession> {
     const key = sessionKey(group.id, agent);
     const state = group.agents[agent];
     if (!state) throw new GroupError("invalid_agent", `${agent} 不是这个群的成员。`);
@@ -451,6 +554,14 @@ export class GroupRuntime {
       });
     }
     return session;
+  }
+
+  async #settleOpening(match: (key: string) => boolean): Promise<void> {
+    for (;;) {
+      const pending = [...this.#opening].filter(([key]) => match(key)).map(([, task]) => task);
+      if (pending.length === 0) return;
+      await Promise.allSettled(pending);
+    }
   }
 
   #touch(groupId: string, agent: string): void {

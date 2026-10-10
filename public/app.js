@@ -5,11 +5,15 @@ import {
   effectiveCreateMembers,
   kindSupports,
   kindOptions,
+  lastReplyAt,
   memberSupports,
   moveAgent,
   paletteColor,
   selectionAfterRemove,
   settingsCatalogKey,
+  usageCandidates,
+  usageTexts,
+  visibleUsageAgent,
 } from "./agents.js";
 import { renderMarkdown } from "./markdown.js";
 
@@ -86,7 +90,8 @@ const elements = {
   openSidebarButton: byId("open-sidebar-button"),
   sidebarBackdrop: byId("sidebar-backdrop"),
   groupTitle: byId("group-title"),
-  groupMeta: byId("group-meta"),
+  groupMembers: byId("group-members"),
+  groupUsage: byId("group-usage"),
   timeline: byId("timeline"),
   approvalList: byId("approval-list"),
   composer: byId("composer"),
@@ -167,7 +172,7 @@ const state = {
   savingSettings: new Set(),
   /** 当前打开设置框的 AI。 */
   openAgent: null,
-  /** + 菜单当前在哪一级：root、compact 或 settings。 */
+  /** + 菜单当前在哪一级：root、compact、settings 或 usage。 */
   plusLevel: "root",
 };
 
@@ -269,6 +274,7 @@ async function connect(token) {
     elements.loginStatus.textContent = "";
     elements.connectButton.disabled = false;
     showApp();
+    setConnectionStatus("connecting", "正在恢复连接");
     try {
       await loadAppState();
       await request("connection.ready");
@@ -283,7 +289,8 @@ async function connect(token) {
       setConnectionStatus("connected", "已连接");
     } catch (error) {
       if (generation !== state.generation) return;
-      setConnectionStatus("disconnected", errorMessage(error));
+      elements.loginStatus.textContent = errorMessage(error);
+      elements.connectButton.disabled = false;
     }
   });
 
@@ -386,6 +393,8 @@ function handleEvent(event) {
       if (event.group.trashedAt && event.group.id === state.currentGroupId) closeGroup();
       renderGroupList();
       if (state.current && event.group.id === state.currentGroupId) {
+        // 换了 usage 成员，旧成员的结果不能留着。
+        if (state.current.group.usageAgent !== event.group.usageAgent) state.current.usage = null;
         state.current.group = event.group;
         // 别的设备改了点名，跟着后端走；自己正在保存时以保存结果为准。
         if (!state.savingOrder) {
@@ -437,6 +446,7 @@ function handleEvent(event) {
       }
       appendEntry(event.entry);
       renderLive();
+      renderUsage();
       return;
     case "round.ended":
       current.round = null;
@@ -458,6 +468,11 @@ function handleEvent(event) {
       current.compaction = null;
       renderLive();
       renderComposer();
+      return;
+    case "usage.updated":
+      if (event.agent !== current.group.usageAgent) return;
+      current.usage = event.usage;
+      renderUsage();
       return;
     case "approval.requested":
       current.approvals.set(event.approval.approvalId, event.approval);
@@ -884,6 +899,7 @@ async function openGroup(groupId, { keepPane = false } = {}) {
     round: snapshot.round,
     compaction: snapshot.compaction,
     approvals: new Map(snapshot.approvals.map((approval) => [approval.approvalId, approval])),
+    usage: snapshot.usage,
   };
   state.groups.set(groupId, snapshot.group);
   state.callOrder = [...snapshot.group.callOrder];
@@ -933,7 +949,8 @@ function closeGroup() {
   elements.groupView.hidden = true;
   elements.groupEmpty.hidden = false;
   elements.groupTitle.textContent = "lanting";
-  elements.groupMeta.replaceChildren();
+  elements.groupMembers.replaceChildren();
+  renderUsage();
   openMobileSidebar();
 }
 
@@ -941,11 +958,77 @@ function renderHeader() {
   const group = state.current?.group;
   if (!group) return;
   updateGroupTitle();
-  elements.groupMeta.replaceChildren(
-    ...group.members.map((member) => agentDot(member, group)),
-    document.createTextNode(group.directory),
-  );
+  elements.groupMembers.replaceChildren(...group.members.map((member) => memberFlower(member, group)));
+  renderUsage();
 }
+
+/** 标题栏的兰花：点一下切换 usage 行显示的成员，当前那一朵画一圈描边。 */
+function memberFlower(member, group) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "member-flower";
+  button.dataset.agent = member;
+  button.title = member;
+  button.setAttribute("aria-label", member);
+  button.setAttribute("aria-pressed", String(group.usageAgent === member));
+  paintAgent(button, memberColor(group, member));
+  button.append(agentDot(member, group));
+  button.addEventListener("click", () => {
+    if (group.unavailable.includes(member)) {
+      elements.composerStatus.textContent = `${member} 未接入`;
+      return;
+    }
+    if (!memberSupports(group, member, "usage")) {
+      elements.composerStatus.textContent = `${member} 不支持 usage`;
+      return;
+    }
+    void setUsageAgent(group.usageAgent === member ? null : member);
+  });
+  return button;
+}
+
+/** usage 行：各段之间用灰色竖线分开，行首不放兰花。 */
+function renderUsage() {
+  const current = state.current;
+  const agent = visibleUsageAgent(current?.group);
+  if (!current || !agent) {
+    elements.groupUsage.hidden = true;
+    elements.groupUsage.replaceChildren();
+    elements.groupUsage.title = "";
+    return;
+  }
+  const texts = usageTexts(current.usage, lastReplyAt(current.transcript, agent));
+  elements.groupUsage.replaceChildren();
+  texts.forEach((text, index) => {
+    if (index > 0) {
+      const separator = document.createElement("span");
+      separator.className = "group-usage-separator";
+      separator.textContent = "|";
+      separator.setAttribute("aria-hidden", "true");
+      elements.groupUsage.append(separator);
+    }
+    elements.groupUsage.append(document.createTextNode(text));
+  });
+  elements.groupUsage.title = texts.join(" | ");
+  elements.groupUsage.hidden = false;
+}
+
+async function setUsageAgent(agent) {
+  const group = state.current?.group;
+  if (!group) return;
+  elements.composerStatus.textContent = "";
+  try {
+    const data = await request("group.usage", { groupId: group.id, agent });
+    if (data?.group) handleEvent({ type: "group.updated", group: data.group });
+  } catch (error) {
+    elements.composerStatus.textContent = errorMessage(error);
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || !state.authenticated || !state.current?.group.usageAgent) return;
+  void request("group.usage.refresh", { groupId: state.current.group.id }).catch(() => {});
+});
 
 const mobileNavigationQuery = window.matchMedia("(max-width: 800px)");
 
@@ -1407,6 +1490,14 @@ function renderPlusMenu() {
       renderPlusMenu();
     });
     settingsItem.classList.add("has-submenu");
+    // 没有能选的成员时不出现，不置灰。
+    const usageItem = usageCandidates(group).length > 0
+      ? menuItem("AI usage", null, false, () => {
+        state.plusLevel = "usage";
+        renderPlusMenu();
+      })
+      : null;
+    usageItem?.classList.add("has-submenu");
     const renameItem = menuItem("重命名", null, !state.authenticated, () => {
       closePopovers();
       openRenameDialog(group);
@@ -1415,7 +1506,33 @@ function renderPlusMenu() {
       closePopovers();
       elements.fileInput.click();
     });
-    elements.plusMenu.replaceChildren(attachItem, compactItem, settingsItem, renameItem);
+    elements.plusMenu.replaceChildren(
+      ...[attachItem, compactItem, settingsItem, usageItem, renameItem].filter(Boolean),
+    );
+    return;
+  }
+  if (state.plusLevel === "usage") {
+    const back = menuItem("‹ AI usage", null, false, () => {
+      state.plusLevel = "root";
+      renderPlusMenu();
+    });
+    back.classList.add("menu-back");
+    const choices = usageCandidates(group).map((member) => {
+      const selected = group.usageAgent === member;
+      const item = menuItem(member, member, !state.authenticated, () => {
+        // 再点当前已选的成员等于关闭。
+        closePopovers();
+        void setUsageAgent(selected ? null : member);
+      });
+      item.setAttribute("aria-checked", String(selected));
+      return item;
+    });
+    const off = menuItem("关闭", null, !state.authenticated, () => {
+      closePopovers();
+      if (group.usageAgent !== null) void setUsageAgent(null);
+    });
+    off.setAttribute("aria-checked", String(group.usageAgent === null));
+    elements.plusMenu.replaceChildren(back, ...choices, off);
     return;
   }
   if (state.plusLevel === "settings") {

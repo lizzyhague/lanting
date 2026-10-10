@@ -9,7 +9,7 @@ import type { ApprovalEvent, ApprovalRequest } from "../approvals/registry.ts";
 import { publicAttachment, type StoredAttachment } from "../attachments/prompt.ts";
 import { PathRedactor } from "../attachments/redact.ts";
 import type { SharedUploadClient } from "../attachments/shared-upload-client.ts";
-import { featureIds, type AgentFeatureId } from "../features/index.ts";
+import { featureIds, type AgentFeatureId, type UsagePart } from "../features/index.ts";
 import {
   ATTACHMENT_LEASE_RENEW_INTERVAL_MS,
   MAX_MESSAGE_ATTACHMENTS,
@@ -67,6 +67,8 @@ export type GroupSummary = {
   updatedAt: number;
   /** 是否固定显示在最近群会话顶部。 */
   pinned: boolean;
+  /** 标题栏 usage 行显示哪个成员；null 表示关闭。 */
+  usageAgent: string | null;
   busy: boolean;
   /** 移入回收站的时间；不在回收站时为 null。 */
   trashedAt: string | null;
@@ -87,6 +89,24 @@ export type GroupSnapshot = {
   round: RoundSnapshot | null;
   compaction: CompactionSnapshot | null;
   approvals: ApprovalRequest[];
+  /** 当前 usageAgent 最近一次读到的 usage；还没有结果或已关闭时为 null。 */
+  usage: PublicUsage | null;
+};
+
+export type PublicUsage =
+  | { status: "not_started" }
+  | { status: "ok"; parts: UsagePart[] }
+  /** 读取失败。 */
+  | { status: "unavailable" };
+
+export type UsageReason = "view" | "turn" | "visible";
+
+/** 一个成员在途的 usage 读取。next 是读完以后要补的一次，同时只留一次。 */
+type UsageTask = {
+  done: Promise<void>;
+  /** 正在进行的这次能不能拉起进程。 */
+  open: boolean;
+  next: { open: boolean; turn: boolean } | null;
 };
 
 /** 多选操作逐个处理，一个失败不影响其他的。 */
@@ -107,8 +127,9 @@ export type ServiceEvent =
 
 /** 群事件发给浏览器前，群聊记录里的附件去掉路径。 */
 export type PublicGroupEvent =
-  | Exclude<GroupEvent, { type: "entry.appended" }>
-  | { type: "entry.appended"; groupId: string; entry: PublicEntry };
+  | Exclude<GroupEvent, { type: "entry.appended" | "agent.settled" }>
+  | { type: "entry.appended"; groupId: string; entry: PublicEntry }
+  | { type: "usage.updated"; groupId: string; agent: string; usage: PublicUsage };
 
 /** 浏览器连接用到的群操作。把存储、调度、审批和 AI 登记表收在一处。 */
 export class GroupService {
@@ -121,6 +142,9 @@ export class GroupService {
   readonly #listeners = new Set<(event: ServiceEvent) => void>();
   /** 正在移入回收站或永久删除的群，这期间不能开始新的一轮或压缩。 */
   readonly #locked = new Set<string>();
+  /** usage 缓存，键是 "群 id\0成员"。 */
+  readonly #usage = new Map<string, PublicUsage>();
+  readonly #usageTasks = new Map<string, UsageTask>();
   #sweeper: NodeJS.Timeout | null = null;
 
   constructor(options: {
@@ -140,6 +164,12 @@ export class GroupService {
     this.#uploads = options.uploads ?? null;
 
     this.#runtime.onEvent((event) => {
+      if (event.type === "agent.settled") {
+        if (this.#store.get(event.groupId)?.usageAgent === event.agent) {
+          void this.refreshUsage(event.groupId, "turn");
+        }
+        return;
+      }
       const payload = event.type === "entry.appended" ? { ...event, entry: publicEntry(event.entry) } : event;
       this.#emit({ scope: "group", groupId: event.groupId, payload });
       if (event.type === "entry.appended" || event.type === "round.started" || event.type === "round.ended" ||
@@ -327,6 +357,7 @@ export class GroupService {
       compaction: this.#runtime.compaction(groupId),
       approvals: this.#runtime.approvals.pending(groupId)
         .map((approval) => publicApproval(approval, this.#attachmentRedactor(groupId))),
+      usage: group.usageAgent ? this.#usage.get(usageKey(groupId, group.usageAgent)) ?? null : null,
     };
   }
 
@@ -405,6 +436,95 @@ export class GroupService {
     const summary = this.#summary(updated);
     this.#emit({ scope: "global", payload: { type: "group.updated", group: summary } });
     return summary;
+  }
+
+  /** usage 行显示哪个成员，存在群上，换设备也一样。只改显示，不刷新 updatedAt。 */
+  async setUsageAgent(groupId: string, agent: string | null): Promise<GroupSummary> {
+    let group = this.#requireActive(groupId);
+    if (agent !== null) {
+      this.#requireMember(group, agent);
+      if (!this.#adapterFor(group, agent).features.usage) {
+        throw new GroupError("unsupported", `${agent} 不支持 usage。`);
+      }
+    }
+    if (group.usageAgent !== agent) {
+      group = await this.#store.update(groupId, (next) => {
+        next.usageAgent = agent;
+      });
+    }
+    const summary = this.#summary(group);
+    this.#emit({ scope: "global", payload: { type: "group.updated", group: summary } });
+    if (agent !== null) void this.refreshUsage(groupId, "view");
+    return summary;
+  }
+
+  /**
+   * 读当前 usageAgent 的 usage，结果写进缓存并发 usage.updated。同一成员的读取合并：
+   * - 在途的不能拉进程时来了 view，读完补一次能拉进程的；
+   * - 在途期间来了 turn，读完补一次，补读期间又来了就再补，直到读取期间没有新的 turn；
+   * - 补读同时只留一次，等待期间来的请求并进去。
+   */
+  refreshUsage(groupId: string, reason: UsageReason): Promise<void> {
+    if (!this.#usageReadable(groupId)) return Promise.resolve();
+    const group = this.#store.get(groupId)!;
+    const agent = group.usageAgent;
+    if (!agent || !this.#supportsUsage(group, agent)) return Promise.resolve();
+    const key = usageKey(groupId, agent);
+    const task = this.#usageTasks.get(key);
+    const open = reason === "view";
+    if (task) {
+      if (reason === "visible" || (open && task.open)) return task.done;
+      task.next = {
+        open: (task.next?.open ?? false) || open,
+        turn: (task.next?.turn ?? false) || reason === "turn",
+      };
+      return task.done;
+    }
+    const created: UsageTask = { done: Promise.resolve(), open, next: null };
+    this.#usageTasks.set(key, created);
+    created.done = this.#runUsage(groupId, agent, reason, created).finally(() => {
+      if (this.#usageTasks.get(key) === created) this.#usageTasks.delete(key);
+    });
+    return created.done;
+  }
+
+  async #runUsage(groupId: string, agent: string, reason: UsageReason, task: UsageTask): Promise<void> {
+    let current = reason;
+    for (;;) {
+      task.open = current === "view";
+      await this.#readUsage(groupId, agent, current);
+      const next = task.next;
+      task.next = null;
+      if (!next) return;
+      current = next.open ? "view" : next.turn ? "turn" : "visible";
+    }
+  }
+
+  async #readUsage(groupId: string, agent: string, reason: UsageReason): Promise<void> {
+    if (!this.#usageReadable(groupId)) return;
+    let usage: PublicUsage;
+    try {
+      const result = await this.#runtime.readUsage(groupId, agent, reason);
+      if (result.status === "none") return;
+      usage = result;
+    } catch (error) {
+      console.error(`读取 ${agent} 的 usage 失败：${error instanceof Error ? error.message : String(error)}`);
+      usage = { status: "unavailable" };
+    }
+    // 晚到的结果：群已经删了、锁了或进了回收站就丢掉。usageAgent 换了人不影响，结果仍属于这个成员。
+    if (!this.#usageReadable(groupId)) return;
+    this.#usage.set(usageKey(groupId, agent), usage);
+    this.#emit({ scope: "group", groupId, payload: { type: "usage.updated", groupId, agent, usage } });
+  }
+
+  #usageReadable(groupId: string): boolean {
+    const group = this.#store.get(groupId);
+    return group !== null && !group.trashedAt && !group.deletingAt && !this.#locked.has(groupId);
+  }
+
+  #supportsUsage(group: Group, agent: string): boolean {
+    const kind = group.agents[agent]?.kind;
+    return kind !== undefined && this.#agents.has(kind) && typeof this.#agents.get(kind).features.usage === "function";
   }
 
   /** 移入回收站：只打标记，可以恢复。群必须空闲；关掉它的会话进程。 */
@@ -528,6 +648,9 @@ export class GroupService {
         throw new GroupError("delete_failed", `有原生会话没删掉，稍后会自动重试。${failures.join("；")}`);
       }
       await this.#store.remove(groupId);
+      for (const key of this.#usage.keys()) {
+        if (key.startsWith(`${groupId}\0`)) this.#usage.delete(key);
+      }
       this.#emit({ scope: "global", payload: { type: "group.removed", groupId } });
     } finally {
       this.#locked.delete(groupId);
@@ -786,6 +909,7 @@ export class GroupService {
       createdAt: group.createdAt,
       updatedAt: group.updatedAt,
       pinned: group.pinned,
+      usageAgent: group.usageAgent,
       busy: this.#runtime.isBusy(group.id),
       trashedAt: group.trashedAt,
       purgeAt: group.trashedAt
@@ -814,6 +938,10 @@ export class GroupService {
 /** 附件绑定到群：项目取工作目录名，会话取群 id。 */
 function binding(group: Group): AttachmentBinding {
   return { caller: UPLOAD_CALLER, projectId: path.basename(group.cwd), sessionId: group.id };
+}
+
+function usageKey(groupId: string, agent: string): string {
+  return `${groupId}\0${agent}`;
 }
 
 function titleFromText(text: string): string {

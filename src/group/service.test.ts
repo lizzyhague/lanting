@@ -105,7 +105,7 @@ class FakeUploads implements Pick<SharedUploadClient, "createTicket" | "createLe
 
 test("summaries list the features of configured CLIs", async (t) => {
   const { service, groupId } = await setup(t);
-  const all = ["compact", "deleteSession", "models", "permissions"];
+  const all = ["compact", "deleteSession", "models", "permissions", "usage"];
   const group = service.groups().find((item) => item.id === groupId);
   assert.deepEqual(group?.features, { claude: all });
   assert.deepEqual(group?.unavailable, []);
@@ -604,4 +604,159 @@ test("attachments are leased for the round, reach only the called agents, and ne
   const browserView = JSON.stringify([service.snapshot(groupId), events]);
   assert.ok(!browserView.includes(uploads.blobs), "a storage path reached the browser");
   assert.equal(service.snapshot(groupId).transcript[0]?.attachments?.[0]?.originalName, `${attachmentId}.png`);
+});
+
+function usageEvents(events: ServiceEvent[]) {
+  return events.flatMap((event) =>
+    event.scope === "group" && event.payload.type === "usage.updated" ? [event.payload] : []
+  );
+}
+
+function gate() {
+  let open!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { promise, open };
+}
+
+/** 让出事件循环，等在途的 usage 读取往前走。 */
+function tick() {
+  return new Promise((resolve) => setTimeout(resolve, 1));
+}
+
+test("choosing the usage member is validated, kept on the group, and does not change recency", async (t) => {
+  const { service, store, events, groupId } = await setup(t);
+  const before = store.get(groupId)!.updatedAt;
+  await assert.rejects(service.setUsageAgent(groupId, "codex"), /不是这个群的成员/u);
+  const summary = await service.setUsageAgent(groupId, "claude");
+  assert.equal(summary.usageAgent, "claude");
+  assert.equal(summary.updatedAt, before);
+  assert.equal(store.get(groupId)?.usageAgent, "claude");
+  assert.ok(events.some((event) =>
+    event.scope === "global" && event.payload.type === "group.updated" && event.payload.group.usageAgent === "claude"
+  ));
+  assert.equal((await service.setUsageAgent(groupId, null)).usageAgent, null);
+
+  await service.trash([groupId]);
+  await assert.rejects(service.setUsageAgent(groupId, "claude"), /回收站/u);
+});
+
+test("a member whose CLI has no usage cannot be chosen", async (t) => {
+  const { service, groupId } = await setup(t, ["usage"]);
+  await assert.rejects(service.setUsageAgent(groupId, "claude"), /不支持 usage/u);
+});
+
+test("usage results are cached per member and reach the snapshot", async (t) => {
+  const { service, adapter, events, groupId } = await setup(t);
+  await service.setUsageAgent(groupId, "claude");
+  await service.refreshUsage(groupId, "view");
+  // 还没发过言：不调用模块。
+  assert.equal(adapter.usageRequests.length, 0);
+  assert.deepEqual(service.snapshot(groupId).usage, { status: "not_started" });
+
+  await withSession(service, groupId);
+  await service.refreshUsage(groupId, "visible");
+  assert.deepEqual(service.snapshot(groupId).usage, { status: "ok", parts: [{ text: "claude usage" }] });
+
+  adapter.usageScript = () => Promise.resolve(null);
+  const count = usageEvents(events).length;
+  await service.refreshUsage(groupId, "visible");
+  assert.equal(usageEvents(events).length, count);
+  assert.deepEqual(service.snapshot(groupId).usage, { status: "ok", parts: [{ text: "claude usage" }] });
+
+  adapter.usageScript = () => Promise.reject(new Error("boom"));
+  await service.refreshUsage(groupId, "visible");
+  assert.deepEqual(service.snapshot(groupId).usage, { status: "unavailable" });
+
+  await service.setUsageAgent(groupId, null);
+  assert.equal(service.snapshot(groupId).usage, null);
+});
+
+test("a finished turn of the usage member refreshes its usage", async (t) => {
+  const { service, adapter, groupId } = await setup(t);
+  await service.setUsageAgent(groupId, "claude");
+  await withSession(service, groupId);
+  while (!adapter.usageRequests.some((request) => request.reason === "turn")) await tick();
+  assert.ok(adapter.usageRequests.some((request) => request.reason === "turn"));
+});
+
+test("in-flight usage reads merge visible but re-read for a later view or turn", async (t) => {
+  const { service, adapter, groupId } = await setup(t);
+  await withSession(service, groupId);
+  await service.setUsageAgent(groupId, "claude");
+  while (adapter.usageRequests.length < 1) await tick();
+  await tick();
+  adapter.usageRequests.length = 0;
+
+  let release = gate();
+  adapter.usageScript = async () => {
+    await release.promise;
+    return [];
+  };
+  // view 在途时 visible 并进去。
+  const view = service.refreshUsage(groupId, "view");
+  const visible = service.refreshUsage(groupId, "visible");
+  release.open();
+  await Promise.all([view, visible]);
+  assert.deepEqual(adapter.usageRequests.map((request) => request.reason), ["view"]);
+
+  // visible 在途时来了 view：读完补一次能拉进程的。
+  adapter.usageRequests.length = 0;
+  release = gate();
+  const first = service.refreshUsage(groupId, "visible");
+  const second = service.refreshUsage(groupId, "view");
+  const third = service.refreshUsage(groupId, "view");
+  release.open();
+  await Promise.all([first, second, third]);
+  assert.deepEqual(adapter.usageRequests.map((request) => request.reason), ["visible", "view"]);
+});
+
+test("a turn during any read is never swallowed, including during the follow-up read", async (t) => {
+  const { service, adapter, groupId } = await setup(t);
+  await withSession(service, groupId);
+  await service.setUsageAgent(groupId, "claude");
+  while (adapter.usageRequests.length < 1) await tick();
+  await tick();
+  adapter.usageRequests.length = 0;
+
+  const gates = [gate(), gate(), gate()];
+  adapter.usageScript = async () => {
+    await gates[adapter.usageRequests.length - 1]!.promise;
+    return [];
+  };
+  const done = service.refreshUsage(groupId, "view");
+  void service.refreshUsage(groupId, "turn");
+  void service.refreshUsage(groupId, "turn");
+  gates[0]!.open();
+  while (adapter.usageRequests.length < 2) await tick();
+  // 补读期间又来了 turn：读完再补。
+  void service.refreshUsage(groupId, "turn");
+  gates[1]!.open();
+  while (adapter.usageRequests.length < 3) await tick();
+  gates[2]!.open();
+  await done;
+  assert.deepEqual(adapter.usageRequests.map((request) => request.reason), ["view", "turn", "turn"]);
+});
+
+test("a late usage result is dropped once the group is in the trash", async (t) => {
+  const { service, adapter, events, groupId } = await setup(t);
+  await withSession(service, groupId);
+  await service.setUsageAgent(groupId, "claude");
+  while (adapter.usageRequests.length < 1) await tick();
+  await tick();
+
+  const release = gate();
+  adapter.usageScript = async () => {
+    await release.promise;
+    return [{ text: "late" }];
+  };
+  const count = usageEvents(events).length;
+  const read = service.refreshUsage(groupId, "visible");
+  await service.trash([groupId]);
+  release.open();
+  await read;
+  assert.equal(usageEvents(events).length, count);
+  await service.restore([groupId]);
+  assert.notDeepEqual(service.snapshot(groupId).usage, { status: "ok", parts: [{ text: "late" }] });
 });
