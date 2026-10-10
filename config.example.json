@@ -3,6 +3,7 @@
   "agents": {
     "claude": { "executable": "/absolute/path/to/claude" },
     "codex": { "executable": "/absolute/path/to/codex" },
-    "grok": { "executable": "/absolute/path/to/grok" }
+    "grok": { "executable": "/absolute/path/to/grok" },
+    "pi": { "executable": "/absolute/path/to/pi" }
   }
 }

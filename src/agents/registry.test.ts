@@ -9,6 +9,7 @@ test("lists every supported CLI kind in its fixed order", () => {
     { kind: "claude", displayName: "Claude Code" },
     { kind: "codex", displayName: "Codex CLI" },
     { kind: "grok", displayName: "Grok Build" },
+    { kind: "pi", displayName: "Pi" },
   ]);
 });
 
