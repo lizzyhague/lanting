@@ -921,6 +921,7 @@ button[aria-invalid="true"] {
 .group-view {
   min-height: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto auto;
 }
 
@@ -1230,6 +1231,7 @@ button[aria-invalid="true"] {
   margin: 0 auto;
   padding: 0.6rem 1rem max(0.75rem, env(safe-area-inset-bottom));
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.5rem;
 }
 
