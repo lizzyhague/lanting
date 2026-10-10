@@ -70,6 +70,8 @@ export type GroupSummary = {
   /** 标题栏 usage 行显示哪个成员；null 表示关闭。 */
   usageAgent: string | null;
   busy: boolean;
+  /** 当前忙碌阶段及对应成员；阶段刚开始或成员交接时 agent 为 null。 */
+  busyStatus: { kind: "speaking" | "compacting"; agent: string | null } | null;
   /** 移入回收站的时间；不在回收站时为 null。 */
   trashedAt: string | null;
   /** 到期自动永久删除的时间，由 trashedAt 推出。 */
@@ -172,8 +174,9 @@ export class GroupService {
       }
       const payload = event.type === "entry.appended" ? { ...event, entry: publicEntry(event.entry) } : event;
       this.#emit({ scope: "group", groupId: event.groupId, payload });
-      if (event.type === "entry.appended" || event.type === "round.started" || event.type === "round.ended" ||
-          event.type === "compact.started" || event.type === "compact.ended") {
+      if (event.type === "entry.appended" || event.type === "round.started" || event.type === "agent.started" ||
+          event.type === "round.ended" || event.type === "compact.started" || event.type === "compact.progress" ||
+          event.type === "compact.ended") {
         this.#emitUpdated(event.groupId);
       }
     });
@@ -893,6 +896,8 @@ export class GroupService {
   }
 
   #summary(group: Group): GroupSummary {
+    const round = this.#runtime.round(group.id);
+    const compaction = this.#runtime.compaction(group.id);
     return {
       id: group.id,
       title: group.title,
@@ -911,6 +916,9 @@ export class GroupService {
       pinned: group.pinned,
       usageAgent: group.usageAgent,
       busy: this.#runtime.isBusy(group.id),
+      busyStatus: compaction
+        ? { kind: "compacting", agent: compaction.current }
+        : round ? { kind: "speaking", agent: round.speaking } : null,
       trashedAt: group.trashedAt,
       purgeAt: group.trashedAt
         ? new Date(Date.parse(group.trashedAt) + TRASH_RETENTION_MS).toISOString()

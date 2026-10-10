@@ -317,6 +317,28 @@ async function withSession(service: GroupService, groupId: string) {
   await idle(service, groupId);
 }
 
+test("group summaries identify the speaking or compacting member", async (t) => {
+  const { service, events, groupId } = await setup(t);
+
+  await service.startRound(groupId, "hello", ["claude"]);
+  await idle(service, groupId);
+  const speaking = events.flatMap((event) =>
+    event.scope === "global" && event.payload.type === "group.updated" ? [event.payload.group.busyStatus] : []
+  );
+  assert.ok(speaking.some((status) => status?.kind === "speaking" && status.agent === null));
+  assert.ok(speaking.some((status) => status?.kind === "speaking" && status.agent === "claude"));
+
+  events.length = 0;
+  service.compact(groupId, ["claude"]);
+  await idle(service, groupId);
+  const compacting = events.flatMap((event) =>
+    event.scope === "global" && event.payload.type === "group.updated" ? [event.payload.group.busyStatus] : []
+  );
+  assert.ok(compacting.some((status) => status?.kind === "compacting" && status.agent === null));
+  assert.ok(compacting.some((status) => status?.kind === "compacting" && status.agent === "claude"));
+  assert.equal(service.groups().find((group) => group.id === groupId)?.busyStatus, null);
+});
+
 test("renaming changes only the lanting title and rejects empty names", async (t) => {
   const { service, store, groupId } = await setup(t);
   const summary = await service.rename(groupId, "  design review  ");

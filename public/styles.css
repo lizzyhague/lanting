@@ -872,6 +872,7 @@ button[aria-invalid="true"] {
 .group-item-meta {
   display: flex;
   align-items: center;
+  min-width: 0;
   gap: 0.3rem;
   color: var(--muted);
   font-size: 0.8rem;
@@ -882,9 +883,18 @@ button[aria-invalid="true"] {
   font-size: 0.76rem;
 }
 
+.group-item-directory {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .busy-badge {
+  flex: none;
   margin-left: auto;
-  color: var(--ok);
+  color: var(--agent, var(--muted));
+  white-space: nowrap;
 }
 
 .empty-hint {
@@ -1240,6 +1250,11 @@ button[aria-invalid="true"] {
 
 .composer .form-status:empty {
   display: none;
+}
+
+.composer .form-status {
+  margin: 0;
+  font-size: 0.8rem;
 }
 
 .task-button {

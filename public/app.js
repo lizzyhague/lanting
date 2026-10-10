@@ -717,14 +717,20 @@ function groupItem(group, trash) {
   const meta = document.createElement("span");
   meta.className = "group-item-meta";
   meta.append(...group.members.map((member) => agentDot(member, group)));
-  meta.append(document.createTextNode(group.directory));
+  const directory = document.createElement("span");
+  directory.className = "group-item-directory";
+  directory.textContent = group.directory;
+  meta.append(directory);
   const badge = document.createElement("span");
   badge.className = "busy-badge";
   if (trash) {
     badge.textContent = group.deleting ? "正在删除" : `${formatDate(group.purgeAt)} 到期`;
     badge.classList.add("purge-badge");
   } else if (group.busy) {
-    badge.textContent = "发言中";
+    const status = group.busyStatus;
+    const action = status?.kind === "compacting" ? "压缩中" : "发言中";
+    badge.textContent = status?.agent ? `${status.agent} ${action}` : action;
+    if (status?.agent) paintAgent(badge, memberColor(group, status.agent));
   }
   if (badge.textContent) meta.append(badge);
   open.append(title, meta);
