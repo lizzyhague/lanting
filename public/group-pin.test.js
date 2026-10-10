@@ -24,14 +24,17 @@ test("active groups put cross-directory pins above a divider", () => {
   assert.match(styles, /\.group-pin-divider\s*\{[^}]*border-top:\s*2px solid var\(--accent\)/su);
 });
 
-test("group rows use a separate pin toggle outside selection and trash", () => {
+test("group rows keep rename and pin actions outside selection and trash", () => {
   const item = app.slice(
     app.indexOf("function groupItem("),
     app.indexOf("function groupPinIcon("),
   );
   assert.match(item, /className = "group-open"/u);
   assert.match(item, /if \(!inSelection\(\) && !trash\)/u);
+  assert.match(item, /className = "group-item-actions"/u);
+  assert.match(item, /className = "group-rename-trigger quiet"/u);
   assert.match(item, /className = "group-pin-trigger quiet"/u);
+  assert.ok(item.indexOf("actions.append(rename, pin)") > item.indexOf("openRenameDialog(group)"));
   assert.match(app, /request\("group\.pin"/u);
   assert.match(item, /if \(!group\.pinned\) openRenameDialog\(group\)/u);
 
@@ -42,6 +45,9 @@ test("group rows use a separate pin toggle outside selection and trash", () => {
   assert.match(icon, /const LOOSE = \{/u);
   assert.match(icon, /const DRIVEN = \{/u);
   assert.match(icon, /if \(pinned\) body\.setAttribute\("fill", "currentColor"\)/u);
+
+  const menu = app.slice(app.indexOf("function renderPlusMenu()"), app.indexOf("function menuItem("));
+  assert.doesNotMatch(menu, /menuItem\("重命名"/u);
 });
 
 test("opening a cross-directory pin syncs the directory before subscribing", () => {

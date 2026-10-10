@@ -817,17 +817,24 @@ button[aria-invalid="true"] {
   border-top: 2px solid var(--accent);
 }
 
-.group-pin-trigger {
+.group-item-actions {
   align-self: center;
+  margin-right: 0.35rem;
+  display: flex;
+  align-items: center;
+}
+
+.group-rename-trigger,
+.group-pin-trigger {
   width: 38px;
   min-height: 38px;
   padding: 0;
-  margin-right: 0.35rem;
   display: grid;
   place-items: center;
   color: var(--muted);
 }
 
+.group-rename-trigger .group-rename-icon,
 .group-pin-trigger .group-pin-icon {
   width: 17px;
   height: 17px;
@@ -837,12 +844,16 @@ button[aria-invalid="true"] {
   color: var(--accent-bright);
 }
 
+.group-rename-trigger,
+.group-rename-trigger .group-rename-icon,
 .group-pin-trigger,
 .group-pin-trigger .group-pin-icon {
   transition: color 140ms ease;
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .group-rename-trigger,
+  .group-rename-trigger .group-rename-icon,
   .group-pin-trigger,
   .group-pin-trigger .group-pin-icon {
     transition: none;

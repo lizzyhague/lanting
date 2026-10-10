@@ -733,6 +733,18 @@ function groupItem(group, trash) {
   });
   item.append(open);
   if (!inSelection() && !trash) {
+    const actions = document.createElement("div");
+    actions.className = "group-item-actions";
+    const rename = document.createElement("button");
+    rename.className = "group-rename-trigger quiet";
+    rename.type = "button";
+    rename.setAttribute("aria-label", `重命名 ${group.title}`);
+    rename.title = "重命名";
+    rename.append(groupRenameIcon());
+    rename.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openRenameDialog(group);
+    });
     const pin = document.createElement("button");
     pin.className = "group-pin-trigger quiet";
     pin.type = "button";
@@ -745,9 +757,26 @@ function groupItem(group, trash) {
       void toggleGroupPin(group);
       if (!group.pinned) openRenameDialog(group);
     });
-    item.append(pin);
+    actions.append(rename, pin);
+    item.append(actions);
   }
   return item;
+}
+
+function groupRenameIcon() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  svg.classList.add("group-rename-icon");
+  const pencil = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  pencil.setAttribute("d", "M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4zM13.5 6.5l4 4");
+  svg.append(pencil);
+  return svg;
 }
 
 function groupPinIcon(pinned) {
@@ -1501,16 +1530,12 @@ function renderPlusMenu() {
       })
       : null;
     usageItem?.classList.add("has-submenu");
-    const renameItem = menuItem("重命名", null, !state.authenticated, () => {
-      closePopovers();
-      openRenameDialog(group);
-    });
     const attachItem = menuItem("添加附件", null, !state.authenticated, () => {
       closePopovers();
       elements.fileInput.click();
     });
     elements.plusMenu.replaceChildren(
-      ...[attachItem, compactItem, settingsItem, usageItem, renameItem].filter(Boolean),
+      ...[attachItem, compactItem, settingsItem, usageItem].filter(Boolean),
     );
     return;
   }
