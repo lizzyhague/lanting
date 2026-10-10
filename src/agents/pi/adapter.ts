@@ -153,11 +153,14 @@ class PiSession implements AgentSession {
       }
       session.#sessionFile = state.sessionFile;
       const { model, effort } = options.settings;
-      if (model) {
+      const modelChanged = Boolean(model) && model !== currentModelId(state);
+      if (model && modelChanged) {
         const { provider, modelId } = splitModelId(model);
         await client.setModel(provider, modelId);
       }
-      if (effort) await client.setThinkingLevel(effort);
+      if (effort && (modelChanged || state.thinkingLevel !== effort)) {
+        await client.setThinkingLevel(effort);
+      }
       return session;
     } catch (error) {
       if (client.stderrTail.trim()) console.error(`Pi stderr：${client.stderrTail.trim()}`);
@@ -371,6 +374,13 @@ class PiSession implements AgentSession {
       this.#client.respondUi(id, { cancelled: true });
     }
   }
+}
+
+/** get_state 里当前模型，格式和成员设置相同：`provider/modelId`。 */
+function currentModelId(state: Record<string, unknown>): string | null {
+  const model = objectField(state.model);
+  if (typeof model.provider !== "string" || !model.provider || typeof model.id !== "string" || !model.id) return null;
+  return `${model.provider}/${model.id}`;
 }
 
 /** lanting 里的模型 id 是 `provider/modelId`；modelId 本身可能还带斜杠。 */

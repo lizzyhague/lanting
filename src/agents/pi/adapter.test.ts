@@ -9,6 +9,8 @@ import { PiAdapter, splitModelId } from "./adapter.ts";
 
 /** 假的 `pi --mode rpc`：prompt 的正文决定这一轮怎么走。 */
 const FAKE_PI = `#!/usr/bin/env node
+import { readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
 const state = {
@@ -17,8 +19,25 @@ const state = {
   sessionFile: "/fake/sessions/new.jsonl",
   model: null,
   thinking: null,
+  modelSets: 0,
+  thinkingSets: 0,
   compacted: 0,
   uiResponses: [],
+};
+const metaPath = (sessionFile) => path.join(process.cwd(), Buffer.from(sessionFile).toString("base64url") + ".meta");
+const persist = () => writeFileSync(metaPath(state.sessionFile), JSON.stringify({ model: state.model, thinking: state.thinking }));
+const restore = (sessionFile) => {
+  try { return JSON.parse(readFileSync(metaPath(sessionFile), "utf8")); }
+  catch { return {}; }
+};
+const snapshot = () => {
+  const data = { sessionFile: state.sessionFile, sessionId: "s1" };
+  if (state.model) {
+    const bar = state.model.indexOf("|");
+    data.model = { provider: state.model.slice(0, bar), id: state.model.slice(bar + 1) };
+  }
+  if (state.thinking) data.thinkingLevel = state.thinking;
+  return data;
 };
 const out = (record) => process.stdout.write(JSON.stringify(record) + "\\n");
 const ok = (command, data) => out({ id: command.id, type: "response", command: command.type, success: true, data });
@@ -47,13 +66,22 @@ process.stdin.on("data", (chunk) => {
 process.stdin.on("end", () => process.exit(0));
 function handle(command) {
   switch (command.type) {
-    case "get_state": return ok(command, { sessionFile: state.sessionFile, sessionId: "s1" });
+    case "get_state": return ok(command, snapshot());
     case "switch_session":
       if (command.sessionPath === "/fake/sessions/locked.jsonl") return ok(command, { cancelled: true });
       state.sessionFile = command.sessionPath;
+      Object.assign(state, restore(command.sessionPath));
       return ok(command, { cancelled: false });
-    case "set_model": state.model = command.provider + "|" + command.modelId; return ok(command, {});
-    case "set_thinking_level": state.thinking = command.level; return ok(command);
+    case "set_model":
+      state.model = command.provider + "|" + command.modelId;
+      state.modelSets += 1;
+      persist();
+      return ok(command, {});
+    case "set_thinking_level":
+      state.thinking = command.level;
+      state.thinkingSets += 1;
+      persist();
+      return ok(command);
     case "compact": state.compacted += 1; return ok(command, { summary: "s" });
     case "get_available_models": return ok(command, { models: [
       { id: "deepseek-flash", name: "DeepSeek V4.1 Flash", provider: "deepseek", reasoning: true,
@@ -198,8 +226,45 @@ test("model and thinking settings are applied when the session opens", async (t)
   const state = await stateOf(session);
   assert.equal(state.model, "router|vendor/plain-v1");
   assert.equal(state.thinking, "off");
+  assert.equal(state.modelSets, 1);
+  assert.equal(state.thinkingSets, 1);
   assert.deepEqual(splitModelId("deepseek/deepseek-flash"), { provider: "deepseek", modelId: "deepseek-flash" });
   assert.throws(() => splitModelId("no-provider"), /格式不对/u);
+});
+
+test("resuming skips set_model when the model and thinking already match", async (t) => {
+  const { adapter, options } = await setup(t);
+  const settings = { model: "router/vendor/plain-v1", effort: "off", permission: "ask" };
+  const first = await adapter.startSession({ ...options, settings });
+  const nativeId = first.nativeId;
+  await first.close();
+  const second = await adapter.resumeSession(nativeId!, { ...options, settings });
+  t.after(() => second.close());
+  const state = await stateOf(second);
+  assert.equal(state.model, "router|vendor/plain-v1");
+  assert.equal(state.thinking, "off");
+  assert.equal(state.modelSets, 0);
+  assert.equal(state.thinkingSets, 0);
+});
+
+test("resuming still sets the model when it changed", async (t) => {
+  const { adapter, options } = await setup(t);
+  const first = await adapter.startSession({
+    ...options,
+    settings: { model: "router/vendor/plain-v1", effort: "off", permission: "ask" },
+  });
+  const nativeId = first.nativeId;
+  await first.close();
+  const second = await adapter.resumeSession(nativeId!, {
+    ...options,
+    settings: { model: "deepseek/deepseek-flash", effort: "off", permission: "ask" },
+  });
+  t.after(() => second.close());
+  const state = await stateOf(second);
+  assert.equal(state.model, "deepseek|deepseek-flash");
+  assert.equal(state.thinking, "off");
+  assert.equal(state.modelSets, 1);
+  assert.equal(state.thinkingSets, 1);
 });
 
 test("a Pi turn streams text, records the tool, asks for approval and ends with the final message", async (t) => {
