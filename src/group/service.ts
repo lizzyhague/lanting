@@ -177,14 +177,14 @@ export class GroupService {
   /** 设置页里这个 AI 能选的模型和权限，按项目根目录查。 */
   async settingsCatalog(agentId: string): Promise<AgentCatalog> {
     const agent = this.#settingsAgent(this.#settings.get(), agentId);
-    return this.#adapterForSettings(agent).catalog(this.#projectRoot);
+    return this.#catalogOf(this.#adapterForSettings(agent), this.#projectRoot);
   }
 
   /** 每个 AI 的默认设置，新开的群复制一份；已经开的群不受影响。 */
   async setDefaultSettings(agentId: string, settings: AgentSettings): Promise<PublicSettings> {
     const agent = this.#settingsAgent(this.#settings.get(), agentId);
     const kind = agent.kind;
-    const catalog = await this.#adapterForSettings(agent).catalog(this.#projectRoot);
+    const catalog = await this.#catalogOf(this.#adapterForSettings(agent), this.#projectRoot);
     this.#checkSettings(agent.name, catalog, settings, { field: "defaults", agentId });
     await this.#settings.update((next) => {
       const current = next.agents.find((item) => item.id === agentId);
@@ -343,7 +343,7 @@ export class GroupService {
   async catalog(groupId: string, agent: string): Promise<AgentCatalog> {
     const group = this.#requireActive(groupId);
     this.#requireMember(group, agent);
-    return this.#adapterFor(group, agent).catalog(group.cwd);
+    return this.#catalogOf(this.#adapterFor(group, agent), group.cwd);
   }
 
   /**
@@ -353,7 +353,7 @@ export class GroupService {
   async setAgentSettings(groupId: string, agent: string, settings: AgentSettings): Promise<GroupSummary> {
     const group = this.#requireActive(groupId);
     this.#requireMember(group, agent);
-    this.#checkSettings(agent, await this.#adapterFor(group, agent).catalog(group.cwd), settings);
+    this.#checkSettings(agent, await this.#catalogOf(this.#adapterFor(group, agent), group.cwd), settings);
     const updated = await this.#store.update(groupId, (next) => {
       const state = next.agents[agent];
       if (state) state.settings = { ...settings };
@@ -496,7 +496,10 @@ export class GroupService {
         const state = group.agents[agent];
         if (!state?.nativeSessionId) continue;
         const nativeId = state.nativeSessionId;
-        if (!this.#agents.has(state.kind)) {
+        const deleteSession = this.#agents.has(state.kind)
+          ? this.#agents.get(state.kind).features.deleteSession
+          : undefined;
+        if (!deleteSession) {
           await this.#store.update(groupId, (next) => {
             const current = next.agents[agent];
             if (current) current.nativeSessionId = null;
@@ -504,7 +507,7 @@ export class GroupService {
           continue;
         }
         try {
-          await this.#agents.get(state.kind).deleteSession(nativeId, group.cwd);
+          await deleteSession(nativeId, group.cwd);
           await this.#store.update(groupId, (next) => {
             const state = next.agents[agent];
             if (state) state.nativeSessionId = null;
@@ -521,6 +524,13 @@ export class GroupService {
     } finally {
       this.#locked.delete(groupId);
     }
+  }
+
+  async #catalogOf(adapter: AgentAdapter, cwd: string): Promise<AgentCatalog> {
+    return {
+      models: adapter.features.models ? await adapter.features.models(cwd) : [],
+      permissions: adapter.features.permissions ? await adapter.features.permissions(cwd) : [],
+    };
   }
 
   async #batch(groupIds: string[], action: (groupId: string) => Promise<void>): Promise<BatchResult> {

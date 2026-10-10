@@ -118,7 +118,10 @@ test("interrupting a Grok turn ends it as interrupted and close stops the proces
 
 test("the Grok catalog lists models from initialize and the two permission modes", async (t) => {
   const { adapter, options } = await setup(t);
-  const catalog = await adapter.catalog(options.cwd);
+  const catalog = {
+    models: await adapter.features.models!(options.cwd),
+    permissions: await adapter.features.permissions!(options.cwd),
+  };
   assert.deepEqual(catalog.models.map((model) => [model.id, model.label, model.efforts]), [
     ["grok-fast", "Grok Fast", ["low", "high"]],
     ["grok-plain", "grok-plain", []],
@@ -139,7 +142,7 @@ test("Grok settings are applied when the session opens, and always-approve answe
   assert.deepEqual(asks, []);
   assert.match((events.at(-1) as { text: string }).text, /^allow-once\|/u);
 
-  await session.compact();
+  await adapter.features.compact!(session);
   const after = await collect(session.send("state"));
   assert.equal(JSON.parse((after.at(-1) as { text: string }).text).compacted, 1);
 });
@@ -154,10 +157,10 @@ test("deleting a Grok session removes its directory under any session group", as
   await writeFile(path.join(sessionDir, "updates.jsonl"), "{}\n");
   const adapter = new GrokAdapter({ executable: "/nonexistent/grok", grokHome });
 
-  await adapter.deleteSession("grok-1");
+  await adapter.features.deleteSession!("grok-1", grokHome);
   await assert.rejects(stat(sessionDir), { code: "ENOENT" });
   assert.ok((await stat(otherDir)).isDirectory());
-  await adapter.deleteSession("grok-1");
-  await assert.rejects(adapter.deleteSession("../grok-2"), /格式不对/u);
+  await adapter.features.deleteSession!("grok-1", grokHome);
+  await assert.rejects(adapter.features.deleteSession!("../grok-2", grokHome), /格式不对/u);
   assert.ok((await stat(otherDir)).isDirectory());
 });

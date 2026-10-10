@@ -318,8 +318,10 @@ export class GroupRuntime {
     let session: AgentSession | null = null;
     let failed = false;
     try {
+      const compact = this.#adapter(group, agent).features.compact;
+      if (!compact) throw new Error("这个 CLI 不支持压缩上下文。");
       session = await this.#session(group, agent);
-      await session.compact();
+      await compact(session);
       return `已压缩 ${agent} 的上下文。`;
     } catch (error) {
       failed = true;

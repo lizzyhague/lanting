@@ -1,8 +1,9 @@
 import type { AgentKind } from "./kinds.ts";
+import type { AgentFeatures } from "../features/index.ts";
 
 /**
  * AI 接入的统一接口。群核心只认这里的类型，不关心对面是哪家 CLI。
- * 接入新的 CLI 种类，要写 AgentAdapter、在 kinds.ts 登记种类，并在 server/main.ts 按 config 实例化。
+ * 接入新的 CLI 种类，在 agents/index.ts 登记模块；需要 CLI 配合的功能在 features/index.ts 定义。
  *
  * 原生会话名不改：群主只在 lanting 里找群，永久删除时原生会话一起删掉。
  */
@@ -96,11 +97,6 @@ export interface AgentSession {
   send(text: string): AsyncIterable<AgentEvent>;
   /** 打断正在进行的发言；send 的迭代随后应以 interrupted 结束。 */
   interrupt(): Promise<void>;
-  /**
-   * 压缩原生会话的上下文，完成后 resolve，失败时 reject。
-   * 群核心只在没有发言进行时调用，压缩中途不打断。
-   */
-  compact(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -112,13 +108,7 @@ export interface AgentAdapter {
    * 为 false 时进程留着复用，空闲一段时间后才关。照各家参照项目的做法选。
    */
   readonly closeAfterTurn: boolean;
+  readonly features: AgentFeatures;
   startSession(options: SessionOptions): Promise<AgentSession>;
   resumeSession(nativeId: string, options: SessionOptions): Promise<AgentSession>;
-  /** 可选的模型和权限。可能要临时启动一次 CLI（不开会话、不发消息），适配自己缓存。 */
-  catalog(cwd: string): Promise<AgentCatalog>;
-  /**
-   * 永久删除原生会话。会话已经不存在也算成功；其他失败时 reject，由调用方稍后重试。
-   * 调用前群核心已经关掉了这个会话的进程。
-   */
-  deleteSession(nativeId: string, cwd: string): Promise<void>;
 }

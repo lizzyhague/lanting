@@ -1,5 +1,6 @@
 import type { AgentKind } from "./kinds.ts";
 import type { AgentAdapter, AgentCatalog, AgentEvent, AgentSession, SessionOptions } from "./types.ts";
+import type { AgentFeatures } from "../features/index.ts";
 
 /** 剧本里的一步：普通事件，或者向群主申请审批（结果作为 activity 发出）。 */
 export type FakeStep = AgentEvent | { type: "ask"; toolName: string; detail?: string };
@@ -17,6 +18,12 @@ export type FakeCall = {
 export class FakeAdapter implements AgentAdapter {
   readonly kind: AgentKind;
   closeAfterTurn = false;
+  readonly features: AgentFeatures = {
+    compact: (session) => asOwnSession(session).compact(),
+    deleteSession: (nativeId) => this.#deleteSession(nativeId),
+    models: async (cwd) => (await this.#catalog(cwd)).models,
+    permissions: async (cwd) => (await this.#catalog(cwd)).permissions,
+  };
   readonly calls: FakeCall[] = [];
   readonly received: string[] = [];
   readonly sessions: FakeSession[] = [];
@@ -55,13 +62,13 @@ export class FakeAdapter implements AgentAdapter {
   readonly deleted: string[] = [];
   deleteError: Error | null = null;
 
-  deleteSession(nativeId: string): Promise<void> {
+  #deleteSession(nativeId: string): Promise<void> {
     if (this.deleteError) return Promise.reject(this.deleteError);
     this.deleted.push(nativeId);
     return Promise.resolve();
   }
 
-  catalog(_cwd: string): Promise<AgentCatalog> {
+  #catalog(_cwd: string): Promise<AgentCatalog> {
     return Promise.resolve(structuredClone(this.catalogValue));
   }
 
@@ -71,6 +78,11 @@ export class FakeAdapter implements AgentAdapter {
     this.sessions.push(session);
     return Promise.resolve(session);
   }
+}
+
+function asOwnSession(session: AgentSession): FakeSession {
+  if (!(session instanceof FakeSession)) throw new Error("会话不属于这个假适配器。");
+  return session;
 }
 
 export class FakeSession implements AgentSession {

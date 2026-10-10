@@ -1,3 +1,4 @@
+import type { AgentFeatures } from "../../features/index.ts";
 import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
 import type {
@@ -29,6 +30,12 @@ export class CodexAdapter implements AgentAdapter {
   readonly kind = "codex";
   /** 照 Codex Remote：每轮结束就关掉 app-server。 */
   readonly closeAfterTurn = true;
+  readonly features: AgentFeatures = {
+    compact: (session) => asOwnSession(session).compact(),
+    deleteSession: (nativeId, cwd) => this.#deleteSession(nativeId, cwd),
+    models: async (cwd) => (await this.#catalog(cwd)).models,
+    permissions: async (cwd) => (await this.#catalog(cwd)).permissions,
+  };
   readonly #options: CodexAdapterOptions;
   readonly #catalogs = new CatalogCache();
 
@@ -37,7 +44,7 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** 权限档案会读项目里的配置，所以按工作目录分别缓存。 */
-  catalog(cwd: string): Promise<AgentCatalog> {
+  #catalog(cwd: string): Promise<AgentCatalog> {
     return this.#catalogs.get(cwd, async () => {
       const client = new AppServerClient({
         codexBinary: this.#options.executable,
@@ -57,7 +64,7 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /** 照 Codex Remote：临时起一个 app-server 调 thread/delete；已经不存在也算删掉了。 */
-  async deleteSession(nativeId: string, cwd: string): Promise<void> {
+  async #deleteSession(nativeId: string, cwd: string): Promise<void> {
     const client = new AppServerClient({
       codexBinary: this.#options.executable,
       workingDirectory: cwd,
@@ -80,6 +87,11 @@ export class CodexAdapter implements AgentAdapter {
   resumeSession(nativeId: string, options: SessionOptions): Promise<AgentSession> {
     return CodexSession.open(nativeId, options, this.#options);
   }
+}
+
+function asOwnSession(session: AgentSession): CodexSession {
+  if (!(session instanceof CodexSession)) throw new Error("会话不属于 Codex CLI。");
+  return session;
 }
 
 type Turn = {

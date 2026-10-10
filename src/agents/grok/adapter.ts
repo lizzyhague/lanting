@@ -3,6 +3,7 @@ import { readdir, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import type { AgentFeatures } from "../../features/index.ts";
 import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
 import type {
@@ -50,6 +51,12 @@ export class GrokAdapter implements AgentAdapter {
   readonly kind = "grok";
   /** 照 Grok Remote：每轮结束就关掉 Grok 进程。 */
   readonly closeAfterTurn = true;
+  readonly features: AgentFeatures = {
+    compact: (session) => asOwnSession(session).compact(),
+    deleteSession: (nativeId) => this.#deleteSession(nativeId),
+    models: async (cwd) => (await this.#catalog(cwd)).models,
+    permissions: async (cwd) => (await this.#catalog(cwd)).permissions,
+  };
   readonly #options: GrokAdapterOptions;
   readonly #catalogs = new CatalogCache();
 
@@ -58,7 +65,7 @@ export class GrokAdapter implements AgentAdapter {
   }
 
   /** 照 Grok Remote：模型列表在 initialize 的返回里，不用开会话。 */
-  catalog(cwd: string): Promise<AgentCatalog> {
+  #catalog(cwd: string): Promise<AgentCatalog> {
     return this.#catalogs.get("", async () => {
       const child = spawnGrok(this.#options.executable, cwd);
       const client = new AcpClient(child);
@@ -76,7 +83,7 @@ export class GrokAdapter implements AgentAdapter {
    * Grok 没有删除会话的 RPC。照 Grok Remote 删磁盘目录 `<GROK_HOME>/sessions/<分组>/<会话 id>`；
    * 找不到目录就当作已经删掉了。
    */
-  async deleteSession(nativeId: string): Promise<void> {
+  async #deleteSession(nativeId: string): Promise<void> {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(nativeId) || nativeId.includes("..")) {
       throw new Error(`Grok 会话 id 格式不对：${nativeId}`);
     }
@@ -96,6 +103,11 @@ export class GrokAdapter implements AgentAdapter {
   resumeSession(nativeId: string, options: SessionOptions): Promise<AgentSession> {
     return GrokSession.open(nativeId, options, this.#options);
   }
+}
+
+function asOwnSession(session: AgentSession): GrokSession {
+  if (!(session instanceof GrokSession)) throw new Error("会话不属于 Grok Build。");
+  return session;
 }
 
 type Turn = {

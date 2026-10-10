@@ -244,9 +244,9 @@ test("default settings errors identify the defaults field and AI record", async 
 
 test("default settings are not saved if the AI kind changes while its catalog is loading", async (t) => {
   const { service, settings, codexAdapter, agentIds } = await setup(t);
-  let resolveCatalog!: (catalog: AgentCatalog) => void;
-  codexAdapter.catalog = () => new Promise((resolve) => {
-    resolveCatalog = resolve;
+  let resolveModels!: (models: AgentCatalog["models"]) => void;
+  codexAdapter.features.models = () => new Promise((resolve) => {
+    resolveModels = resolve;
   });
   const saving = service.setDefaultSettings(
     agentIds.codex,
@@ -255,7 +255,7 @@ test("default settings are not saved if the AI kind changes while its catalog is
   await settings.update((next) => {
     next.agents.find((agent) => agent.id === agentIds.codex)!.kind = "claude";
   });
-  resolveCatalog(structuredClone(codexAdapter.catalogValue));
+  resolveModels(structuredClone(codexAdapter.catalogValue.models));
 
   await assert.rejects(saving, /CLI 已经变化/u);
   assert.deepEqual(

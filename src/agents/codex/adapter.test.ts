@@ -143,7 +143,10 @@ test("interrupting a Codex turn ends it as interrupted, and resume keeps the thr
 
 test("the Codex catalog lists visible models and the allowed permission profiles", async (t) => {
   const { adapter, options } = await setup(t);
-  const catalog = await adapter.catalog(options.cwd);
+  const catalog = {
+    models: await adapter.features.models!(options.cwd),
+    permissions: await adapter.features.permissions!(options.cwd),
+  };
   assert.deepEqual(catalog.models.map((model) => [model.id, model.label, model.efforts]), [
     ["gpt-a", "GPT A", ["low", "medium"]],
   ]);
@@ -159,7 +162,7 @@ test("Codex settings are applied after the thread opens, and compaction waits fo
   const settings = { model: "gpt-a", effort: "low", permission: ":workspace" };
   const session = await adapter.resumeSession("thread-1", { ...options, settings });
   t.after(() => session.close());
-  await session.compact();
+  await adapter.features.compact!(session);
   const events = await collect(session.send("settings"));
   assert.deepEqual(JSON.parse((events.at(-1) as { text: string }).text), [
     { threadId: "thread-1", model: "gpt-a", effort: "low", permissions: ":workspace" },
@@ -176,7 +179,7 @@ test("a Codex session with default settings sends no settings update", async (t)
 
 test("deleting a Codex thread treats an already missing thread as deleted", async (t) => {
   const { adapter, options } = await setup(t);
-  await adapter.deleteSession("thread-1", options.cwd);
-  await adapter.deleteSession("gone", options.cwd);
-  await assert.rejects(adapter.deleteSession("broken", options.cwd), /disk error/u);
+  await adapter.features.deleteSession!("thread-1", options.cwd);
+  await adapter.features.deleteSession!("gone", options.cwd);
+  await assert.rejects(adapter.features.deleteSession!("broken", options.cwd), /disk error/u);
 });

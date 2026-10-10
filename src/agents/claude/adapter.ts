@@ -6,6 +6,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { randomUUID } from "node:crypto";
 
+import type { AgentFeatures } from "../../features/index.ts";
 import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
 import type {
@@ -48,6 +49,12 @@ export class ClaudeAdapter implements AgentAdapter {
   readonly kind = "claude";
   /** 照 Relayu：Claude Code 进程常驻，空闲后回收。 */
   readonly closeAfterTurn = false;
+  readonly features: AgentFeatures = {
+    compact: (session) => asOwnSession(session).compact(),
+    deleteSession: (nativeId, cwd) => this.#deleteSession(nativeId, cwd),
+    models: async (cwd) => (await this.#catalog(cwd)).models,
+    permissions: async (cwd) => (await this.#catalog(cwd)).permissions,
+  };
   readonly #options: ClaudeAdapterOptions;
   readonly #catalogs = new CatalogCache();
 
@@ -55,7 +62,7 @@ export class ClaudeAdapter implements AgentAdapter {
     this.#options = options;
   }
 
-  catalog(cwd: string): Promise<AgentCatalog> {
+  #catalog(cwd: string): Promise<AgentCatalog> {
     return this.#catalogs.get(cwd, async () => {
       // supportedModels() 只能问运行着的 Claude Code，所以临时起一个不落盘、不发消息的。
       const runtime = await ClaudeRuntime.start({
@@ -80,7 +87,7 @@ export class ClaudeAdapter implements AgentAdapter {
   }
 
   /** 照 Relayu：SDK 的 deleteSession；会话文件已经不在也算删掉了。 */
-  async deleteSession(nativeId: string, cwd: string): Promise<void> {
+  async #deleteSession(nativeId: string, cwd: string): Promise<void> {
     try {
       await deleteSession(nativeId, { dir: cwd });
     } catch (error) {
@@ -96,6 +103,11 @@ export class ClaudeAdapter implements AgentAdapter {
   resumeSession(nativeId: string, options: SessionOptions): Promise<AgentSession> {
     return ClaudeSession.open(nativeId, true, options, this.#options);
   }
+}
+
+function asOwnSession(session: AgentSession): ClaudeSession {
+  if (!(session instanceof ClaudeSession)) throw new Error("会话不属于 Claude Code。");
+  return session;
 }
 
 /**
