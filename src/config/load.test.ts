@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,18 +23,19 @@ test("loads the project root and drops unknown fields", async (t) => {
   assert.deepEqual(config, { projectRoot: projects, agents: {} });
 });
 
-test("loads an executable Claude Code path and rejects a non-executable one", async (t) => {
+test("leaves known CLI configuration fields for its module to parse", async (t) => {
   const directory = await scratch(t);
   const projects = path.join(directory, "projects");
   const claude = path.join(directory, "claude");
   const configPath = path.join(directory, "config.json");
   await mkdir(projects);
-  await writeFile(claude, "#!/bin/sh\n", { mode: 0o700 });
-  await writeFile(configPath, JSON.stringify({ projectRoot: projects, agents: { claude: { executable: claude } } }));
-  assert.deepEqual((await loadConfig(configPath)).agents, { claude: { executable: claude } });
-
-  await chmod(claude, 0o600);
-  await assert.rejects(loadConfig(configPath), /不存在或不可执行/u);
+  await writeFile(configPath, JSON.stringify({
+    projectRoot: projects,
+    agents: { claude: { executable: claude, futureField: true }, unknown: { ignored: false } },
+  }));
+  assert.deepEqual((await loadConfig(configPath)).agents, {
+    claude: { executable: claude, futureField: true },
+  });
 });
 
 test("reports configured CLI kinds in their fixed order", async (t) => {

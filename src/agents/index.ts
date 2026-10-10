@@ -1,0 +1,6 @@
+import { claudeModule } from "./claude/index.ts";
+import { codexModule } from "./codex/index.ts";
+import { grokModule } from "./grok/index.ts";
+import type { AgentModule } from "./module.ts";
+
+export const AGENT_MODULES: readonly AgentModule[] = [claudeModule, codexModule, grokModule];

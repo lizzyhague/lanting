@@ -28,7 +28,9 @@ async function setup(
   const adapters: Partial<Record<AgentKind, FakeAdapter>> = {};
   for (const kind of configuredKinds) adapters[kind] = new FakeAdapter(kind);
   const store = await GroupStore.open(directory);
-  const runtime = new GroupRuntime({ store, agents: new AgentRegistry(Object.values(adapters)) });
+  const configuredAdapters = Object.values(adapters)
+    .filter((adapter): adapter is FakeAdapter => adapter !== undefined);
+  const runtime = new GroupRuntime({ store, agents: new AgentRegistry(configuredAdapters) });
   t.after(() => runtime.shutdown());
   const events: GroupEvent[] = [];
   runtime.onEvent((event) => events.push(event));

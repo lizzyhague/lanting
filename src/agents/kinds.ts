@@ -1,8 +1,10 @@
-/** lanting 支持的 CLI 种类；顺序也是设置页下拉里的固定顺序。 */
-export const AGENT_KINDS = ["claude", "codex", "grok"] as const;
+import { AGENT_MODULES } from "./index.ts";
 
-export type AgentKind = (typeof AGENT_KINDS)[number];
+/** lanting 支持的 CLI 种类；顺序也是设置页下拉里的固定顺序。 */
+export const AGENT_KINDS: readonly string[] = AGENT_MODULES.map((module) => module.kind);
+
+export type AgentKind = string;
 
 export function isAgentKind(value: unknown): value is AgentKind {
-  return typeof value === "string" && (AGENT_KINDS as readonly string[]).includes(value);
+  return typeof value === "string" && AGENT_KINDS.includes(value);
 }

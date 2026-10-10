@@ -1,9 +1,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { ClaudeAdapter } from "../agents/claude/adapter.ts";
-import { CodexAdapter } from "../agents/codex/adapter.ts";
-import { GrokAdapter } from "../agents/grok/adapter.ts";
+import { AGENT_MODULES } from "../agents/index.ts";
 import { AgentRegistry } from "../agents/registry.ts";
 import { SharedUploadClient } from "../attachments/shared-upload-client.ts";
 import type { AgentAdapter } from "../agents/types.ts";
@@ -24,6 +22,12 @@ export async function main(): Promise<void> {
 
   const configPath = path.resolve(process.env.CONFIG_PATH ?? "config.json");
   const config = await loadConfig(configPath);
+  const adapters: AgentAdapter[] = [];
+  // 清单顺序就是界面上的排列顺序。
+  for (const module of AGENT_MODULES) {
+    const section = config.agents[module.kind];
+    if (section) adapters.push(await module.create(section, `agents.${module.kind}`));
+  }
   const previewRoot = await ensurePreviewRoot();
   const dataDirectory = path.resolve(process.env.DATA_DIR ?? "data");
 
@@ -32,13 +36,6 @@ export async function main(): Promise<void> {
   const settings = await SettingsStore.open(dataDirectory, configuredKinds(config));
   // socket 取 AI_REMOTE_UPLOAD_SOCKET，没设时用 ai-remote-upload 的默认位置。
   const uploads = new SharedUploadClient();
-  const adapters: AgentAdapter[] = [];
-  // 登记顺序就是界面上的排列顺序：claude、codex、grok。
-  if (config.agents.claude) {
-    adapters.push(new ClaudeAdapter({ pathToClaudeCodeExecutable: config.agents.claude.executable }));
-  }
-  if (config.agents.codex) adapters.push(new CodexAdapter({ executable: config.agents.codex.executable }));
-  if (config.agents.grok) adapters.push(new GrokAdapter({ executable: config.agents.grok.executable }));
   const agents = new AgentRegistry(adapters);
   const runtime = new GroupRuntime({ store, agents });
   const groups = new GroupService({ projectRoot: config.projectRoot, store, runtime, agents, settings, uploads });

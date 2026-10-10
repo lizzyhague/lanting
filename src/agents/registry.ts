@@ -1,18 +1,13 @@
-import { AGENT_KINDS, isAgentKind, type AgentKind } from "./kinds.ts";
+import { AGENT_MODULES } from "./index.ts";
+import { isAgentKind, type AgentKind } from "./kinds.ts";
 import type { AgentAdapter } from "./types.ts";
-
-const DISPLAY_NAMES: Readonly<Record<AgentKind, string>> = {
-  claude: "Claude Code",
-  codex: "Codex CLI",
-  grok: "Grok Build",
-};
 
 /** lanting 支持的全部 CLI 种类，不受当前 config 是否配置影响。 */
 export const SUPPORTED_AGENT_KINDS: readonly { kind: AgentKind; displayName: string }[] =
-  AGENT_KINDS.map((kind) => ({ kind, displayName: DISPLAY_NAMES[kind] }));
+  AGENT_MODULES.map(({ kind, displayName }) => ({ kind, displayName }));
 
 export function kindDisplayName(kind: AgentKind): string {
-  return DISPLAY_NAMES[kind];
+  return AGENT_MODULES.find((module) => module.kind === kind)?.displayName ?? kind;
 }
 
 /** 当前 config 已登记的 CLI 适配器。 */

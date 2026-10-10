@@ -1,15 +1,14 @@
-import { constants } from "node:fs";
-import { access, readFile, realpath, stat } from "node:fs/promises";
-import { homedir } from "node:os";
+import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { AGENT_KINDS, type AgentKind } from "../agents/kinds.ts";
+import { expandHome, requireString } from "./fields.ts";
 
 export type AppConfig = {
   /** 新建群时，工作目录从这个目录下的第一层文件夹里选。 */
   projectRoot: string;
   /** 各种 CLI 的路径。没有配置的种类不接入。 */
-  agents: Partial<Record<AgentKind, { executable: string }>>;
+  agents: Record<string, Record<string, unknown>>;
 };
 
 /** 这台机器已经配置的 CLI 种类，始终按代码里的固定顺序返回。 */
@@ -51,39 +50,16 @@ export async function loadConfig(configPath: string): Promise<AppConfig> {
     const configured = requireObject(value.agents, "agents");
     for (const kind of AGENT_KINDS) {
       if (configured[kind] === undefined) continue;
-      const agent = requireObject(configured[kind], `agents.${kind}`);
-      agents[kind] = { executable: await requireExecutable(agent.executable, `agents.${kind}.executable`) };
+      agents[kind] = requireObject(configured[kind], `agents.${kind}`);
     }
   }
 
   return { projectRoot, agents };
 }
 
-async function requireExecutable(value: unknown, label: string): Promise<string> {
-  const executable = expandHome(requireString(value, label));
-  if (!path.isAbsolute(executable)) throw new Error(`${label} 必须是绝对路径或 ~/ 开头的路径。`);
-  await access(executable, constants.X_OK).catch((error: unknown) => {
-    throw new Error(`${label} 不存在或不可执行：${executable}`, { cause: error });
-  });
-  return executable;
-}
-
 function requireObject(value: unknown, label: string): Record<string, unknown> {
   if (!isObject(value)) throw new Error(`${label} 必须是 JSON 对象。`);
   return value;
-}
-
-function expandHome(value: string): string {
-  if (value === "~") return homedir();
-  if (value.startsWith("~/")) return path.join(homedir(), value.slice(2));
-  return value;
-}
-
-function requireString(value: unknown, label: string): string {
-  if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`${label} 必须是非空字符串。`);
-  }
-  return value.trim();
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
