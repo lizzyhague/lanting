@@ -219,6 +219,16 @@ test("a Pi turn streams text, records the tool, asks for approval and ends with 
   assert.deepEqual(events.at(-1), { type: "end", outcome: "completed", text: "done:true|group rules" });
 });
 
+test("always-approve answers Pi's confirm itself without asking the web", async (t) => {
+  const { adapter, options, asks } = await setup(t, async () => ({ decision: "deny", message: "no" }));
+  const settings = { model: null, effort: null, permission: "always-approve" };
+  const session = await adapter.startSession({ ...options, settings });
+  t.after(() => session.close());
+  const events = await collect(session.send("hello"));
+  assert.deepEqual(asks, []);
+  assert.deepEqual(events.at(-1), { type: "end", outcome: "completed", text: "done:true|group rules" });
+});
+
 test("a denied approval answers confirmed false", async (t) => {
   const { adapter, options } = await setup(t, async () => ({ decision: "deny", message: "no" }));
   const session = await adapter.startSession(options);
@@ -331,14 +341,17 @@ test("unsupported dialogs are cancelled and notifications become notes", async (
   });
 });
 
-test("the catalog lists provider/model ids with thinking levels and one permission option", async (t) => {
+test("the catalog lists provider/model ids with thinking levels and both permission options", async (t) => {
   const { adapter, options } = await setup(t);
   const models = await adapter.features.models!(options.cwd);
   assert.deepEqual(models.map((model) => [model.id, model.label, model.efforts]), [
     ["deepseek/deepseek-flash", "DeepSeek V4.1 Flash", ["off", "low", "high", "max"]],
     ["router/vendor/plain-v1", "vendor/plain-v1", []],
   ]);
-  assert.deepEqual((await adapter.features.permissions!(options.cwd)).map((item) => item.id), ["ask"]);
+  assert.deepEqual((await adapter.features.permissions!(options.cwd)).map((item) => [item.id, item.danger ?? false]), [
+    ["ask", false],
+    ["always-approve", true],
+  ]);
 });
 
 test("compact calls Pi's compact command", async (t) => {

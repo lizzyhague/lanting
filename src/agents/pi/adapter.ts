@@ -21,7 +21,8 @@ const INTERRUPT_TIMEOUT_MS = 10_000;
 
 /**
  * 审批由 pi-minimal-permission-system 扩展负责，它只管 read、edit、write、bash，
- * 规则写在 Pi 自己的用户配置里。lanting 只提供这一个档位，不提供 yolo。
+ * 规则写在 Pi 自己的用户配置里。always-approve 不用扩展的 yolo，而是由 lanting
+ * 替群主回答“允许”，所以规则里的 deny 仍然生效。
  */
 export const PI_PERMISSIONS: readonly PermissionOption[] = [
   {
@@ -29,7 +30,15 @@ export const PI_PERMISSIONS: readonly PermissionOption[] = [
     label: "逐次确认",
     description: "read、edit、write、bash 按 Pi 权限扩展的规则执行，需要确认的由群主在网页上批准。",
   },
+  {
+    id: "always-approve",
+    label: "Always approve",
+    description: "需要确认的 read、edit、write、bash 直接放行；Pi 权限规则里的 deny 仍然生效。",
+    danger: true,
+  },
 ];
+
+const ALWAYS_APPROVE = "always-approve";
 
 /** Pi 的思考档位，顺序同 Pi 的 EXTENDED_THINKING_LEVELS。 */
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -331,6 +340,10 @@ class PiSession implements AgentSession {
       this.#client.respondUi(id, { cancelled: true });
       return;
     }
+    if (this.#options.settings.permission === ALWAYS_APPROVE) {
+      this.#client.respondUi(id, { confirmed: true });
+      return;
+    }
     const controller = new AbortController();
     this.#approvals.set(id, controller);
     this.#options.requestApproval({
@@ -428,7 +441,7 @@ function objectField(value: unknown): Record<string, unknown> {
 
 /**
  * 网页登录令牌 CLI 用不到，留着只会让每个工具子进程都能拿到网页端的控制权。
- * 权限扩展的 yolo 和非交互开关也不从 lanting 的环境继承，审批一律走网页。
+ * 权限扩展的 yolo 和非交互开关也不从环境继承，否则会绕过扩展的 deny 规则。
  */
 function childEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const child = { ...environment };
