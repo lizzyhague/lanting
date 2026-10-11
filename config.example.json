@@ -4,6 +4,7 @@
     "claude": { "executable": "/absolute/path/to/claude" },
     "codex": { "executable": "/absolute/path/to/codex" },
     "grok": { "executable": "/absolute/path/to/grok" },
-    "pi": { "executable": "/absolute/path/to/pi" }
+    "pi": { "executable": "/absolute/path/to/pi" },
+    "cursor": { "executable": "/absolute/path/to/cursor-agent" }
   }
 }

@@ -114,6 +114,7 @@ test("summaries list the features of configured CLIs", async (t) => {
     { kind: "codex", displayName: "Codex CLI", configured: true, features: all },
     { kind: "grok", displayName: "Grok Build", configured: false, features: [] },
     { kind: "pi", displayName: "Pi", configured: false, features: [] },
+    { kind: "cursor", displayName: "Cursor", configured: false, features: [] },
   ]);
 });
 

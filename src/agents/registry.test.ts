@@ -10,6 +10,7 @@ test("lists every supported CLI kind in its fixed order", () => {
     { kind: "codex", displayName: "Codex CLI" },
     { kind: "grok", displayName: "Grok Build" },
     { kind: "pi", displayName: "Pi" },
+    { kind: "cursor", displayName: "Cursor" },
   ]);
 });
 

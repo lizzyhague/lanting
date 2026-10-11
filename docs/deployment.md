@@ -11,8 +11,10 @@
 
 - Node.js 24 或更高版本
 - 一个项目根目录：新建群时，工作目录从它下面的第一层文件夹里选
-- 要拉进群的 AI 的 CLI，已安装并登录：Claude Code、Codex、Grok、Pi，至少一个。
+- 要拉进群的 AI 的 CLI，已安装并登录：Claude Code、Codex、Grok、Pi、Cursor，至少一个。
   Pi 还要用它自己的包管理命令安装权限扩展 `pi-minimal-permission-system`，lanting 才能把工具确认接到网页审批。
+  Cursor 用 Cursor Agent CLI，按 Cursor 官方说明安装后运行 `cursor-agent login` 登录；
+  lanting 不切换 Cursor 的模型，用的是 Cursor 当前的默认模型。
 - 一个至少 32 字符的随机登录令牌
 - 要发附件的话：同一个系统账户下运行的 ai-remote-upload，
   版本要认得调用方 `lanting`。不装也能用，只是不能发附件
@@ -46,7 +48,8 @@ chmod 600 .env config.json
     "claude": { "executable": "/absolute/path/to/claude" },
     "codex": { "executable": "/absolute/path/to/codex" },
     "grok": { "executable": "/absolute/path/to/grok" },
-    "pi": { "executable": "/absolute/path/to/pi" }
+    "pi": { "executable": "/absolute/path/to/pi" },
+    "cursor": { "executable": "/absolute/path/to/cursor-agent" }
   }
 }
 ```

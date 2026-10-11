@@ -48,13 +48,14 @@ test("reports configured CLI kinds in their fixed order", async (t) => {
   await writeFile(configPath, JSON.stringify({
     projectRoot: projects,
     agents: {
+      cursor: { executable },
       pi: { executable },
       grok: { executable },
       claude: { executable },
     },
   }));
 
-  assert.deepEqual(configuredKinds(await loadConfig(configPath)), ["claude", "grok", "pi"]);
+  assert.deepEqual(configuredKinds(await loadConfig(configPath)), ["claude", "grok", "pi", "cursor"]);
 });
 
 test("rejects a relative, missing, or non-directory project root", async (t) => {
