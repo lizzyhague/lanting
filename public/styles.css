@@ -349,6 +349,7 @@ button.app-settings-button svg {
 }
 
 .pick {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -356,8 +357,57 @@ button.app-settings-button svg {
   cursor: pointer;
 }
 
+/* 勾选框留着给键盘和读屏用，看到的是旁边的叶子：空心没选，实心选中。 */
 .pick input {
-  accent-color: var(--agent);
+  position: absolute;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pick-leaf {
+  position: relative;
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 4px;
+}
+
+.pick-leaf::before,
+.pick-leaf::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--agent);
+}
+
+.pick-leaf::before {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='174 99 164 164'%3E%3Cpath d='M255 276 C236 248 207 222 202 181 C197 141 218 106 260 78 C286 105 301 141 295 179 C289 216 274 242 265 268 C262 276 259 280 255 276 Z' transform='rotate(45 249 179)' fill='none' stroke='black' stroke-width='14' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='174 99 164 164'%3E%3Cpath d='M255 276 C236 248 207 222 202 181 C197 141 218 106 260 78 C286 105 301 141 295 179 C289 216 274 242 265 268 C262 276 259 280 255 276 Z' transform='rotate(45 249 179)' fill='none' stroke='black' stroke-width='14' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.pick-leaf::after {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='174 99 164 164'%3E%3Cpath d='M255 276 C236 248 207 222 202 181 C197 141 218 106 260 78 C286 105 301 141 295 179 C289 216 274 242 265 268 C262 276 259 280 255 276 Z' transform='rotate(45 249 179)'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='174 99 164 164'%3E%3Cpath d='M255 276 C236 248 207 222 202 181 C197 141 218 106 260 78 C286 105 301 141 295 179 C289 216 274 242 265 268 C262 276 259 280 255 276 Z' transform='rotate(45 249 179)'/%3E%3C/svg%3E") center / contain no-repeat;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.pick input:checked + .pick-leaf::after {
+  opacity: 1;
+}
+
+.pick input:focus-visible + .pick-leaf {
+  outline: 2px solid var(--agent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pick-leaf::after {
+    transition: none;
+  }
 }
 
 .group-search {

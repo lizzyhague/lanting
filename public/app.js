@@ -550,7 +550,10 @@ function renderCreateForm() {
       else state.createMembers.delete(agent.id);
       updateCreateButton();
     });
-    label.append(input, document.createTextNode(agent.name));
+    const leaf = document.createElement("span");
+    leaf.className = "pick-leaf";
+    leaf.setAttribute("aria-hidden", "true");
+    label.append(input, leaf, document.createTextNode(agent.name));
     return label;
   }));
   if (candidates.length === 0) {
