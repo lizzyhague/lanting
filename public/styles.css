@@ -1381,10 +1381,10 @@ button[aria-invalid="true"] {
 
 .task-button {
   flex: none;
-  width: 2.25rem;
-  min-width: 2.25rem;
-  height: 2.25rem;
-  min-height: 2.25rem;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -1392,15 +1392,15 @@ button[aria-invalid="true"] {
 }
 
 .task-send-icon {
-  width: 1.1rem;
-  height: 1.1rem;
+  width: 1.2rem;
+  height: 1.2rem;
   color: currentColor;
 }
 
 .task-stop-icon {
   display: none;
-  width: 0.62rem;
-  height: 0.62rem;
+  width: 0.7rem;
+  height: 0.7rem;
   border-radius: 2px;
   background: #ef4444;
 }
@@ -1581,14 +1581,16 @@ button[aria-invalid="true"] {
   flex: none;
 }
 
-.plus-button {
+button.plus-button {
   width: 34px;
   min-width: 34px;
   height: 34px;
   min-height: 34px;
+  display: grid;
+  place-items: center;
   padding: 0;
   border-radius: 50%;
-  font-size: 1.1rem;
+  font-size: 1.2rem;
   line-height: 1;
 }
 
