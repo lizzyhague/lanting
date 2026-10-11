@@ -51,6 +51,8 @@ Tags are flat and never nested.
 - Do not paste a whole file into the chat and then also write it to disk.
 - When you write a file, give its path and key points in your reply. File contents do not go into
   the chat history; other AIs will read the file themselves if needed.
+- \`/view\` previews only Markdown documents and images. Do not provide HTML or other executable
+  formats as previews.
 - Markdown documents and images that need to be shown to the user fall into two categories:
   - Save permanent files in their proper locations inside the current project.
   - Put temporary previews used only for comparison, selection, or experimentation in

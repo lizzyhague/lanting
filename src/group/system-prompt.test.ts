@@ -18,6 +18,8 @@ test("fills the host tag, the other members and the agent's own name", () => {
   assert.match(prompt, /temporary previews[\s\S]*`~\/preview`/u);
   assert.match(prompt, /without creating subdirectories/u);
   assert.match(prompt, /an agent's own config directory or `\/tmp`/u);
+  assert.match(prompt, /`\/view` previews only Markdown documents and images/u);
+  assert.match(prompt, /Do not provide HTML or other executable\s+formats as previews/u);
   assert.match(prompt, /`\/view\?path=`[\s\S]*URL-encoded absolute path/u);
   assert.match(prompt, /"alice sent an attachment"/u);
   assert.doesNotMatch(prompt, /\{(username|self|other_members)\}/u);
