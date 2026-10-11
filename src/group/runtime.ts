@@ -537,6 +537,7 @@ export class GroupRuntime {
       settings: { ...settings },
       systemPrompt: buildSystemPrompt({
         username: group.username,
+        self: agent,
         others: group.members.filter((member) => member !== agent),
       }),
       requestApproval: (ask, signal) => this.#approvals.request(group.id, agent, ask, signal),

@@ -19,10 +19,16 @@ const TEMPLATE = `# lanting platform
 
 ## Members and tags
 
-What each participant says is wrapped in a tag. Tags are flat and never nested:
+In this group chat, your name is \`{self}\`.
+
+When lanting passes messages from other participants to you, it wraps each message in the
+speaker's tag. The tags below belong to the host and the other AI members; your own tag is
+not included:
 
 - <{username}>: the host, i.e. the user.
 {other_members}
+
+Tags are flat and never nested.
 
 ## How messages arrive
 
@@ -38,6 +44,7 @@ What each participant says is wrapped in a tag. Tags are flat and never nested:
   verified something others need to know, put it in your reply.
 - You cannot make another AI speak. If you need a response from a specific AI, say so in your
   reply; the host decides whom to call on.
+- Reply with the message body only. Do not add your own member tag; lanting adds it automatically.
 
 ## Writing files
 
@@ -62,17 +69,19 @@ file may be gone; if you cannot read it, just say so.
 
 export type SystemPromptInput = {
   username: string;
+  /** 自己在本群的名字，和 lanting 包在自己发言外面的标签一致。 */
+  self: string;
   /** 除自己以外的 AI，按界面顺序。 */
   others: readonly string[];
 };
 
-/** 只列群主和其他 AI，不告诉 AI“你是谁”。 */
+/** 单独一句说明“你是谁”；成员标签只列群主和其他 AI。 */
 export function buildSystemPrompt(input: SystemPromptInput): string {
   const others = input.others.map((tag) => `- <${tag}>`).join("\n");
   // 一次替换完，填进去的值里即使出现占位符也不会被再次替换。
   return TEMPLATE
     .replace(/^\{other_members\}\n/mu, others ? "{other_members}\n" : "")
-    .replace(/\{(username|other_members)\}/gu, (_, key: string) =>
-      key === "username" ? input.username : others
+    .replace(/\{(username|self|other_members)\}/gu, (_, key: string) =>
+      key === "username" ? input.username : key === "self" ? input.self : others
     );
 }
