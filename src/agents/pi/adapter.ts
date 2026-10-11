@@ -451,11 +451,13 @@ function objectField(value: unknown): Record<string, unknown> {
 
 /**
  * 网页登录令牌 CLI 用不到，留着只会让每个工具子进程都能拿到网页端的控制权。
+ * Claude 的长期 OAuth token 也不交给其他 CLI 及其工具子进程。
  * 权限扩展的 yolo 和非交互开关也不从环境继承，否则会绕过扩展的 deny 规则。
  */
 function childEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const child = { ...environment };
   delete child.ACCESS_TOKEN;
+  delete child.CLAUDE_CODE_OAUTH_TOKEN;
   delete child.PI_MINIMAL_PERMISSION_SYSTEM_YOLO;
   delete child.PI_MINIMAL_PERMISSION_SYSTEM_NONINTERACTIVE;
   return child;

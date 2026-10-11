@@ -393,10 +393,14 @@ function objectField(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-/** 网页登录令牌 CLI 用不到，留着只会让每个工具子进程都能拿到网页端的控制权。 */
+/**
+ * 网页登录令牌 CLI 用不到，留着只会让每个工具子进程都能拿到网页端的控制权。
+ * Claude 的长期 OAuth token 也不交给其他 CLI 及其工具子进程。
+ */
 function withoutWebLoginToken(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const childEnvironment = { ...environment };
   delete childEnvironment.ACCESS_TOKEN;
+  delete childEnvironment.CLAUDE_CODE_OAUTH_TOKEN;
   return childEnvironment;
 }
 

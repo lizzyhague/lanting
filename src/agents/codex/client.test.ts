@@ -86,7 +86,7 @@ lines.on("line", (line) => {
   }
 });
 
-test("does not pass the web access token to app-server", async (context) => {
+test("does not pass the web access token or Claude OAuth token to app-server", async (context) => {
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "lanting-codex-env-"));
   context.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
   const fakeServer = path.join(temporaryDirectory, "fake-app-server.mjs");
@@ -101,6 +101,7 @@ lines.on("line", (line) => {
     result: {
       userAgent: JSON.stringify({
         remoteToken: process.env.ACCESS_TOKEN ?? null,
+        claudeToken: process.env.CLAUDE_CODE_OAUTH_TOKEN ?? null,
         inherited: process.env.LANTING_ENV_PROBE ?? null
       }),
       codexHome: "/tmp/fake-codex",
@@ -117,6 +118,7 @@ lines.on("line", (line) => {
     environment: {
       ...process.env,
       ACCESS_TOKEN: "web-access-token-must-not-be-inherited",
+      CLAUDE_CODE_OAUTH_TOKEN: "claude-token-must-not-be-inherited",
       LANTING_ENV_PROBE: "still-inherited",
     },
   });
@@ -134,6 +136,7 @@ lines.on("line", (line) => {
     });
     assert.deepEqual(JSON.parse(initialized.userAgent), {
       remoteToken: null,
+      claudeToken: null,
       inherited: "still-inherited",
     });
   } finally {
