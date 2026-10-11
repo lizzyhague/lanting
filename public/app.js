@@ -1396,7 +1396,10 @@ function renderCallPicks() {
     pick.className = "call-pick";
     pick.dataset.agent = member;
     paintAgent(pick, memberColor(group, member));
-    pick.textContent = unavailable ? `${member}（未接入）` : member;
+    const leaf = document.createElement("span");
+    leaf.className = "pick-leaf";
+    leaf.setAttribute("aria-hidden", "true");
+    pick.append(leaf, document.createTextNode(unavailable ? `${member}（未接入）` : member));
     pick.disabled = state.savingOrder || unavailable;
     pick.setAttribute("aria-pressed", String(selected));
     pick.addEventListener("click", () => {
