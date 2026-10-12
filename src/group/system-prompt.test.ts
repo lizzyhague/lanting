@@ -17,6 +17,7 @@ test("fills the host tag, the other members and the agent's own name", () => {
   assert.doesNotMatch(prompt, /working directory/u);
   assert.match(prompt, /temporary previews[\s\S]*`~\/preview`/u);
   assert.match(prompt, /without creating subdirectories/u);
+  assert.match(prompt, /project name and your own name, such as\n\s+`myapp-logo-claude-1\.svg`/u);
   assert.match(prompt, /an agent's own config directory or `\/tmp`/u);
   assert.match(prompt, /`\/view` previews only Markdown documents and images/u);
   assert.match(prompt, /Do not provide HTML or other executable\s+formats as previews/u);

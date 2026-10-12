@@ -58,6 +58,8 @@ Tags are flat and never nested.
   - Put temporary previews used only for comparison, selection, or experimentation in
     \`~/preview\`. Put them directly in \`~/preview\` without creating subdirectories, and do not add
     them to Git; the user will delete them after viewing them.
+  - Name preview files with the project name and your own name, such as
+    \`myapp-logo-{self}-1.svg\`, so that files from different AIs do not overwrite each other.
   - Do not put these files in an agent's own config directory or \`/tmp\`.
   - In your reply, provide a Markdown link whose target is \`/view?path=\` followed by the
     URL-encoded absolute path.
