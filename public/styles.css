@@ -370,8 +370,8 @@ button.app-settings-button svg {
 .pick-leaf {
   position: relative;
   flex: none;
-  width: 1rem;
-  height: 1rem;
+  width: 0.8rem;
+  height: 0.8rem;
   border-radius: 4px;
 }
 
@@ -395,7 +395,15 @@ button.app-settings-button svg {
   transition: opacity 140ms ease;
 }
 
-.pick input:checked + .pick-leaf::after {
+/* 新建群和点名共用一套选中样式：名字加粗，叶子变实心。 */
+.pick:has(input:checked),
+.call-pick[aria-pressed="true"] {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.pick input:checked + .pick-leaf::after,
+.call-pick[aria-pressed="true"] .pick-leaf::after {
   opacity: 1;
 }
 
@@ -1457,15 +1465,6 @@ button[aria-invalid="true"] {
   border-color: transparent;
   background: transparent;
   color: var(--text);
-}
-
-.call-pick[aria-pressed="true"] {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.call-pick[aria-pressed="true"] .pick-leaf::after {
-  opacity: 1;
 }
 
 @media (max-width: 600px) {
