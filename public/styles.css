@@ -949,28 +949,18 @@ button[aria-invalid="true"] {
   border-top: 2px solid var(--accent);
 }
 
+/* 右边距和间距跟列表标题一致，重命名、钉住分别对齐上面的回收站、选择。 */
 .group-item-actions {
   align-self: center;
-  margin-right: 0.35rem;
+  margin-right: 0.75rem;
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.55rem;
 }
 
 .group-rename-trigger,
 .group-pin-trigger {
-  width: 38px;
-  min-height: 38px;
-  padding: 0;
-  display: grid;
-  place-items: center;
   color: var(--muted);
-}
-
-.group-rename-trigger .group-rename-icon,
-.group-pin-trigger .group-pin-icon {
-  width: 17px;
-  height: 17px;
 }
 
 .group-pin-trigger[aria-pressed="true"] {

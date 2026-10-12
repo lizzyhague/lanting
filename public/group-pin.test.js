@@ -32,8 +32,8 @@ test("group rows keep rename and pin actions outside selection and trash", () =>
   assert.match(item, /className = "group-open"/u);
   assert.match(item, /if \(!inSelection\(\) && !trash\)/u);
   assert.match(item, /className = "group-item-actions"/u);
-  assert.match(item, /className = "group-rename-trigger quiet"/u);
-  assert.match(item, /className = "group-pin-trigger quiet"/u);
+  assert.match(item, /className = "group-rename-trigger quiet small icon-button"/u);
+  assert.match(item, /className = "group-pin-trigger quiet small icon-button"/u);
   assert.ok(item.indexOf("actions.append(rename, pin)") > item.indexOf("openRenameDialog(group)"));
   assert.match(app, /request\("group\.pin"/u);
   assert.match(item, /if \(!group\.pinned\) openRenameDialog\(group\)/u);

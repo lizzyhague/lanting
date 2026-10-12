@@ -751,7 +751,7 @@ function groupItem(group, trash) {
     const actions = document.createElement("div");
     actions.className = "group-item-actions";
     const rename = document.createElement("button");
-    rename.className = "group-rename-trigger quiet";
+    rename.className = "group-rename-trigger quiet small icon-button";
     rename.type = "button";
     rename.setAttribute("aria-label", `重命名 ${group.title}`);
     rename.title = "重命名";
@@ -761,7 +761,7 @@ function groupItem(group, trash) {
       openRenameDialog(group);
     });
     const pin = document.createElement("button");
-    pin.className = "group-pin-trigger quiet";
+    pin.className = "group-pin-trigger quiet small icon-button";
     pin.type = "button";
     pin.setAttribute("aria-pressed", String(Boolean(group.pinned)));
     pin.setAttribute("aria-label", group.pinned ? `取消钉住 ${group.title}` : `钉住 ${group.title}`);
