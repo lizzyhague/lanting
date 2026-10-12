@@ -1101,11 +1101,25 @@ button[aria-invalid="true"] {
   height: 1.6rem;
   min-height: 0;
   padding: 0;
+  position: relative;
   display: inline-grid;
   place-items: center;
-  border: 1px solid transparent;
-  border-radius: 50%;
+  border: 0;
   background: transparent;
+}
+
+/* 选中时沿叶子轮廓描一圈：外扩一段再挖掉内侧，中间留出空隙。 */
+.member-flower::before {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 1.5rem;
+  height: 1.5rem;
+  transform: translate(-50%, -50%);
+  background: var(--agent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='133 58 246 246'%3E%3Cmask id='m'%3E%3Cpath d='M255 276 C236 248 207 222 202 181 C197 141 218 106 260 78 C286 105 301 141 295 179 C289 216 274 242 265 268 C262 276 259 280 255 276 Z' transform='rotate(45 249 179)' fill='white' stroke='white' stroke-width='55' stroke-linejoin='round'/%3E%3Cpath d='M255 276 C236 248 207 222 202 181 C197 141 218 106 260 78 C286 105 301 141 295 179 C289 216 274 242 265 268 C262 276 259 280 255 276 Z' transform='rotate(45 249 179)' fill='black' stroke='black' stroke-width='30' stroke-linejoin='round'/%3E%3C/mask%3E%3Crect x='133' y='58' width='246' height='246' mask='url(%23m)'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='133 58 246 246'%3E%3Cmask id='m'%3E%3Cpath d='M255 276 C236 248 207 222 202 181 C197 141 218 106 260 78 C286 105 301 141 295 179 C289 216 274 242 265 268 C262 276 259 280 255 276 Z' transform='rotate(45 249 179)' fill='white' stroke='white' stroke-width='55' stroke-linejoin='round'/%3E%3Cpath d='M255 276 C236 248 207 222 202 181 C197 141 218 106 260 78 C286 105 301 141 295 179 C289 216 274 242 265 268 C262 276 259 280 255 276 Z' transform='rotate(45 249 179)' fill='black' stroke='black' stroke-width='30' stroke-linejoin='round'/%3E%3C/mask%3E%3Crect x='133' y='58' width='246' height='246' mask='url(%23m)'/%3E%3C/svg%3E") center / contain no-repeat;
+  opacity: 0;
 }
 
 .member-flower .agent-dot {
@@ -1113,8 +1127,8 @@ button[aria-invalid="true"] {
   height: 1rem;
 }
 
-.member-flower[aria-pressed="true"] {
-  border-color: var(--agent);
+.member-flower[aria-pressed="true"]::before {
+  opacity: 1;
 }
 
 /* 照 Relayu 的 .session-metrics。 */
