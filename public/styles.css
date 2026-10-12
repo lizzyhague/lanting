@@ -231,7 +231,7 @@ button.primary {
   min-width: 0;
   height: 100dvh;
   display: grid;
-  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
   overflow: hidden;
   border-right: 1px solid var(--border);
   background: var(--surface-1);
@@ -453,16 +453,6 @@ button.icon-button svg {
 
 .list-status:empty {
   display: none;
-}
-
-.bulk-actions {
-  min-width: var(--sidebar-width);
-  padding: 0.6rem 0.75rem max(0.6rem, env(safe-area-inset-bottom));
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.5rem;
-  border-top: 1px solid var(--border);
-  background: var(--surface-1);
 }
 
 .group-item-title input {
@@ -1848,8 +1838,7 @@ button.plus-button {
   .list-heading,
   .selection-heading,
   .group-list,
-  .list-status,
-  .bulk-actions {
+  .list-status {
     min-width: min(88vw, 340px);
   }
 

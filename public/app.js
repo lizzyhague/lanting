@@ -58,7 +58,6 @@ const elements = {
   selectAllButton: byId("select-all-button"),
   listStatus: byId("list-status"),
   trashViewButton: byId("trash-view-button"),
-  bulkActions: byId("bulk-actions"),
   bulkRestoreButton: byId("bulk-restore-button"),
   bulkDeleteButton: byId("bulk-delete-button"),
   bulkPurgeButton: byId("bulk-purge-button"),
@@ -670,9 +669,10 @@ function renderGroupList() {
   elements.selectAllButton.title = selectAllLabel;
   elements.selectAllIcon.hidden = allSelected;
   elements.selectNoneIcon.hidden = !allSelected;
-  // 删除放在选择标题里；回收站的恢复和永久删除留在底栏。
+  // 普通列表显示删除；回收站在同一位置显示恢复和永久删除。
   elements.bulkDeleteButton.hidden = trash;
-  elements.bulkActions.hidden = !trash;
+  elements.bulkRestoreButton.hidden = !trash;
+  elements.bulkPurgeButton.hidden = !trash;
   const noSelection = state.selected.size === 0 || state.batchBusy || !state.authenticated;
   elements.bulkDeleteButton.disabled = noSelection;
   elements.bulkRestoreButton.disabled = noSelection;

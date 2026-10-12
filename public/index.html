@@ -82,11 +82,19 @@
           <button id="cancel-selection-button" class="quiet small icon-button" type="button" aria-label="取消" title="取消">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
           </button>
-          <button id="list-back-button" class="quiet small" type="button" hidden>← 最近群会话</button>
+          <button id="list-back-button" class="quiet small icon-button" type="button" aria-label="返回最近群会话" title="返回最近群会话" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
           <div class="selection-heading-end">
             <strong id="selection-count">已选择 0 项</strong>
             <button id="bulk-delete-button" class="quiet small icon-button danger" type="button" aria-label="删除" title="删除">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+            </button>
+            <button id="bulk-restore-button" class="quiet small icon-button" type="button" aria-label="恢复" title="恢复" hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
+            <button id="bulk-purge-button" class="quiet small icon-button danger" type="button" aria-label="永久删除" title="永久删除" hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="m9.5 11.5 5 5"/><path d="m14.5 11.5-5 5"/></svg>
             </button>
             <button id="select-all-button" class="quiet small icon-button" type="button" aria-label="全选" title="全选">
               <svg id="select-all-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 15 2 2 4-4"/><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
@@ -98,10 +106,6 @@
           <p class="empty-hint">还没有群</p>
         </div>
         <p id="list-status" class="form-status list-status" aria-live="polite"></p>
-        <div id="bulk-actions" class="bulk-actions" hidden>
-          <button id="bulk-restore-button" type="button">恢复</button>
-          <button id="bulk-purge-button" class="danger" type="button">永久删除</button>
-        </div>
       </aside>
 
       <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭群列表" tabindex="-1"></button>
