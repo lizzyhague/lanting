@@ -1163,7 +1163,7 @@ button[aria-invalid="true"] {
   gap: 0.4rem;
 }
 
-.status-badge.failed {
+.status-badge.status-failed {
   color: var(--danger);
 }
 

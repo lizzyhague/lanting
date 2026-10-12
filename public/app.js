@@ -1218,7 +1218,7 @@ function speakerLabel(agent, status) {
   }[status];
   if (note) {
     const badge = document.createElement("span");
-    badge.className = `status-badge ${status}`;
+    badge.className = `status-badge status-${status}`;
     badge.append(document.createTextNode(note));
     if (!["interrupted", "failed"].includes(status)) {
       badge.classList.add("live-status");
