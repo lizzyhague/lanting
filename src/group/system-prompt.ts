@@ -69,21 +69,29 @@ and path. Whether to read it is up to you. Attachments are kept only for a limit
 file may be gone; if you cannot read it, just say so.
 `;
 
+const COLLABORATION_HEADING = `# Host's collaboration rules
+
+The host wrote the following in lanting's settings. It applies to every group.`;
+
 export type SystemPromptInput = {
   username: string;
   /** 自己在本群的名字，和 lanting 包在自己发言外面的标签一致。 */
   self: string;
   /** 除自己以外的 AI，按界面顺序。 */
   others: readonly string[];
+  /** 群主在设置里填的群聊协作方式；空白时整节省略。 */
+  collaboration?: string;
 };
 
 /** 单独一句说明“你是谁”；成员标签只列群主和其他 AI。 */
 export function buildSystemPrompt(input: SystemPromptInput): string {
   const others = input.others.map((tag) => `- <${tag}>`).join("\n");
   // 一次替换完，填进去的值里即使出现占位符也不会被再次替换。
-  return TEMPLATE
+  const prompt = TEMPLATE
     .replace(/^\{other_members\}\n/mu, others ? "{other_members}\n" : "")
     .replace(/\{(username|self|other_members)\}/gu, (_, key: string) =>
       key === "username" ? input.username : key === "self" ? input.self : others
     );
+  const collaboration = input.collaboration?.trim() ?? "";
+  return collaboration ? `${prompt}\n${COLLABORATION_HEADING}\n\n${collaboration}\n` : prompt;
 }

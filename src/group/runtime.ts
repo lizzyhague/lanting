@@ -104,6 +104,7 @@ export class GroupRuntime {
   readonly #agents: AgentRegistry;
   readonly #approvals: ApprovalRegistry;
   readonly #idleCloseMs: number;
+  readonly #collaboration: () => string;
   readonly #listeners = new Set<(event: GroupEvent) => void>();
   readonly #rounds = new Map<string, ActiveRound>();
   readonly #sessions = new Map<string, CachedSession>();
@@ -121,8 +122,11 @@ export class GroupRuntime {
     agents: AgentRegistry;
     approvals?: ApprovalRegistry;
     idleCloseMs?: number;
+    /** 设置里的群聊协作方式，开会话时读当时的值。 */
+    collaboration?: () => string;
   }) {
     this.#store = options.store;
+    this.#collaboration = options.collaboration ?? (() => "");
     this.#agents = options.agents;
     this.#approvals = options.approvals ?? new ApprovalRegistry();
     this.#idleCloseMs = options.idleCloseMs ?? DEFAULT_IDLE_CLOSE_MS;
@@ -539,6 +543,7 @@ export class GroupRuntime {
         username: group.username,
         self: agent,
         others: group.members.filter((member) => member !== agent),
+        collaboration: this.#collaboration(),
       }),
       requestApproval: (ask, signal) => this.#approvals.request(group.id, agent, ask, signal),
     };

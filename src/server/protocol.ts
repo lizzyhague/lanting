@@ -1,4 +1,4 @@
-import { AGENT_NAME_PATTERN, MAX_AGENTS } from "../state/settings-store.ts";
+import { AGENT_NAME_PATTERN, MAX_AGENTS, MAX_COLLABORATION_LENGTH } from "../state/settings-store.ts";
 
 export const MAX_BROWSER_MESSAGE_BYTES = 2_097_152;
 const MAX_MESSAGE_TEXT_LENGTH = 524_288;
@@ -49,6 +49,7 @@ export type BrowserRequest =
     expectedSize: number;
   }
   | { type: "settings.username"; requestId: string; username: string }
+  | { type: "settings.collaboration"; requestId: string; collaboration: string }
   | { type: "settings.agent.add"; requestId: string }
   | {
     type: "settings.agent.update";
@@ -234,6 +235,15 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         throw new ProtocolError("invalid_field", "用户名格式不对。", requestId);
       }
       return { type: "settings.username", requestId, username: value.username };
+    case "settings.collaboration":
+      if (typeof value.collaboration !== "string" || value.collaboration.length > MAX_COLLABORATION_LENGTH) {
+        throw new ProtocolError(
+          "invalid_field",
+          `群聊协作方式必须是字符串，上限是 ${MAX_COLLABORATION_LENGTH} 个字符。`,
+          requestId,
+        );
+      }
+      return { type: "settings.collaboration", requestId, collaboration: value.collaboration };
     case "settings.agent.add":
       return { type: "settings.agent.add", requestId };
     case "settings.agent.update": {

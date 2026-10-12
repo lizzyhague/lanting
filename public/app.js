@@ -70,6 +70,10 @@ const elements = {
   usernameInput: byId("username-input"),
   usernameSaveButton: byId("username-save-button"),
   usernameStatus: byId("username-status"),
+  collaborationForm: byId("collaboration-form"),
+  collaborationInput: byId("collaboration-input"),
+  collaborationSaveButton: byId("collaboration-save-button"),
+  collaborationStatus: byId("collaboration-status"),
   settingsAgentList: byId("settings-agent-list"),
   settingsAddButton: byId("settings-add-button"),
   settingsRemoveButton: byId("settings-remove-button"),
@@ -124,7 +128,7 @@ const state = {
   groups: new Map(),
   /** 新建群时勾选的 AI。 */
   createMembers: new Set(),
-  /** 后端的设置：{ username, agents, initialized, createMembers } */
+  /** 后端的设置：{ username, agents, initialized, createMembers, collaboration } */
   settings: null,
   /** 设置页用的模型和权限列表，按“内部 id:CLI 种类”存。 */
   settingsCatalogs: new Map(),
@@ -1939,6 +1943,9 @@ elements.settingsButton.addEventListener("click", () => {
   elements.usernameInput.value = state.settings.username;
   elements.usernameInput.removeAttribute("aria-invalid");
   elements.usernameStatus.textContent = "";
+  elements.collaborationInput.value = state.settings.collaboration;
+  elements.collaborationInput.removeAttribute("aria-invalid");
+  elements.collaborationStatus.textContent = "";
   elements.settingsStatus.textContent = "";
   elements.settingsDialog.showModal();
   renderSettingsDialog();
@@ -1971,6 +1978,31 @@ elements.usernameForm.addEventListener("submit", async (event) => {
     elements.usernameStatus.textContent = errorMessage(error);
   } finally {
     elements.usernameSaveButton.disabled = false;
+  }
+});
+
+elements.collaborationInput.addEventListener("input", () => {
+  elements.collaborationInput.removeAttribute("aria-invalid");
+  elements.collaborationStatus.textContent = "";
+});
+
+elements.collaborationForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  elements.collaborationSaveButton.disabled = true;
+  elements.collaborationInput.removeAttribute("aria-invalid");
+  elements.collaborationStatus.textContent = "";
+  try {
+    const { settings } = await request("settings.collaboration", {
+      collaboration: elements.collaborationInput.value,
+    });
+    applySettings(settings);
+    elements.collaborationSaveButton.textContent = "已保存";
+    setTimeout(() => { elements.collaborationSaveButton.textContent = "保存"; }, 1_500);
+  } catch (error) {
+    elements.collaborationInput.setAttribute("aria-invalid", "true");
+    elements.collaborationStatus.textContent = errorMessage(error);
+  } finally {
+    elements.collaborationSaveButton.disabled = false;
   }
 });
 

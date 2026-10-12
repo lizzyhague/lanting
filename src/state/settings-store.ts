@@ -10,6 +10,7 @@ const STORE_VERSION = 2;
 export const DEFAULT_USERNAME = "host";
 export const MAX_AGENTS = 12;
 export const AGENT_NAME_PATTERN = /^[a-z][a-z0-9_-]{0,15}$/u;
+export const MAX_COLLABORATION_LENGTH = 131_072;
 
 export type AgentRecord = {
   /** 后端生成且不随改名变化的内部 id。 */
@@ -29,9 +30,11 @@ export type Settings = {
   initialized: boolean;
   /** 上次新建群时勾选的 AI 内部 id；还没建过群时为 null。 */
   createMembers: string[] | null;
+  /** 群主的群聊协作方式，原样接在每个 AI 的系统提示词后面；空字符串表示不加。 */
+  collaboration: string;
 };
 
-export type SettingsField = "username" | "name" | "kind" | "color" | "defaults";
+export type SettingsField = "username" | "collaboration" | "name" | "kind" | "color" | "defaults";
 
 export class SettingsError extends Error {
   readonly code = "invalid_settings";
@@ -67,11 +70,11 @@ export class SettingsStore {
     const file = path.join(dataDirectory, "settings.json");
     const value = await readJsonIfPresent(file);
     let settings = value === null
-      ? { username: DEFAULT_USERNAME, agents: [], initialized: false, createMembers: null }
+      ? { username: DEFAULT_USERNAME, agents: [], initialized: false, createMembers: null, collaboration: "" }
       : parseSettingsFile(value);
 
     if (!settings.initialized) {
-      settings = initialSettings(settings.username, configured);
+      settings = initialSettings(settings.username, settings.collaboration, configured);
       await writeJsonAtomically(file, storedSettings(settings));
     }
     return new SettingsStore(file, settings);
@@ -97,7 +100,7 @@ export class SettingsStore {
   }
 }
 
-function initialSettings(username: string, configured: readonly AgentKind[]): Settings {
+function initialSettings(username: string, collaboration: string, configured: readonly AgentKind[]): Settings {
   const available = new Set(configured);
   const agents = AGENT_KINDS.filter((kind) => available.has(kind)).map((kind, index) => ({
     id: randomUUID(),
@@ -106,7 +109,7 @@ function initialSettings(username: string, configured: readonly AgentKind[]): Se
     color: PALETTE[index]!.id,
     defaults: { ...DEFAULT_AGENT_SETTINGS },
   }));
-  const settings: Settings = { username, agents, initialized: true, createMembers: null };
+  const settings: Settings = { username, agents, initialized: true, createMembers: null, collaboration };
   validateSettings(settings);
   return settings;
 }
@@ -136,6 +139,10 @@ function validateSettings(value: unknown, previous?: Settings): asserts value is
   if (value.createMembers !== null &&
       !(Array.isArray(value.createMembers) && value.createMembers.every((id) => typeof id === "string"))) {
     throw new SettingsError("createMembers 不对。");
+  }
+  if (typeof value.collaboration !== "string") throw new SettingsError("群聊协作方式不对。", "collaboration");
+  if (value.collaboration.length > MAX_COLLABORATION_LENGTH) {
+    throw new SettingsError(`群聊协作方式过长，上限是 ${MAX_COLLABORATION_LENGTH} 个字符。`, "collaboration");
   }
   if (value.agents.length > MAX_AGENTS) throw new SettingsError(`最多只能设置 ${MAX_AGENTS} 个 AI。`);
 
@@ -228,7 +235,8 @@ function parseSettingsFile(value: unknown): Settings {
   const root = value;
   if (root.version === 1) throw new Error("设置文件是旧版本（1），需要先清理。");
   if (root.version !== STORE_VERSION || !isObject(root.settings)) return fail("格式或版本不对");
-  const settings = root.settings;
+  // 加这个字段之前写下的文件没有它，按空处理。
+  const settings = { collaboration: "", ...root.settings };
   try {
     validateSettings(settings);
     return exactSettings(settings);
@@ -254,6 +262,7 @@ function exactSettings(settings: Settings): Settings {
     })),
     initialized: settings.initialized,
     createMembers: settings.createMembers === null ? null : [...settings.createMembers],
+    collaboration: settings.collaboration,
   };
 }
 

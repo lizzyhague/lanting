@@ -197,6 +197,10 @@ export class BrowserConnection implements EventSink {
         this.#respondOk(request.requestId, { settings: await groups.setUsername(request.username) });
         return;
       }
+      case "settings.collaboration": {
+        this.#respondOk(request.requestId, { settings: await groups.setCollaboration(request.collaboration) });
+        return;
+      }
       case "settings.agent.add": {
         this.#respondOk(request.requestId, await groups.addAgent());
         return;

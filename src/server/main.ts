@@ -37,7 +37,7 @@ export async function main(): Promise<void> {
   // socket 取 AI_REMOTE_UPLOAD_SOCKET，没设时用 ai-remote-upload 的默认位置。
   const uploads = new SharedUploadClient();
   const agents = new AgentRegistry(adapters);
-  const runtime = new GroupRuntime({ store, agents });
+  const runtime = new GroupRuntime({ store, agents, collaboration: () => settings.get().collaboration });
   const groups = new GroupService({ projectRoot: config.projectRoot, store, runtime, agents, settings, uploads });
   const hub = new ConnectionHub();
   groups.onEvent((event) => {

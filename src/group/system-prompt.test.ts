@@ -35,3 +35,19 @@ test("does not expand placeholders that appear inside filled values", () => {
   assert.match(prompt, /your name is `\{other_members\}`\./u);
   assert.match(prompt, /^- <\{username\}>$/mu);
 });
+
+test("appends the host's collaboration rules under their own heading", () => {
+  const prompt = buildSystemPrompt({
+    username: "host",
+    self: "claude",
+    others: [],
+    collaboration: "\n  - Keep the first round short.\n\n",
+  });
+  assert.match(prompt, /just say so\.\n\n# Host's collaboration rules\n\n[^\n]+\n\n- Keep the first round short\.\n$/u);
+});
+
+test("omits the collaboration section when it is blank", () => {
+  const base = buildSystemPrompt({ username: "host", self: "claude", others: [] });
+  assert.equal(buildSystemPrompt({ username: "host", self: "claude", others: [], collaboration: " \n\t" }), base);
+  assert.doesNotMatch(base, /collaboration rules/u);
+});

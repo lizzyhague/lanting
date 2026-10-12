@@ -181,6 +181,17 @@ test("system prompts list the host and the other members, not the agent itself",
   assert.equal(adapters.codex!.calls[0]!.options.cwd, "/work/demo");
 });
 
+test("system prompts carry the collaboration setting read when the session opens", async (t) => {
+  const { store, groupId } = await setup(t, ["claude"]);
+  const claude = new FakeAdapter("claude");
+  let collaboration = "Keep the first round short.";
+  const runtime = new GroupRuntime({ store, agents: new AgentRegistry([claude]), collaboration: () => collaboration });
+  t.after(() => runtime.shutdown());
+  collaboration = "Say so when nothing is left to add.";
+  await runtime.startRound(groupId, "q", ["claude"]).done;
+  assert.match(claude.calls[0]!.options.systemPrompt, /# Host's collaboration rules[\s\S]*Say so when nothing/u);
+});
+
 test("after a restart the group is still there and agents resume their native sessions", async (t) => {
   const { directory, adapters, runtime, groupId } = await setup(t, ["claude", "codex"]);
   await runtime.startRound(groupId, "before restart", ["claude"]).done;

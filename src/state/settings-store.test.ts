@@ -9,6 +9,7 @@ import type { PaletteId } from "../agents/palette.ts";
 import type { AgentSettings } from "../agents/types.ts";
 import {
   isAgentComplete,
+  MAX_COLLABORATION_LENGTH,
   SettingsError,
   SettingsStore,
   type AgentRecord,
@@ -131,6 +132,7 @@ test("settings survive reopening and callers only receive copies", async (t) => 
   const saved = await store.update((settings) => {
     settings.username = "lizzy";
     settings.agents[1]!.defaults = { model: "gpt", effort: "high", permission: "ask" };
+    settings.collaboration = "  Keep the first round short.\n";
   });
   saved.username = "changed outside";
   saved.agents[1]!.defaults.model = "changed outside";
@@ -144,7 +146,28 @@ test("settings survive reopening and callers only receive copies", async (t) => 
     ],
     initialized: true,
     createMembers: ["a", "b"],
+    collaboration: "  Keep the first round short.\n",
   });
+});
+
+test("a version 2 file written before collaboration existed opens with it empty", async (t) => {
+  const directory = await scratch(t);
+  await writeFile(path.join(directory, "settings.json"), JSON.stringify({
+    version: 2,
+    settings: { username: "lizzy", agents: [], initialized: true, createMembers: null },
+  }));
+  assert.equal((await SettingsStore.open(directory, [])).get().collaboration, "");
+});
+
+test("collaboration must be a string within the length limit", async (t) => {
+  const { store } = await populatedStore(t);
+  await rejectsSettings(store.update((settings) => {
+    settings.collaboration = "x".repeat(MAX_COLLABORATION_LENGTH + 1);
+  }), "collaboration", undefined);
+  await rejectsSettings(store.update((settings) => {
+    (settings as { collaboration: unknown }).collaboration = null;
+  }), "collaboration", undefined);
+  assert.equal(store.get().collaboration, "");
 });
 
 test("validation attributes errors to the changed field and existing agent", async (t) => {

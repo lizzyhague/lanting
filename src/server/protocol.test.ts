@@ -155,6 +155,23 @@ test("parses settings AI list mutations and ignores obsolete add fields", () => 
   }), "invalid_field", "r5");
 });
 
+test("parses the collaboration setting as raw text", () => {
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({ type: "settings.collaboration", requestId: "r0", collaboration: "" })),
+    { type: "settings.collaboration", requestId: "r0", collaboration: "" },
+  );
+  assert.deepEqual(
+    parseBrowserRequest(JSON.stringify({ type: "settings.collaboration", requestId: "r1", collaboration: " a\n" })),
+    { type: "settings.collaboration", requestId: "r1", collaboration: " a\n" },
+  );
+  rejectsWith(JSON.stringify({ type: "settings.collaboration", requestId: "r2" }), "invalid_field", "r2");
+  rejectsWith(JSON.stringify({
+    type: "settings.collaboration",
+    requestId: "r3",
+    collaboration: "x".repeat(131_073),
+  }), "invalid_field", "r3");
+});
+
 test("parses rename and trash requests", () => {
   const groupId = "00000000-0000-4000-8000-000000000000";
   assert.deepEqual(

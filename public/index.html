@@ -148,6 +148,22 @@
           <p class="member-note">只影响以后新开的群。英文字母和数字，1～16 位，不能与任一 AI 名字相同（不区分大小写）。</p>
           <p id="username-status" class="form-status" aria-live="polite"></p>
         </form>
+        <form id="collaboration-form" class="collaboration-form">
+          <div class="collaboration-heading">
+            <h3><label for="collaboration-input">群聊协作方式</label><button id="collaboration-info-button" type="button" class="field-info" popovertarget="info-collaboration" aria-label="关于群聊协作方式的说明">i</button></h3>
+            <button id="collaboration-save-button" class="small" type="submit">保存</button>
+          </div>
+          <div id="info-collaboration" class="field-info-popover" popover>
+            <p>这段内容由 lanting 后端保存，所有群共用这一份。</p>
+            <p>设置窗口打开时读取一次后端内容；要查看其他设备后来保存的内容，请关闭后重新打开。</p>
+            <p>每个 AI 打开会话时，这段内容会接在 lanting 自带的群聊规则后面，作为系统提示词的一部分。</p>
+            <p>已经开着的会话不受影响，等它关闭后再次打开时才带上新内容。Grok 和 Cursor 只在新建会话时带上，已有群里的 Grok 和 Cursor 继续用旧内容。</p>
+            <p>留空时只使用 lanting 自带的规则。</p>
+          </div>
+          <textarea id="collaboration-input" rows="6" maxlength="131072" spellcheck="false" placeholder="输入希望群里的 AI 始终遵循的协作方式……"></textarea>
+          <p class="member-note">所有群共用；在 AI 下次打开会话时生效。</p>
+          <p id="collaboration-status" class="form-status" aria-live="polite"></p>
+        </form>
         <section class="settings-agents" aria-labelledby="settings-agents-title">
           <div class="settings-agents-heading">
             <h3 id="settings-agents-title">AI</h3>

@@ -216,6 +216,14 @@ export class GroupService {
     return this.#emitSettings();
   }
 
+  /** 群聊协作方式在每个 AI 下次开会话时生效，已经开着的会话不受影响。 */
+  async setCollaboration(collaboration: string): Promise<PublicSettings> {
+    await this.#settings.update((next) => {
+      next.collaboration = collaboration;
+    });
+    return this.#emitSettings();
+  }
+
   /** 设置页里这个 AI 能选的模型和权限，按项目根目录查。 */
   async settingsCatalog(agentId: string): Promise<AgentCatalog> {
     const agent = this.#settingsAgent(this.#settings.get(), agentId);
