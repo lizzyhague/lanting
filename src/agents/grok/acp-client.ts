@@ -1,6 +1,5 @@
 import { EventEmitter } from "node:events";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import readline from "node:readline";
 
 import {
   encodeMessage,
@@ -40,20 +39,22 @@ type Pending = {
 /**
  * ACP JSON-RPC 客户端，搬自 Grok Remote `src/worker/acp-client.ts`，去掉了 rewind 等
  * 本项目不用的调用。不向 Grok 声明 fs / terminal 能力。
+ *
+ * 不用 node:readline 拆行：它把 U+2028、U+2029 也当换行，而它们在 JSON 字符串里是合法字符。
  */
 export class AcpClient extends EventEmitter {
   readonly #proc: ChildProcessWithoutNullStreams;
   readonly #pending = new Map<number, Pending>();
   #nextId = 1;
   #closed = false;
-  #rl: readline.Interface;
+  #buffer = "";
   #initialize: unknown = null;
 
   constructor(proc: ChildProcessWithoutNullStreams) {
     super();
     this.#proc = proc;
-    this.#rl = readline.createInterface({ input: proc.stdout });
-    this.#rl.on("line", (line) => this.#onLine(line));
+    proc.stdout.setEncoding("utf8");
+    proc.stdout.on("data", (chunk: string) => this.#onStdout(chunk));
     proc.stderr?.on("data", (chunk: Buffer | string) => {
       const text = chunk.toString("utf8").trim();
       if (text) this.emit("stderr", text);
@@ -189,10 +190,21 @@ export class AcpClient extends EventEmitter {
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
-    this.#rl.close();
     this.#failAll(new Error("Grok Worker 已关闭。"));
     if (!this.#proc.killed) {
       this.#proc.stdin.end();
+    }
+  }
+
+  #onStdout(chunk: string): void {
+    if (this.#closed) return;
+    this.#buffer += chunk;
+    let index: number;
+    while ((index = this.#buffer.indexOf("\n")) >= 0) {
+      let line = this.#buffer.slice(0, index);
+      this.#buffer = this.#buffer.slice(index + 1);
+      if (line.endsWith("\r")) line = line.slice(0, -1);
+      this.#onLine(line);
     }
   }
 

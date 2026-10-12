@@ -144,6 +144,30 @@ lines.on("line", (line) => {
   }
 });
 
+test("keeps U+2028 and U+2029 inside a JSONL message", { timeout: 2_000 }, async (context) => {
+  const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "lanting-codex-separator-"));
+  context.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
+  const fakeServer = path.join(temporaryDirectory, "fake-app-server.mjs");
+  await writeFile(fakeServer, `#!/usr/bin/env node
+import { createInterface } from "node:readline";
+const lines = createInterface({ input: process.stdin });
+lines.on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.method !== "test/echo") return;
+  process.stdout.write(JSON.stringify({ id: message.id, result: { text: "a\\u2028b\\u2029c" } }) + "\\r\\n");
+});
+`, "utf8");
+  await chmod(fakeServer, 0o700);
+
+  const client = new AppServerClient({ codexBinary: fakeServer });
+  try {
+    const result = await client.request("test/echo", {});
+    assert.deepEqual(result, { text: "a\u2028b\u2029c" });
+  } finally {
+    await client.close();
+  }
+});
+
 test("closes descendants left in a Worker process group", async (context) => {
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "lanting-codex-group-"));
   const pidFile = path.join(temporaryDirectory, "descendant.pid");

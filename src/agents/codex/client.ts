@@ -1,9 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { createInterface } from "node:readline";
 
 /*
  * codex app-server 的 JSONL 客户端，搬自 Codex Remote `src/app-server/client.ts`。
  * 只保留用到的协议类型，不搬生成的整套类型定义。
+ *
+ * 不用 node:readline 拆行：它把 U+2028、U+2029 也当换行，而它们在 JSON 字符串里是合法字符。
  */
 
 export type RequestId = string | number;
@@ -76,6 +77,7 @@ export class AppServerClient {
   #nextRequestId = 1;
   #closed = false;
   #stderrTail = "";
+  #stdoutBuffer = "";
   #unexpectedLines = 0;
 
   constructor(options: AppServerClientOptions) {
@@ -101,8 +103,8 @@ export class AppServerClient {
       },
     );
 
-    const lines = createInterface({ input: this.#child.stdout });
-    lines.on("line", (line) => this.#handleLine(line));
+    this.#child.stdout.setEncoding("utf8");
+    this.#child.stdout.on("data", (chunk: string) => this.#onStdout(chunk));
 
     this.#child.stderr.setEncoding("utf8");
     this.#child.stderr.on("data", (chunk: string) => {
@@ -270,6 +272,17 @@ export class AppServerClient {
 
   #write(message: object): void {
     this.#child.stdin.write(`${JSON.stringify(message)}\n`);
+  }
+
+  #onStdout(chunk: string): void {
+    this.#stdoutBuffer += chunk;
+    let index: number;
+    while ((index = this.#stdoutBuffer.indexOf("\n")) >= 0) {
+      let line = this.#stdoutBuffer.slice(0, index);
+      this.#stdoutBuffer = this.#stdoutBuffer.slice(index + 1);
+      if (line.endsWith("\r")) line = line.slice(0, -1);
+      this.#handleLine(line);
+    }
   }
 
   #handleLine(line: string): void {
