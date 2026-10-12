@@ -1270,7 +1270,14 @@ button[aria-invalid="true"] {
   margin-top: 0.6rem;
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 0.5rem;
+}
+
+.approval-countdown {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 /* ---------- 输入区 ---------- */

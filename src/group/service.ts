@@ -90,10 +90,13 @@ export type GroupSnapshot = {
   transcript: PublicEntry[];
   round: RoundSnapshot | null;
   compaction: CompactionSnapshot | null;
-  approvals: ApprovalRequest[];
+  approvals: PublicApproval[];
   /** 当前 usageAgent 最近一次读到的 usage；还没有结果或已关闭时为 null。 */
   usage: PublicUsage | null;
 };
+
+/** remainingMs：发出时还剩多少毫秒自动拒绝。网页按自己的时钟倒数，不受设备和服务器时钟偏差影响。 */
+export type PublicApproval = ApprovalRequest & { remainingMs: number };
 
 export type PublicUsage =
   | { status: "not_started" }
@@ -963,8 +966,12 @@ function publicEntry(entry: TranscriptEntry): PublicEntry {
   return { ...entry, attachments: entry.attachments.map(publicAttachment) };
 }
 
-function publicApproval<T extends ApprovalRequest>(approval: T, redactor: PathRedactor): T {
-  return { ...approval, detail: redactor.redact(approval.detail) };
+function publicApproval<T extends ApprovalRequest>(approval: T, redactor: PathRedactor): T & { remainingMs: number } {
+  return {
+    ...approval,
+    detail: redactor.redact(approval.detail),
+    remainingMs: Math.max(0, approval.expiresAt - Date.now()),
+  };
 }
 
 function publicApprovalEvent(event: ApprovalEvent, redactor: PathRedactor): ApprovalEvent {

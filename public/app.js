@@ -177,6 +177,8 @@ const state = {
   openAgent: null,
   /** + 菜单当前在哪一级：root、compact、settings 或 usage。 */
   plusLevel: "root",
+  /** 审批卡片倒计时的定时器；没有待批的审批时为 null。 */
+  countdownTimer: null,
 };
 
 elements.appView.dataset.sidebarCollapsed = String(state.sidebarCollapsed);
@@ -478,7 +480,7 @@ function handleEvent(event) {
       renderUsage();
       return;
     case "approval.requested":
-      current.approvals.set(event.approval.approvalId, event.approval);
+      current.approvals.set(event.approval.approvalId, withDeadline(event.approval));
       renderApprovals();
       renderLive();
       return;
@@ -942,7 +944,7 @@ async function openGroup(groupId, { keepPane = false } = {}) {
     transcript: [...snapshot.transcript],
     round: snapshot.round,
     compaction: snapshot.compaction,
-    approvals: new Map(snapshot.approvals.map((approval) => [approval.approvalId, approval])),
+    approvals: new Map(snapshot.approvals.map((approval) => [approval.approvalId, withDeadline(approval)])),
     usage: snapshot.usage,
   };
   state.groups.set(groupId, snapshot.group);
@@ -1336,6 +1338,14 @@ function keepBottom(change) {
 
 /* ---------- 审批 ---------- */
 
+/** 收到审批时按本机时钟定下截止时刻；剩余时间以服务端发来的 remainingMs 为准。 */
+function withDeadline(approval) {
+  const remainingMs = typeof approval.remainingMs === "number"
+    ? approval.remainingMs
+    : Math.max(0, (approval.expiresAt ?? 0) - Date.now());
+  return { ...approval, deadline: Date.now() + remainingMs };
+}
+
 function renderApprovals() {
   const approvals = [...(state.current?.approvals.values() ?? [])];
   elements.approvalList.replaceChildren(...approvals.map((approval) => {
@@ -1355,6 +1365,10 @@ function renderApprovals() {
     }
     const actions = document.createElement("div");
     actions.className = "approval-actions";
+    const countdown = document.createElement("span");
+    countdown.className = "approval-countdown";
+    countdown.dataset.deadline = String(approval.deadline);
+    actions.append(countdown);
     for (const [decision, label, className] of [["deny", "拒绝", "danger"], ["allow", "允许", "primary"]]) {
       const button = document.createElement("button");
       button.type = "button";
@@ -1375,6 +1389,25 @@ function renderApprovals() {
     card.append(actions);
     return card;
   }));
+  if (approvals.length > 0) startCountdown();
+  else stopCountdown();
+}
+
+function startCountdown() {
+  const tick = () => {
+    for (const countdown of elements.approvalList.querySelectorAll(".approval-countdown")) {
+      const seconds = Math.max(0, Math.round((Number(countdown.dataset.deadline) - Date.now()) / 1_000));
+      countdown.textContent = `${seconds} 秒后自动拒绝`;
+    }
+  };
+  tick();
+  if (state.countdownTimer === null) state.countdownTimer = setInterval(tick, 1_000);
+}
+
+function stopCountdown() {
+  if (state.countdownTimer === null) return;
+  clearInterval(state.countdownTimer);
+  state.countdownTimer = null;
 }
 
 /* ---------- 输入区 ---------- */
