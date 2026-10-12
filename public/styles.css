@@ -278,7 +278,8 @@ button.primary {
   gap: 0.3rem;
 }
 
-button.app-settings-button {
+/* 侧边栏的图标按钮共用这一套：方形、细边框、16px 线条图标。 */
+button.icon-button {
   width: 34px;
   min-width: 34px;
   padding: 0;
@@ -287,7 +288,7 @@ button.app-settings-button {
   line-height: 0;
 }
 
-button.app-settings-button svg {
+button.icon-button svg {
   display: block;
   width: 16px;
   height: 16px;
@@ -325,11 +326,27 @@ button.app-settings-button svg {
   gap: 0.55rem;
 }
 
-.create-form > label,
 .create-form select,
-.create-form > button,
 .group-search input {
   width: 100%;
+}
+
+/* 目录框占掉剩下的宽度，新建群按钮和它一样高。 */
+.create-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.create-row > label {
+  min-width: 0;
+  flex: 1;
+}
+
+.create-row button.icon-button {
+  width: 42px;
+  min-width: 42px;
+  min-height: 42px;
 }
 
 .create-form select,
@@ -438,7 +455,6 @@ button.app-settings-button svg {
   display: none;
 }
 
-.list-destinations,
 .bulk-actions {
   min-width: var(--sidebar-width);
   padding: 0.6rem 0.75rem max(0.6rem, env(safe-area-inset-bottom));
@@ -447,11 +463,6 @@ button.app-settings-button svg {
   gap: 0.5rem;
   border-top: 1px solid var(--border);
   background: var(--surface-1);
-}
-
-.list-destinations button:only-child,
-.bulk-actions[data-single="true"] button {
-  grid-column: 1 / -1;
 }
 
 .group-item-title input {
@@ -1848,7 +1859,6 @@ button.plus-button {
   .selection-heading,
   .group-list,
   .list-status,
-  .list-destinations,
   .bulk-actions {
     min-width: min(88vw, 340px);
   }

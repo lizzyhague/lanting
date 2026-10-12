@@ -57,11 +57,13 @@ const elements = {
   selectionCount: byId("selection-count"),
   selectAllButton: byId("select-all-button"),
   listStatus: byId("list-status"),
-  listDestinations: byId("list-destinations"),
   trashViewButton: byId("trash-view-button"),
   bulkActions: byId("bulk-actions"),
   bulkRestoreButton: byId("bulk-restore-button"),
   bulkDeleteButton: byId("bulk-delete-button"),
+  bulkPurgeButton: byId("bulk-purge-button"),
+  selectAllIcon: byId("select-all-icon"),
+  selectNoneIcon: byId("select-none-icon"),
   settingsButton: byId("settings-button"),
   collapseSidebarButton: byId("collapse-sidebar-button"),
   settingsDialog: byId("settings-dialog"),
@@ -662,16 +664,19 @@ function renderGroupList() {
   // 回收站一直在选择模式，返回按钮占用选择标题的左侧位置。
   elements.cancelSelectionButton.hidden = trash;
   elements.selectionCount.textContent = `已选择 ${state.selected.size} 项`;
-  elements.selectAllButton.textContent =
-    groups.length > 0 && state.selected.size === groups.length ? "全不选" : "全选";
-  elements.bulkActions.hidden = !inSelection();
-  elements.listDestinations.hidden = inSelection();
-  elements.bulkActions.dataset.single = String(!trash);
-  elements.bulkRestoreButton.hidden = !trash;
-  elements.bulkDeleteButton.textContent = trash ? "永久删除" : "删除";
+  const allSelected = groups.length > 0 && state.selected.size === groups.length;
+  const selectAllLabel = allSelected ? "全不选" : "全选";
+  elements.selectAllButton.setAttribute("aria-label", selectAllLabel);
+  elements.selectAllButton.title = selectAllLabel;
+  elements.selectAllIcon.hidden = allSelected;
+  elements.selectNoneIcon.hidden = !allSelected;
+  // 删除放在选择标题里；回收站的恢复和永久删除留在底栏。
+  elements.bulkDeleteButton.hidden = trash;
+  elements.bulkActions.hidden = !trash;
   const noSelection = state.selected.size === 0 || state.batchBusy || !state.authenticated;
-  elements.bulkRestoreButton.disabled = noSelection;
   elements.bulkDeleteButton.disabled = noSelection;
+  elements.bulkRestoreButton.disabled = noSelection;
+  elements.bulkPurgeButton.disabled = noSelection;
 
   if (groups.length === 0) {
     const hint = document.createElement("p");
@@ -875,9 +880,8 @@ elements.selectAllButton.addEventListener("click", () => {
 elements.trashViewButton.addEventListener("click", () => setListView("trash"));
 elements.listBackButton.addEventListener("click", () => setListView("groups"));
 
-elements.bulkDeleteButton.addEventListener("click", () => {
-  void runBatch(state.listView === "trash" ? "groups.purge" : "groups.trash");
-});
+elements.bulkDeleteButton.addEventListener("click", () => void runBatch("groups.trash"));
+elements.bulkPurgeButton.addEventListener("click", () => void runBatch("groups.purge"));
 elements.bulkRestoreButton.addEventListener("click", () => void runBatch("groups.restore"));
 
 /** 多选操作：后端逐个处理，失败的留在原处并列出原因。永久删除不再另弹确认。 */
