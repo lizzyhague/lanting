@@ -331,7 +331,7 @@ button.icon-button svg {
   width: 100%;
 }
 
-/* 目录框占掉剩下的宽度，新建群按钮和它一样高。 */
+/* 目录框占掉剩下的宽度，和新建群按钮统一为紧凑高度。 */
 .create-row {
   display: flex;
   align-items: center;
@@ -339,20 +339,40 @@ button.icon-button svg {
 }
 
 .create-row > label {
+  position: relative;
   min-width: 0;
   flex: 1;
 }
 
+.directory-chevron {
+  position: absolute;
+  top: 50%;
+  right: 0.625rem;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
 .create-row button.icon-button {
-  width: 42px;
-  min-width: 42px;
-  min-height: 42px;
+  width: 34px;
+  min-width: 34px;
+  min-height: 34px;
 }
 
 .create-form select,
 .group-search input {
-  min-height: 42px;
+  min-height: 34px;
   padding: 0 0.7rem;
+}
+
+.create-form select {
+  appearance: none;
+  padding-right: 2.3rem;
+}
+
+.group-search input {
+  font-size: 0.86rem;
 }
 
 .create-form .form-status:empty {
@@ -979,7 +999,7 @@ button[aria-invalid="true"] {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.93rem;
-  font-weight: 650;
+  font-weight: 400;
 }
 
 .group-item-meta {
@@ -1152,10 +1172,11 @@ button[aria-invalid="true"] {
 
 .sidebar-open-button {
   display: none;
-  width: 40px;
-  min-height: 38px;
+  width: 34px;
+  min-width: 34px;
+  min-height: 34px;
   padding: 0;
-  font-size: 1.15rem;
+  font-size: 1rem;
 }
 
 .app-view[data-sidebar-collapsed="true"] .sidebar-open-button {
