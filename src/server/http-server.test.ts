@@ -331,6 +331,7 @@ test("a browser can create a group, run a round, and answer an approval over the
     { kind: "grok", displayName: "Grok Build", configured: false, features: [] },
     { kind: "pi", displayName: "Pi", configured: false, features: [] },
     { kind: "cursor", displayName: "Cursor", configured: false, features: [] },
+    { kind: "antigravity", displayName: "Antigravity", configured: false, features: [] },
   ]);
   assert.deepEqual(state.palette, PALETTE);
   assert.equal(state.settings.agents.length, 1);

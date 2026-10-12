@@ -11,10 +11,13 @@
 
 - Node.js 24 或更高版本
 - 一个项目根目录：新建群时，工作目录从它下面的第一层文件夹里选
-- 要拉进群的 AI 的 CLI，已安装并登录：Claude Code、Codex、Grok、Pi、Cursor，至少一个。
+- 要拉进群的 AI 的 CLI，已安装并登录：Claude Code、Codex、Grok、Pi、Cursor、Antigravity，至少一个。
   Pi 还要用它自己的包管理命令安装权限扩展 `pi-minimal-permission-system`，lanting 才能把工具确认接到网页审批。
   Cursor 用 Cursor Agent CLI，按 Cursor 官方说明安装后运行 `cursor-agent login` 登录；
   lanting 不切换 Cursor 的模型，用的是 Cursor 当前的默认模型。
+  Antigravity 用 Google 官方的 Antigravity ACP Server（`agy_acp_server.par`），按官方说明安装；
+  它没有单独的登录命令，登录方法见第 7 节。lanting 不切换 Antigravity 的模型，用的是它的默认模型；
+  不显示上下文用量，不支持压缩，永久删除群时也不删除 Antigravity 自己保存的会话。
 - 一个至少 32 字符的随机登录令牌
 - 要发附件的话：同一个系统账户下运行的 ai-remote-upload，
   版本要认得调用方 `lanting`。不装也能用，只是不能发附件
@@ -49,7 +52,8 @@ chmod 600 .env config.json
     "codex": { "executable": "/absolute/path/to/codex" },
     "grok": { "executable": "/absolute/path/to/grok" },
     "pi": { "executable": "/absolute/path/to/pi" },
-    "cursor": { "executable": "/absolute/path/to/cursor-agent" }
+    "cursor": { "executable": "/absolute/path/to/cursor-agent" },
+    "antigravity": { "executable": "/absolute/path/to/agy_acp_server.par" }
   }
 }
 ```
@@ -128,3 +132,27 @@ Node 直接运行 `.ts`，没有构建步骤。更新代码后重启服务即可
 
 从 `config.json` 去掉某种 CLI 并重启后，用它的 AI 在设置里显示为不完整，不能拉进新群；
 已有的群里点到它时，会在群里如实报错。
+
+## 7. Antigravity ACP Server 的登录
+
+ACP Server 用运行账户主目录下的登录状态，lanting 自己不发起登录，也不读取凭据。部署前先在
+服务器上，用运行 lanting 的同一个系统账户登录一次。
+
+ACP Server 没有单独的登录命令，要由一个 ACP 客户端来触发：
+
+1. 启动 `agy_acp_server.par --uid=`（不带 `--uid=` 时它会尝试切换用户组，可能直接退出）。
+   它从 stdin 读、往 stdout 写 JSON-RPC 2.0，一行一条消息。
+2. 发 `initialize`，再发 `authenticate`，`methodId` 为 `oauth-personal`（个人 Google 账号）。
+3. 授权地址打印在 stderr，形如 `Open the following link to authenticate the ACP server: <地址>`。
+   进程要一直开着，直到授权完成；超过约 5 分钟没完成，这次登录作废。
+
+授权完成后，浏览器会跳回服务器上的 `127.0.0.1:<回调端口>`。回调端口每次随机，以授权地址里
+`redirect_uri` 的端口为准。两种完成方式：
+
+- 在服务器本机的浏览器里打开授权地址（比如通过远程桌面）；
+- 服务器没有图形界面时，在另一台电脑上用 SSH 本地端口转发，把那台电脑的
+  `127.0.0.1:<回调端口>` 转到服务器的同一端口，例如
+  `ssh -L <回调端口>:127.0.0.1:<回调端口> user@server`，再在那台电脑的浏览器里打开授权地址。
+
+登录失效、Server 又不能自己续期时，Antigravity 在群里的发言会失败，原因写着需要重新登录。
+照上面的步骤重新登录即可，不用重启 lanting。
