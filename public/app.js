@@ -544,23 +544,15 @@ function renderCreateForm() {
 
   const candidates = state.settings ? createCandidates(state.settings) : [];
   elements.memberPicks.replaceChildren(...candidates.map((agent) => {
-    const label = document.createElement("label");
-    label.className = "pick";
-    label.dataset.agent = agent.id;
-    paintAgent(label, agent.color);
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = state.createMembers.has(agent.id);
-    input.addEventListener("change", () => {
-      if (input.checked) state.createMembers.add(agent.id);
+    const pick = agentPick(agent.id, agent.color, agent.name, state.createMembers.has(agent.id));
+    pick.addEventListener("click", () => {
+      const selected = !state.createMembers.has(agent.id);
+      if (selected) state.createMembers.add(agent.id);
       else state.createMembers.delete(agent.id);
+      pick.setAttribute("aria-pressed", String(selected));
       updateCreateButton();
     });
-    const leaf = document.createElement("span");
-    leaf.className = "pick-leaf";
-    leaf.setAttribute("aria-hidden", "true");
-    label.append(input, leaf, document.createTextNode(agent.name));
-    return label;
+    return pick;
   }));
   if (candidates.length === 0) {
     const hint = document.createElement("span");
@@ -1428,22 +1420,29 @@ function renderCallPicks() {
   elements.callPicks.replaceChildren(...group.members.map((member) => {
     const unavailable = group.unavailable.includes(member);
     const selected = state.callOrder.includes(member);
-    const pick = document.createElement("button");
-    pick.type = "button";
-    pick.className = "call-pick";
-    pick.dataset.agent = member;
-    paintAgent(pick, memberColor(group, member));
-    const leaf = document.createElement("span");
-    leaf.className = "pick-leaf";
-    leaf.setAttribute("aria-hidden", "true");
-    pick.append(leaf, document.createTextNode(unavailable ? `${member}（未接入）` : member));
+    const pick = agentPick(member, memberColor(group, member),
+      unavailable ? `${member}（未接入）` : member, selected);
     pick.disabled = state.savingOrder || unavailable;
-    pick.setAttribute("aria-pressed", String(selected));
     pick.addEventListener("click", () => {
       void saveCallOrder(toggleMember(state.callOrder, member, !selected));
     });
     return pick;
   }));
+}
+
+/** 新建群和点名共用的成员按钮：叶子加名字，选中时叶子变实心、名字加粗。 */
+function agentPick(agent, colorId, name, selected) {
+  const pick = document.createElement("button");
+  pick.type = "button";
+  pick.className = "agent-pick";
+  pick.dataset.agent = agent;
+  paintAgent(pick, colorId);
+  const leaf = document.createElement("span");
+  leaf.className = "pick-leaf";
+  leaf.setAttribute("aria-hidden", "true");
+  pick.append(leaf, document.createTextNode(name));
+  pick.setAttribute("aria-pressed", String(selected));
+  return pick;
 }
 
 /** 每次点名变化都存到后端；保存期间锁住成员按钮和发送，失败时恢复成后端的状态。 */

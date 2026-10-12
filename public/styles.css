@@ -345,26 +345,7 @@ button.app-settings-button svg {
 .member-picks {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem 0.8rem;
-}
-
-.pick {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-/* 勾选框留着给键盘和读屏用，看到的是旁边的叶子：空心没选，实心选中。 */
-.pick input {
-  position: absolute;
-  width: 1rem;
-  height: 1rem;
-  margin: 0;
-  opacity: 0;
-  pointer-events: none;
+  gap: 0 0.5rem;
 }
 
 .pick-leaf {
@@ -393,23 +374,6 @@ button.app-settings-button svg {
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='174 99 164 164'%3E%3Cpath d='M255 276 C236 248 207 222 202 181 C197 141 218 106 260 78 C286 105 301 141 295 179 C289 216 274 242 265 268 C262 276 259 280 255 276 Z' transform='rotate(45 249 179)'/%3E%3C/svg%3E") center / contain no-repeat;
   opacity: 0;
   transition: opacity 140ms ease;
-}
-
-/* 新建群和点名共用一套选中样式：名字加粗，叶子变实心。 */
-.pick:has(input:checked),
-.call-pick[aria-pressed="true"] {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.pick input:checked + .pick-leaf::after,
-.call-pick[aria-pressed="true"] .pick-leaf::after {
-  opacity: 1;
-}
-
-.pick input:focus-visible + .pick-leaf {
-  outline: 2px solid var(--agent);
-  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1446,7 +1410,8 @@ button[aria-invalid="true"] {
   display: none;
 }
 
-.call-pick {
+/* 新建群和点名共用的成员按钮：没选灰色，悬停或选中变正文色，选中再加粗、叶子变实心。 */
+.agent-pick {
   min-height: 2rem;
   flex: none;
   display: inline-flex;
@@ -1461,10 +1426,19 @@ button[aria-invalid="true"] {
   white-space: nowrap;
 }
 
-.call-pick:hover:not(:disabled) {
+.agent-pick:hover:not(:disabled) {
   border-color: transparent;
   background: transparent;
   color: var(--text);
+}
+
+.agent-pick[aria-pressed="true"] {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.agent-pick[aria-pressed="true"] .pick-leaf::after {
+  opacity: 1;
 }
 
 @media (max-width: 600px) {

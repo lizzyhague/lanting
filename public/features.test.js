@@ -17,8 +17,7 @@ test("unavailable selected members are removed from call order and saved once", 
   assert.match(render, /saveCallOrder\(availableOrder, true\)/u);
   assert.match(render, /pick\.disabled = state\.savingOrder \|\| unavailable/u);
   assert.match(render, /\$\{member\}（未接入）/u);
-  assert.match(render, /leaf\.className = "pick-leaf"/u);
-  assert.match(render, /pick\.append\(leaf, document\.createTextNode/u);
+  assert.match(render, /agentPick\(member, memberColor\(group, member\)/u);
 });
 
 test("member menus distinguish unavailable and unsupported while all sends every member", () => {
