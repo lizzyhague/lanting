@@ -1219,7 +1219,6 @@ button[aria-invalid="true"] {
 
 .message.agent {
   margin-right: auto;
-  border-left: 3px solid var(--agent);
   background: color-mix(in srgb, var(--agent) 6%, var(--surface-2));
 }
 
