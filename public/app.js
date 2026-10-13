@@ -27,6 +27,18 @@ const STICK_TO_BOTTOM_PX = 80;
 const MAX_UPLOAD_BYTES = 25 * 1_048_576;
 const MAX_MESSAGE_ATTACHMENTS = 100;
 
+function measureScrollbarWidth() {
+  const probe = document.createElement("div");
+  probe.className = "scrollbar-measure";
+  probe.style.cssText = "position:absolute;width:100px;height:100px;overflow:scroll;visibility:hidden;";
+  document.body.append(probe);
+  const width = probe.offsetWidth - probe.clientWidth;
+  probe.remove();
+  return width;
+}
+
+document.documentElement.style.setProperty("--scrollbar-width", `${measureScrollbarWidth()}px`);
+
 function byId(id) {
   const element = document.getElementById(id);
   if (!element) throw new Error(`页面缺少元素：${id}`);

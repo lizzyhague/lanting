@@ -1195,6 +1195,7 @@ button[aria-invalid="true"] {
   overflow-x: hidden;
   overflow-y: auto;
   padding: 1.2rem max(1rem, calc((100% - 920px) / 2));
+  scrollbar-gutter: stable both-edges;
   overscroll-behavior: contain;
 }
 
@@ -1381,9 +1382,9 @@ button[aria-invalid="true"] {
 
 .composer {
   width: 100%;
-  max-width: 920px;
+  max-width: 952px;
   margin: 0 auto;
-  padding: 0.6rem 1rem max(0.75rem, env(safe-area-inset-bottom));
+  padding: 0.6rem calc(1rem + var(--scrollbar-width, 0px)) max(0.75rem, env(safe-area-inset-bottom));
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 0.5rem;
@@ -1496,6 +1497,11 @@ button[aria-invalid="true"] {
   border-radius: 50%;
 }
 
+.task-button[data-action="send"] {
+  border-color: #adb0b7;
+  background: #adb0b7;
+}
+
 .task-send-icon {
   width: 1.2rem;
   height: 1.2rem;
@@ -1520,6 +1526,48 @@ button[aria-invalid="true"] {
 
 .task-button[data-action="stop"] .task-stop-icon {
   display: block;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .timeline,
+  .composer textarea,
+  .scrollbar-measure {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  .timeline:hover,
+  .composer textarea:hover,
+  .composer textarea:focus {
+    scrollbar-color: #5f6673 transparent;
+  }
+
+  .timeline::-webkit-scrollbar,
+  .composer textarea::-webkit-scrollbar,
+  .scrollbar-measure::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  .timeline::-webkit-scrollbar-track,
+  .composer textarea::-webkit-scrollbar-track,
+  .scrollbar-measure::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .timeline::-webkit-scrollbar-thumb,
+  .composer textarea::-webkit-scrollbar-thumb,
+  .scrollbar-measure::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    background-clip: padding-box;
+  }
+
+  .timeline:hover::-webkit-scrollbar-thumb,
+  .composer textarea:hover::-webkit-scrollbar-thumb,
+  .composer textarea:focus::-webkit-scrollbar-thumb {
+    background-color: #5f6673;
+  }
 }
 
 /* ---------- Markdown（取自 Relayu） ---------- */
