@@ -21,7 +21,7 @@ test("active groups put cross-directory pins above a divider", () => {
   );
   assert.match(render, /group-pin-section/u);
   assert.match(render, /group-pin-divider/u);
-  assert.match(styles, /\.group-pin-divider\s*\{[^}]*border-top:\s*2px solid var\(--accent\)/su);
+  assert.match(styles, /\.group-pin-divider\s*\{[^}]*border-top:\s*2px solid var\(--border-strong\)/su);
 });
 
 test("group rows keep rename and pin actions outside selection and trash", () => {

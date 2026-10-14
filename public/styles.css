@@ -956,7 +956,7 @@ button[aria-invalid="true"] {
 .group-pin-divider {
   margin: 0.4rem 0.85rem;
   border: 0;
-  border-top: 2px solid var(--accent);
+  border-top: 2px solid var(--border-strong);
 }
 
 /* 右边距和间距跟列表标题一致，重命名、钉住分别对齐上面的回收站、选择。 */
@@ -974,7 +974,7 @@ button[aria-invalid="true"] {
 }
 
 .group-pin-trigger[aria-pressed="true"] {
-  color: var(--accent-bright);
+  color: var(--text);
 }
 
 .group-rename-trigger,
@@ -1784,7 +1784,7 @@ button.plus-button {
   max-height: 70dvh;
   overflow-y: auto;
   display: grid;
-  gap: 0.25rem;
+  padding: 0.4rem;
 }
 
 .plus-submenu {
@@ -1806,21 +1806,22 @@ button.plus-button {
 }
 
 .menu-item {
-  min-height: 36px;
+  min-height: 0;
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  border-color: transparent;
+  padding: 0.6rem 0.75rem;
+  border: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   text-align: left;
 }
 
 .menu-item:hover:not(:disabled) {
-  background: var(--surface-3);
+  background: rgb(255 255 255 / 4%);
 }
 
 .menu-item.submenu-open {
-  border-color: var(--border-strong);
   background: var(--surface-3);
 }
 
@@ -1830,8 +1831,16 @@ button.plus-button {
   color: var(--muted);
 }
 
+/* 二级菜单顶部的返回项做成灰色小标题，和 relayu 弹出菜单的标题一致。 */
 .menu-back {
+  padding: 0.45rem 0.75rem;
   color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.menu-back:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text);
 }
 
 .member-row {
