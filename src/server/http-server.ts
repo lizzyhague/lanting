@@ -48,6 +48,9 @@ const STATIC_FILES: Record<string, { file: string; contentType: string }> = {
   "/agents.js": { file: "agents.js", contentType: "text/javascript; charset=utf-8" },
   "/markdown.js": { file: "markdown.js", contentType: "text/javascript; charset=utf-8" },
   "/call-order.js": { file: "call-order.js", contentType: "text/javascript; charset=utf-8" },
+  "/confirm-dialog.js": { file: "confirm-dialog.js", contentType: "text/javascript; charset=utf-8" },
+  "/notice.js": { file: "notice.js", contentType: "text/javascript; charset=utf-8" },
+  "/selection-bar.js": { file: "selection-bar.js", contentType: "text/javascript; charset=utf-8" },
   "/styles.css": { file: "styles.css", contentType: "text/css; charset=utf-8" },
   "/icon.svg": { file: "icon.svg", contentType: "image/svg+xml" },
   "/manifest.webmanifest": {

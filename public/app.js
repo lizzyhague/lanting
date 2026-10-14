@@ -16,6 +16,9 @@ import {
   visibleUsageAgent,
 } from "./agents.js";
 import { renderMarkdown } from "./markdown.js";
+import { createConfirmDialog } from "./confirm-dialog.js";
+import { createNoticeController } from "./notice.js";
+import { createSelectionBar, trashRemainingText } from "./selection-bar.js";
 
 const RECONNECT_DELAY_MS = 3_000;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -26,6 +29,30 @@ const STICK_TO_BOTTOM_PX = 80;
 /** 照 ai-remote-upload 的限制。 */
 const MAX_UPLOAD_BYTES = 25 * 1_048_576;
 const MAX_MESSAGE_ATTACHMENTS = 100;
+const GROUP_SELECTION_RESTORE_DELETING_MESSAGE = "选中的群里有正在永久删除的，不能恢复。";
+const GROUP_SELECTION_VIEWS = Object.freeze({
+  groups: { actions: [
+    {
+      id: "trash-active",
+      label: "删除",
+      resultLabel: "删除",
+      icon: "delete",
+      danger: true,
+      retention: true,
+    },
+  ] },
+  trash: { actions: [
+    { id: "restore-trash", label: "恢复", resultLabel: "恢复", icon: "restore" },
+    {
+      id: "delete-trash",
+      label: "永久删除",
+      resultLabel: "永久删除",
+      icon: "purge",
+      danger: true,
+      permanent: true,
+    },
+  ] },
+});
 
 function measureScrollbarWidth() {
   const probe = document.createElement("div");
@@ -61,20 +88,20 @@ const elements = {
   groupList: byId("group-list"),
   groupSearchInput: byId("group-search-input"),
   listHeading: byId("list-heading"),
-  listBackButton: byId("list-back-button"),
   listTitle: byId("list-title"),
   selectButton: byId("select-button"),
   selectionHeading: byId("selection-heading"),
-  cancelSelectionButton: byId("cancel-selection-button"),
-  selectionCount: byId("selection-count"),
-  selectAllButton: byId("select-all-button"),
   listStatus: byId("list-status"),
   trashViewButton: byId("trash-view-button"),
-  bulkRestoreButton: byId("bulk-restore-button"),
-  bulkDeleteButton: byId("bulk-delete-button"),
-  bulkPurgeButton: byId("bulk-purge-button"),
-  selectAllIcon: byId("select-all-icon"),
-  selectNoneIcon: byId("select-none-icon"),
+  notice: byId("notice"),
+  noticeText: byId("notice-text"),
+  noticeActionButton: byId("notice-action-button"),
+  noticeCloseButton: byId("notice-close-button"),
+  confirmDialog: byId("confirm-dialog"),
+  confirmDialogTitle: byId("confirm-dialog-title"),
+  confirmDialogMessage: byId("confirm-dialog-message"),
+  confirmDialogAcceptButton: byId("confirm-dialog-accept-button"),
+  confirmDialogCancelButton: byId("confirm-dialog-cancel-button"),
   settingsButton: byId("settings-button"),
   collapseSidebarButton: byId("collapse-sidebar-button"),
   settingsDialog: byId("settings-dialog"),
@@ -166,10 +193,6 @@ const state = {
   createBusy: false,
   /** 侧栏显示哪一类：groups（群）或 trash（回收站）。 */
   listView: "groups",
-  /** 选择模式。回收站里的群点不开，所以回收站一直处在选择模式。 */
-  selecting: false,
-  selected: new Set(),
-  batchBusy: false,
   searchTimer: null,
   sidebarCollapsed: stateGet(SIDEBAR_COLLAPSED_KEY) === "1",
 
@@ -197,6 +220,42 @@ const state = {
   /** 审批卡片倒计时的定时器；没有待批的审批时为 null。 */
   countdownTimer: null,
 };
+
+const confirmDialogController = createConfirmDialog({
+  dialog: elements.confirmDialog,
+  titleElement: elements.confirmDialogTitle,
+  messageElement: elements.confirmDialogMessage,
+  acceptButton: elements.confirmDialogAcceptButton,
+  cancelButton: elements.confirmDialogCancelButton,
+});
+const noticeController = createNoticeController({
+  element: elements.notice,
+  textElement: elements.noticeText,
+  actionButton: elements.noticeActionButton,
+  closeButton: elements.noticeCloseButton,
+});
+const selectionBar = createSelectionBar({
+  container: elements.selectionHeading,
+  views: GROUP_SELECTION_VIEWS,
+  initialView: state.listView,
+  noun: "群",
+  untitledLabel: "未命名群",
+  backLabel: "返回最近群会话",
+  permanentDeleteDetail: "群聊中涉及的每个 CLI 会话原文一并删除",
+  getId: (group) => group.id,
+  getTitle: (group) => group.title,
+  isSelectable: groupSelectable,
+  isPinned: (group) => Boolean(group.pinned),
+  getActionUnavailableReason: groupActionUnavailableReason,
+  executeAction: executeGroupSelectionAction,
+  refreshItems: () => renderGroupList(),
+  confirm: (message, options) => confirmDialogController.show(message, options),
+  notify: showNotice,
+  errorMessage,
+  onSelectionChange: renderGroupList,
+  onBusyChange: renderGroupList,
+  onBack: () => setListView("groups"),
+});
 
 elements.appView.dataset.sidebarCollapsed = String(state.sidebarCollapsed);
 
@@ -404,7 +463,6 @@ function handleEvent(event) {
       return;
     case "group.removed":
       state.groups.delete(event.groupId);
-      state.selected.delete(event.groupId);
       if (event.groupId === state.currentGroupId) closeGroup();
       renderGroupList();
       return;
@@ -594,8 +652,7 @@ elements.directorySelect.addEventListener("change", () => {
   elements.directorySelect.value = directory;
   stateSet(DIRECTORY_KEY, directory);
   state.listView = "groups";
-  state.selecting = false;
-  state.selected.clear();
+  selectionBar.setView("groups");
   elements.groupSearchInput.value = "";
   elements.listStatus.textContent = "";
   // 换群途中旧群已经退订，即使目录对得上也不能留着它。
@@ -615,6 +672,7 @@ elements.createForm.addEventListener("submit", async (event) => {
   const directory = elements.directorySelect.value;
   const members = selectedCreateMemberIds();
   if (!directory || members.length === 0) return;
+  if (state.listView !== "groups" || selectionBar.isSelecting()) setListView("groups");
   state.createBusy = true;
   updateCreateButton();
   elements.createStatus.textContent = "";
@@ -632,10 +690,6 @@ elements.createForm.addEventListener("submit", async (event) => {
 });
 
 /* ---------- 群列表、选择与回收站 ---------- */
-
-function inSelection() {
-  return state.listView === "trash" || state.selecting;
-}
 
 function visibleGroups() {
   const trash = state.listView === "trash";
@@ -662,33 +716,13 @@ function renderGroupList() {
   const groups = visibleGroups();
   const pinned = trash ? [] : groups.filter((group) => group.pinned);
   const regular = trash ? groups : groups.filter((group) => !group.pinned);
-  // 已经不在这一类里的群（被删、被恢复）从选择里去掉。
-  const visibleIds = new Set(groups.map((group) => group.id));
-  for (const id of state.selected) if (!visibleIds.has(id)) state.selected.delete(id);
+  selectionBar.reconcile(groups);
+  selectionBar.setDisabled(!state.authenticated);
 
   elements.listTitle.textContent = trash ? "回收站" : "最近群会话";
-  elements.listHeading.hidden = inSelection();
-  elements.listBackButton.hidden = !trash;
+  elements.listHeading.hidden = selectionBar.isSelecting();
   elements.trashViewButton.hidden = trash;
-  elements.selectButton.hidden = trash || state.selecting;
-  elements.selectionHeading.hidden = !inSelection();
-  // 回收站一直在选择模式，返回按钮占用选择标题的左侧位置。
-  elements.cancelSelectionButton.hidden = trash;
-  elements.selectionCount.textContent = `已选择 ${state.selected.size} 项`;
-  const allSelected = groups.length > 0 && state.selected.size === groups.length;
-  const selectAllLabel = allSelected ? "全不选" : "全选";
-  elements.selectAllButton.setAttribute("aria-label", selectAllLabel);
-  elements.selectAllButton.title = selectAllLabel;
-  elements.selectAllIcon.hidden = allSelected;
-  elements.selectNoneIcon.hidden = !allSelected;
-  // 普通列表显示删除；回收站在同一位置显示恢复和永久删除。
-  elements.bulkDeleteButton.hidden = trash;
-  elements.bulkRestoreButton.hidden = !trash;
-  elements.bulkPurgeButton.hidden = !trash;
-  const noSelection = state.selected.size === 0 || state.batchBusy || !state.authenticated;
-  elements.bulkDeleteButton.disabled = noSelection;
-  elements.bulkRestoreButton.disabled = noSelection;
-  elements.bulkPurgeButton.disabled = noSelection;
+  elements.selectButton.disabled = !state.authenticated || !groups.some(groupSelectable);
 
   if (groups.length === 0) {
     const hint = document.createElement("p");
@@ -717,20 +751,25 @@ function renderGroupList() {
 function groupItem(group, trash) {
   const item = document.createElement("article");
   item.className = "group-item";
-  item.dataset.current = String(!inSelection() && group.id === state.currentGroupId);
+  item.dataset.current = String(!selectionBar.isSelecting() && group.id === state.currentGroupId);
   item.setAttribute("role", "listitem");
   const open = document.createElement("button");
   open.type = "button";
   open.className = "group-open";
-  if (!inSelection() && group.id === state.currentGroupId) open.setAttribute("aria-current", "true");
+  if (!selectionBar.isSelecting() && group.id === state.currentGroupId) {
+    open.setAttribute("aria-current", "true");
+  }
   const title = document.createElement("span");
   title.className = "group-item-title";
-  if (inSelection()) {
+  if (selectionBar.isSelecting()) {
     const check = document.createElement("input");
     check.type = "checkbox";
     check.tabIndex = -1;
-    check.checked = state.selected.has(group.id);
+    const selectable = selectionBar.isSelectable(group);
+    check.checked = selectable && selectionBar.isSelected(group.id);
+    check.disabled = !selectable || selectionBar.isDisabled();
     check.setAttribute("aria-hidden", "true");
+    if (!selectable) open.title = "这个群正在发言或压缩，暂时不能整理。";
     title.append(check);
   }
   title.append(document.createTextNode(group.title));
@@ -744,7 +783,7 @@ function groupItem(group, trash) {
   const badge = document.createElement("span");
   badge.className = "busy-badge";
   if (trash) {
-    badge.textContent = group.deleting ? "正在删除" : `${formatDate(group.purgeAt)} 到期`;
+    badge.textContent = group.deleting ? "正在删除" : trashRemainingText(group.purgeAt);
     badge.classList.add("purge-badge");
   } else if (group.busy) {
     const status = group.busyStatus;
@@ -755,11 +794,11 @@ function groupItem(group, trash) {
   if (badge.textContent) meta.append(badge);
   open.append(title, meta);
   open.addEventListener("click", () => {
-    if (inSelection()) toggleSelected(group.id);
+    if (selectionBar.isSelecting()) selectionBar.toggle(group.id);
     else void openListedGroup(group);
   });
   item.append(open);
-  if (!inSelection() && !trash) {
+  if (!selectionBar.isSelecting() && !trash) {
     const actions = document.createElement("div");
     actions.className = "group-item-actions";
     const rename = document.createElement("button");
@@ -853,72 +892,49 @@ async function toggleGroupPin(group) {
   }
 }
 
-function toggleSelected(groupId) {
-  if (state.selected.has(groupId)) state.selected.delete(groupId);
-  else state.selected.add(groupId);
-  renderGroupList();
-}
-
-function formatDate(iso) {
-  const date = new Date(iso);
-  const pad = (value) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
 function setListView(view) {
   state.listView = view;
-  state.selecting = false;
-  state.selected.clear();
+  selectionBar.setView(view);
   elements.listStatus.textContent = "";
   renderGroupList();
 }
 
 elements.selectButton.addEventListener("click", () => {
-  state.selecting = true;
-  state.selected.clear();
   elements.listStatus.textContent = "";
-  renderGroupList();
-});
-
-elements.cancelSelectionButton.addEventListener("click", () => setListView("groups"));
-
-elements.selectAllButton.addEventListener("click", () => {
-  const groups = visibleGroups();
-  if (state.selected.size === groups.length) state.selected.clear();
-  else for (const group of groups) state.selected.add(group.id);
-  renderGroupList();
+  selectionBar.setManualSelection(true);
 });
 
 elements.trashViewButton.addEventListener("click", () => setListView("trash"));
-elements.listBackButton.addEventListener("click", () => setListView("groups"));
 
-elements.bulkDeleteButton.addEventListener("click", () => void runBatch("groups.trash"));
-elements.bulkPurgeButton.addEventListener("click", () => void runBatch("groups.purge"));
-elements.bulkRestoreButton.addEventListener("click", () => void runBatch("groups.restore"));
+function groupSelectable(group) {
+  return Boolean(group.trashedAt) || group.busy !== true;
+}
 
-/** 多选操作：后端逐个处理，失败的留在原处并列出原因。永久删除不再另弹确认。 */
-async function runBatch(type) {
-  const groupIds = [...state.selected];
-  if (groupIds.length === 0 || state.batchBusy) return;
-  state.batchBusy = true;
-  elements.listStatus.textContent = "";
-  renderGroupList();
-  try {
-    const result = await request(type, { groupIds });
-    for (const id of result.done) state.selected.delete(id);
-    if (result.failed.length > 0) {
-      elements.listStatus.textContent = result.failed
-        .map((item) => `${state.groups.get(item.groupId)?.title ?? item.groupId}：${item.message}`)
-        .join("\n");
-    } else if (state.listView === "groups") {
-      state.selecting = false;
-    }
-  } catch (error) {
-    elements.listStatus.textContent = errorMessage(error);
-  } finally {
-    state.batchBusy = false;
-    renderGroupList();
-  }
+function groupActionUnavailableReason(action, group) {
+  return action.id === "restore-trash" && group.deleting
+    ? GROUP_SELECTION_RESTORE_DELETING_MESSAGE
+    : "";
+}
+
+async function executeGroupSelectionAction(action, groupIds) {
+  const type = {
+    "trash-active": "groups.trash",
+    "restore-trash": "groups.restore",
+    "delete-trash": "groups.purge",
+  }[action];
+  if (!type) throw new Error("未知的群整理操作。");
+  const result = await request(type, { groupIds });
+  return {
+    succeeded: result.done,
+    failed: result.failed.map((failure) => ({
+      id: failure.groupId,
+      reason: failure.message,
+    })),
+  };
+}
+
+function showNotice(message, tone = "warning") {
+  noticeController.show(message, { lifetime: "temporary", tone });
 }
 
 function agentDot(agent, group = state.current?.group) {
@@ -1178,7 +1194,7 @@ function appendEntry(entry) {
 function entryElement(entry) {
   const article = document.createElement("article");
   if (entry.from.role === "notice") {
-    article.className = "notice";
+    article.className = "timeline-notice";
     article.dataset.agent = entry.from.agent;
     paintAgent(article, memberColor(state.current?.group, entry.from.agent));
     article.append(agentDot(entry.from.agent), document.createTextNode(entry.text));

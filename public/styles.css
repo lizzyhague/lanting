@@ -885,6 +885,56 @@ button[aria-invalid="true"] {
   background: rgb(0 0 0 / 55%);
 }
 
+.alert-dialog {
+  width: min(430px, calc(100vw - 1.5rem));
+  padding: 0;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.alert-dialog::backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+.alert-card {
+  padding: 1.15rem;
+}
+
+.alert-card h2,
+.alert-card p {
+  margin: 0;
+}
+
+.alert-card h2 {
+  font-size: 1.1rem;
+}
+
+.alert-card p {
+  margin-top: 0.7rem;
+  color: var(--muted);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.confirm-dialog-copy {
+  margin-top: 0.7rem;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.confirm-dialog-copy p {
+  margin: 0;
+}
+
+.alert-actions {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .rename-dialog h2 {
   margin: 0 0 0.8rem;
   font-size: 1.05rem;
@@ -1040,8 +1090,21 @@ button[aria-invalid="true"] {
   min-width: 0;
   height: 100dvh;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
+}
+
+.group-pane > .group-header {
+  grid-row: 1;
+}
+
+.group-pane > .notice {
+  grid-row: 2;
+}
+
+.group-pane > .pane-empty,
+.group-pane > .group-view {
+  grid-row: 3;
 }
 
 .pane-empty {
@@ -1375,6 +1438,42 @@ button[aria-invalid="true"] {
   margin-right: auto;
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.notice[hidden] {
+  display: none;
+}
+
+.notice {
+  width: 100%;
+  padding: 0.7rem max(1rem, calc((100% - 920px) / 2));
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  color: #fde68a;
+  font-size: 0.9rem;
+}
+
+.notice:not([hidden]) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+#notice-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.notice-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.notice-actions button {
+  color: var(--accent);
 }
 
 /* ---------- 输入区 ---------- */
@@ -1736,7 +1835,7 @@ button[aria-invalid="true"] {
 
 /* ---------- 群里的提示 ---------- */
 
-.notice {
+.timeline-notice {
   margin: 0 auto 1rem;
   width: fit-content;
   max-width: 88%;

@@ -188,7 +188,19 @@ test("parses rename and trash requests", () => {
       { type, requestId: "r2", groupIds: [groupId] },
     );
   }
+  const maximumBatch = parseBrowserRequest(JSON.stringify({
+    type: "groups.trash",
+    requestId: "r-limit",
+    groupIds: Array.from({ length: 1_000 }, () => groupId),
+  }));
+  if (maximumBatch.type !== "groups.trash") assert.fail("expected groups.trash");
+  assert.equal(maximumBatch.groupIds.length, 1_000);
   rejectsWith(JSON.stringify({ type: "groups.trash", requestId: "r3", groupIds: [] }), "invalid_field", "r3");
+  rejectsWith(JSON.stringify({
+    type: "groups.trash",
+    requestId: "r-too-many",
+    groupIds: Array.from({ length: 1_001 }, () => groupId),
+  }), "invalid_field", "r-too-many");
   rejectsWith(JSON.stringify({ type: "groups.purge", requestId: "r4", groupIds: ["x"] }), "invalid_field", "r4");
   rejectsWith(JSON.stringify({ type: "group.rename", requestId: "r5", groupId, title: "" }), "invalid_field", "r5");
   rejectsWith(JSON.stringify({ type: "group.pin", requestId: "r6", groupId, pinned: 1 }), "invalid_field", "r6");

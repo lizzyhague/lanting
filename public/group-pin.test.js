@@ -30,7 +30,7 @@ test("group rows keep rename and pin actions outside selection and trash", () =>
     app.indexOf("function groupPinIcon("),
   );
   assert.match(item, /className = "group-open"/u);
-  assert.match(item, /if \(!inSelection\(\) && !trash\)/u);
+  assert.match(item, /if \(!selectionBar\.isSelecting\(\) && !trash\)/u);
   assert.match(item, /className = "group-item-actions"/u);
   assert.match(item, /className = "group-rename-trigger quiet small icon-button"/u);
   assert.match(item, /className = "group-pin-trigger quiet small icon-button"/u);

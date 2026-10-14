@@ -6,7 +6,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 /** 模型、思考强度、权限的 id 由各家 CLI 给出，这里只限制长度。 */
 const MAX_SETTING_LENGTH = 200;
 /** 一次多选操作最多处理的群数。 */
-const MAX_BATCH_GROUPS = 500;
+const MAX_BATCH_GROUPS = 1_000;
 
 export type BrowserRequest =
   | { type: "connection.ready"; requestId: string }

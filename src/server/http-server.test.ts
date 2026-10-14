@@ -29,7 +29,10 @@ async function startServer(t: test.TestContext) {
   await writeFile(path.join(webRoot, "app.js"), "console.log('app');\n");
   await writeFile(path.join(webRoot, "agents.js"), "export const agents = [];\n");
   await writeFile(path.join(webRoot, "boot.js"), "");
+  await writeFile(path.join(webRoot, "confirm-dialog.js"), "");
   await writeFile(path.join(webRoot, "markdown.js"), "");
+  await writeFile(path.join(webRoot, "notice.js"), "");
+  await writeFile(path.join(webRoot, "selection-bar.js"), "");
   await writeFile(path.join(webRoot, "viewer.js"), 'import "./markdown.js";\n');
   await writeFile(path.join(webRoot, "viewer.css"), ".file-viewer {}\n");
   await writeFile(path.join(webRoot, "styles.css"), "");
@@ -221,7 +224,14 @@ test("raw serves only caged Markdown and images with authentication and sandbox 
   const view = await (await fetch(`${base}/view?path=anything`)).text();
   assert.match(view, /\/assets\/[a-f0-9]{64}\/viewer\.js/u);
   assert.match(view, /\/assets\/[a-f0-9]{64}\/viewer\.css/u);
-  for (const asset of ["/viewer.js", "/viewer.css", "/agents.js"]) {
+  for (const asset of [
+    "/viewer.js",
+    "/viewer.css",
+    "/agents.js",
+    "/confirm-dialog.js",
+    "/notice.js",
+    "/selection-bar.js",
+  ]) {
     assert.equal((await fetch(`${base}${asset}`)).status, 200, asset);
   }
 });
