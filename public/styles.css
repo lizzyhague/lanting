@@ -1437,6 +1437,20 @@ button[aria-invalid="true"] {
   display: none;
 }
 
+/* 宽屏才显示发送快捷键提示。 */
+.send-hint {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 800px) {
+  .send-hint {
+    display: none;
+  }
+}
+
 /* 新建群和点名共用的成员按钮：没选灰色，悬停或选中变正文色，选中再加粗、叶子变实心。 */
 .agent-pick {
   min-height: 2rem;
@@ -1530,6 +1544,7 @@ button[aria-invalid="true"] {
 
 @media (hover: hover) and (pointer: fine) {
   .timeline,
+  .group-list,
   .composer textarea,
   .scrollbar-measure {
     scrollbar-width: thin;
@@ -1537,24 +1552,28 @@ button[aria-invalid="true"] {
   }
 
   .timeline:hover,
+  .group-list:hover,
   .composer textarea:hover,
   .composer textarea:focus {
     scrollbar-color: #5f6673 transparent;
   }
 
   .timeline::-webkit-scrollbar,
+  .group-list::-webkit-scrollbar,
   .composer textarea::-webkit-scrollbar,
   .scrollbar-measure::-webkit-scrollbar {
     width: 10px;
   }
 
   .timeline::-webkit-scrollbar-track,
+  .group-list::-webkit-scrollbar-track,
   .composer textarea::-webkit-scrollbar-track,
   .scrollbar-measure::-webkit-scrollbar-track {
     background: transparent;
   }
 
   .timeline::-webkit-scrollbar-thumb,
+  .group-list::-webkit-scrollbar-thumb,
   .composer textarea::-webkit-scrollbar-thumb,
   .scrollbar-measure::-webkit-scrollbar-thumb {
     border: 2px solid transparent;
@@ -1564,6 +1583,7 @@ button[aria-invalid="true"] {
   }
 
   .timeline:hover::-webkit-scrollbar-thumb,
+  .group-list:hover::-webkit-scrollbar-thumb,
   .composer textarea:hover::-webkit-scrollbar-thumb,
   .composer textarea:focus::-webkit-scrollbar-thumb {
     background-color: #5f6673;
