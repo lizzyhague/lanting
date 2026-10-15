@@ -169,7 +169,7 @@
             <p>设置窗口打开时读取一次后端内容；要查看其他设备后来保存的内容，请关闭后重新打开。</p>
             <p>每个 AI 打开会话时，这段内容会接在 lanting 自带的群聊规则后面，作为系统提示词的一部分。</p>
             <p>lanting 会先加一个一级标题“Host's collaboration rules”，再把内容原样放在下面，只去掉首尾空白。写普通文字就可以；要用 Markdown 分节时从 ## 开始。用 # 的话，这一节会和 lanting 自带规则的几节平级，AI 不一定能看出它也是你写的。</p>
-            <p>已经开着的会话不受影响，等它关闭后再次打开时才带上新内容。Grok 和 Cursor 只在新建会话时带上，已有群里的 Grok 和 Cursor 继续用旧内容。</p>
+            <p>已经开着的会话不受影响。之后什么时候带上新内容，分两种：Claude、Codex、Pi 在会话关闭后再次打开时带上；Grok、Cursor、Antigravity 只在新建会话时带上，已有群里的继续用旧内容。</p>
             <p>留空时只使用 lanting 自带的规则。</p>
           </div>
           <textarea id="collaboration-input" rows="6" maxlength="131072" spellcheck="false" placeholder="输入希望群里的 AI 始终遵循的协作方式……"></textarea>
