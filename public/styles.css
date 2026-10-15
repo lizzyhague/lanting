@@ -28,6 +28,8 @@
   --mix-warning-wash: 10%;
   --mix-success-wash: 10%;
   --mix-info-wash: 10%;
+  --mix-danger: 50%;
+  --mix-success: 50%;
   --mix-bubble-ai: 6%;
   --mix-permission: 8%;
   --mix-copy-success: 12%;
@@ -50,11 +52,11 @@
   --bubble-user: color-mix(in srgb, var(--tint) var(--mix-bubble-user), white);
   --hover: rgb(255 255 255 / 4%);
   --scrim: rgb(0 0 0 / 55%);
-  --danger: #fca5a5;
+  --danger: color-mix(in srgb, #ff0000 var(--mix-danger), var(--text));
   --danger-wash: color-mix(in srgb, var(--danger) var(--mix-danger-wash), var(--surface-2));
   --warning: #fcd34d;
   --warning-wash: color-mix(in srgb, var(--warning) var(--mix-warning-wash), var(--surface-2));
-  --success: #a6c47f;
+  --success: color-mix(in srgb, #00ff00 var(--mix-success), var(--text));
   --success-wash: color-mix(in srgb, var(--success) var(--mix-success-wash), var(--surface-2));
   --info: #facc15;
   --info-wash: color-mix(in srgb, var(--info) var(--mix-info-wash), var(--surface-2));
