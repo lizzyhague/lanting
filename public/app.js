@@ -1378,23 +1378,25 @@ function renderApprovals() {
   const approvals = [...(state.current?.approvals.values() ?? [])];
   elements.approvalList.replaceChildren(...approvals.map((approval) => {
     const card = document.createElement("div");
-    card.className = "approval";
+    card.className = "permission-card";
     card.dataset.agent = approval.agent;
     paintAgent(card, memberColor(state.current?.group, approval.agent));
-    const title = document.createElement("div");
-    title.className = "approval-title";
+    const title = document.createElement("p");
+    title.className = "permission-card-title";
     title.append(agentDot(approval.agent), document.createTextNode(`${approval.agent} 请求使用 ${approval.toolName}`));
     card.append(title);
+    const body = document.createElement("div");
+    body.className = "permission-card-body";
     if (approval.detail) {
       const detail = document.createElement("pre");
-      detail.className = "approval-detail";
+      detail.className = "permission-card-detail";
       detail.textContent = approval.detail;
-      card.append(detail);
+      body.append(detail);
     }
     const actions = document.createElement("div");
-    actions.className = "approval-actions";
+    actions.className = "permission-card-actions";
     const countdown = document.createElement("span");
-    countdown.className = "approval-countdown";
+    countdown.className = "permission-card-countdown";
     countdown.dataset.deadline = String(approval.deadline);
     actions.append(countdown);
     for (const [decision, label, className] of [["deny", "拒绝", "danger"], ["allow", "允许", "primary"]]) {
@@ -1414,7 +1416,7 @@ function renderApprovals() {
       });
       actions.append(button);
     }
-    card.append(actions);
+    card.append(body, actions);
     return card;
   }));
   if (approvals.length > 0) startCountdown();
@@ -1423,7 +1425,7 @@ function renderApprovals() {
 
 function startCountdown() {
   const tick = () => {
-    for (const countdown of elements.approvalList.querySelectorAll(".approval-countdown")) {
+    for (const countdown of elements.approvalList.querySelectorAll(".permission-card-countdown")) {
       const seconds = Math.max(0, Math.round((Number(countdown.dataset.deadline) - Date.now()) / 1_000));
       countdown.textContent = `${seconds} 秒后自动拒绝`;
     }

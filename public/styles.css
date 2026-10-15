@@ -82,6 +82,7 @@
   --radius-xl: 20px;
 
   --header-height: 64px;
+  --max-width: 920px;
   --sidebar-width: clamp(260px, 20vw, 304px);
 }
 
@@ -319,14 +320,22 @@ button.primary {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  letter-spacing: 0.01em;
+  gap: 0.5rem;
 }
 
-.sidebar-logo {
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
+.sidebar-brand-icon {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+
+.sidebar-brand strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
 }
 
 .sidebar-heading-actions {
@@ -1455,44 +1464,69 @@ button[aria-invalid="true"] {
 /* ---------- 审批 ---------- */
 
 .approval-list {
-  padding: 0 1rem;
+  width: 100%;
+  max-width: calc(var(--max-width) + 2rem);
+  margin: 0 auto 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0 calc(1rem + var(--scrollbar-width, 0px));
+  max-height: 66dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
-.approval {
-  margin: 0.5rem auto;
-  max-width: 920px;
-  padding: 0.75rem 0.9rem;
+.approval-list:empty {
+  display: none;
+}
+
+.permission-card {
+  flex: none;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-width: 100%;
+  min-width: 0;
+  max-height: 62dvh;
+  padding: 0.7rem 0.85rem;
   border: 1px solid var(--agent, var(--theme));
   border-radius: var(--radius-md);
   background: var(--permission-fill);
+  color: var(--text);
+  font-size: 0.9rem;
 }
 
-.approval-title {
+.permission-card-title {
+  margin: 0;
   display: flex;
   align-items: center;
   gap: 0.4rem;
   font-weight: 600;
 }
 
-.approval-detail {
-  margin: 0.5rem 0 0;
-  padding: 0.5rem 0.6rem;
-  border-radius: var(--radius-sm);
-  background: var(--surface-sunken);
+.permission-card-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.permission-card-detail {
+  margin: 0.3rem 0 0;
+  color: var(--text-muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 0.85rem;
+  font: inherit;
+  font-size: 0.82rem;
 }
 
-.approval-actions {
-  margin-top: 0.6rem;
+.permission-card-actions {
   display: flex;
-  justify-content: flex-end;
   align-items: center;
   gap: 0.5rem;
+  margin-top: 0.6rem;
 }
 
-.approval-countdown {
+.permission-card-countdown {
   margin-right: auto;
   color: var(--text-muted);
   font-size: 0.78rem;
@@ -1538,7 +1572,7 @@ button[aria-invalid="true"] {
 
 .composer {
   width: 100%;
-  max-width: 952px;
+  max-width: calc(var(--max-width) + 2rem);
   margin: 0 auto;
   padding: 0.25rem calc(1rem + var(--scrollbar-width, 0px)) max(1.1rem, env(safe-area-inset-bottom));
   transform: translateY(-4px);
