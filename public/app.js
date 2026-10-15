@@ -264,8 +264,12 @@ elements.appView.dataset.sidebarCollapsed = String(state.sidebarCollapsed);
 elements.tokenForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const token = elements.tokenInput.value.trim();
+  if (!token) {
+    setLoginStatus("请输入访问令牌。", "error");
+    return;
+  }
   if (token.length < 32) {
-    setLoginStatus("访问令牌至少需要 32 个字符。", true);
+    setLoginStatus("访问令牌有误，请重新输入。", "error");
     return;
   }
   state.reconnectAllowed = true;
@@ -295,7 +299,7 @@ async function connect(token) {
 
   state.authenticated = false;
   elements.connectButton.disabled = true;
-  setLoginStatus("正在连接主机……");
+  setLoginStatus("正在连接主机……", "progress");
   setConnectionStatus("connecting", "正在连接");
 
   try {
@@ -319,7 +323,7 @@ async function connect(token) {
       state.reconnectAllowed = false;
       elements.connectButton.disabled = false;
       showLogin();
-      setLoginStatus(token ? "访问令牌不正确。" : "请登录。", Boolean(token));
+      setLoginStatus(token ? "访问令牌有误，请重新输入。" : "请登录。", token ? "error" : null);
       return;
     }
     if (!response.ok) throw new Error("登录服务暂时不可用。");
@@ -334,7 +338,7 @@ async function connect(token) {
     }
   } catch (error) {
     if (generation !== state.generation) return;
-    setLoginStatus(errorMessage(error), true);
+    setLoginStatus(errorMessage(error), "error");
     elements.connectButton.disabled = false;
     setConnectionStatus("disconnected", "连接已断开");
     scheduleReconnect();
@@ -370,14 +374,14 @@ async function connect(token) {
       setConnectionStatus("connected", "已连接");
     } catch (error) {
       if (generation !== state.generation) return;
-      setLoginStatus(errorMessage(error), true);
+      setLoginStatus(errorMessage(error), "error");
       elements.connectButton.disabled = false;
     }
   });
 
   socket.addEventListener("error", () => {
     if (generation === state.generation && !state.authenticated) {
-      setLoginStatus("现在无法连接主机。", true);
+      setLoginStatus("现在无法连接主机。", "error");
       elements.connectButton.disabled = false;
     }
   });
@@ -2663,10 +2667,10 @@ function setConnectionStatus(stateName, text) {
   elements.connectionStatus.textContent = text;
 }
 
-/** 登录卡片的状态行：提示和进行中用次要文字色，出错才用危险色。 */
-function setLoginStatus(text, isError = false) {
+/** 登录卡片的状态行：普通提示、进行中和错误分别使用自己的颜色。 */
+function setLoginStatus(text, tone = null) {
   elements.loginStatus.textContent = text;
-  if (isError) elements.loginStatus.dataset.tone = "error";
+  if (tone) elements.loginStatus.dataset.tone = tone;
   else delete elements.loginStatus.dataset.tone;
 }
 

@@ -6,6 +6,7 @@
   if (!form || !status || !button) return;
 
   button.disabled = true;
+  status.dataset.tone = "progress";
   status.textContent = "页面正在启动……";
 
   var startupTimer = window.setTimeout(function () {
@@ -18,11 +19,13 @@
     window.clearTimeout(startupTimer);
     button.disabled = false;
     status.textContent = "";
+    delete status.dataset.tone;
   };
 
   form.addEventListener("submit", function (event) {
     event.preventDefault();
     if (window.lantingClientReady === true) return;
+    status.dataset.tone = "progress";
     status.textContent = "页面仍在启动，请稍候……";
   });
 }());

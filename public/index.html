@@ -23,9 +23,8 @@
           <img class="login-icon" src="/logo.svg" alt="">
           <h1>lanting</h1>
         </div>
-        <p class="login-hint">登录后由浏览器安全保存登录状态</p>
-        <label for="token-input">访问令牌</label>
-        <input id="token-input" type="password" autocomplete="current-password" required>
+        <label for="token-input">访问令牌<span class="login-label-hint">（登录状态存于浏览器）</span></label>
+        <input id="token-input" type="password" autocomplete="current-password">
         <button id="connect-button" class="primary" type="submit">连接</button>
         <p id="login-status" class="form-status" aria-live="polite"></p>
       </form>
