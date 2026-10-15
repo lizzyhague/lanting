@@ -49,7 +49,7 @@
   --text: color-mix(in srgb, var(--tint) var(--mix-text), white);
   --text-mid: color-mix(in srgb, var(--tint) var(--mix-text-mid), white);
   --text-muted: color-mix(in srgb, var(--tint) var(--mix-text-muted), white);
-  --theme-bright: color-mix(in srgb, var(--theme) var(--mix-theme-bright), white);
+  --theme-bright: color-mix(in srgb, var(--theme) var(--mix-theme-bright), var(--text));
   --theme-wash: color-mix(in srgb, var(--theme) var(--mix-theme-wash), var(--surface-2));
   --bubble-user: color-mix(in srgb, var(--tint) var(--mix-bubble-user), white);
   --hover: rgb(255 255 255 / 4%);
