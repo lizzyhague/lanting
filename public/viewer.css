@@ -15,6 +15,6 @@
   overflow-wrap: anywhere;
 }
 
-.file-viewer a { color: var(--muted); }
+.file-viewer a { color: var(--theme); }
 .file-viewer .markdown-body { line-height: 1.8; overflow-wrap: anywhere; }
 .viewer-image { display: block; max-width: 100%; height: auto; margin: 0 auto; }
