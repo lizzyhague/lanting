@@ -7,6 +7,7 @@ const CACHE_NAME = "lanting-shell-v1";
 const ASSET_PATH = /^\/assets\/[a-f0-9]{64}\/[a-zA-Z0-9_.-]+\.(?:js|css)$/;
 const ICONS = [
   "/icon.svg",
+  "/logo.svg",
   "/icon-192.png",
   "/icon-512.png",
   "/icon-512-maskable.png",

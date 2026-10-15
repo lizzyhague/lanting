@@ -53,6 +53,7 @@ const STATIC_FILES: Record<string, { file: string; contentType: string }> = {
   "/selection-bar.js": { file: "selection-bar.js", contentType: "text/javascript; charset=utf-8" },
   "/styles.css": { file: "styles.css", contentType: "text/css; charset=utf-8" },
   "/icon.svg": { file: "icon.svg", contentType: "image/svg+xml" },
+  "/logo.svg": { file: "logo.svg", contentType: "image/svg+xml" },
   "/manifest.webmanifest": {
     file: "manifest.webmanifest",
     contentType: "application/manifest+json; charset=utf-8",
