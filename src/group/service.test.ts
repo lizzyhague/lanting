@@ -435,10 +435,38 @@ test("trashed groups keep their data, can be restored, and refuse other operatio
   assert.equal(service.snapshot(groupId).group.id, groupId);
 });
 
-test("a busy group cannot be moved to the trash", async (t) => {
+test("archived groups stay archived through trash and restore until explicitly unarchived", async (t) => {
+  const { service, store, groupId } = await setup(t);
+
+  assert.deepEqual(await service.archive([groupId]), { done: [groupId], failed: [] });
+  assert.equal(service.groups()[0]?.archived, true);
+  assert.equal(store.get(groupId)?.archived, true);
+  assert.throws(() => service.snapshot(groupId), /归档/u);
+  await assert.rejects(service.startRound(groupId, "q", ["claude"]), /归档/u);
+  await assert.rejects(service.rename(groupId, "new"), /归档/u);
+  assert.equal((await service.archive([groupId])).failed[0]?.message, "已经归档了。");
+
+  assert.deepEqual(await service.trash([groupId]), { done: [groupId], failed: [] });
+  assert.equal(store.get(groupId)?.archived, true);
+  assert.ok(store.get(groupId)?.trashedAt);
+  assert.match((await service.unarchive([groupId])).failed[0]?.message ?? "", /请先恢复/u);
+
+  assert.deepEqual(await service.restore([groupId]), { done: [groupId], failed: [] });
+  assert.equal(store.get(groupId)?.archived, true);
+  assert.equal(store.get(groupId)?.trashedAt, null);
+  assert.throws(() => service.snapshot(groupId), /归档/u);
+
+  assert.deepEqual(await service.unarchive([groupId]), { done: [groupId], failed: [] });
+  assert.equal(store.get(groupId)?.archived, false);
+  assert.equal(service.snapshot(groupId).group.id, groupId);
+});
+
+test("a busy group cannot be archived or moved to the trash", async (t) => {
   const { service, groupId, adapter } = await setup(t);
   adapter.script = () => "hang";
   await service.startRound(groupId, "q", ["claude"]);
+  const archived = await service.archive([groupId]);
+  assert.match(archived.failed[0]?.message ?? "", /正在发言或压缩/u);
   const result = await service.trash([groupId]);
   assert.match(result.failed[0]?.message ?? "", /正在发言或压缩/u);
   await service.interrupt(groupId);

@@ -441,6 +441,36 @@ test("a browser can create a group, run a round, and answer an approval over the
     ["final answer", "completed"],
   ]);
   assert.equal(final.group.busy, false);
+  const latestGroupUpdate = () => [...inbox].reverse()
+    .find((message) => message.event?.type === "group.updated")?.event as unknown as {
+      group: { archived: boolean; trashedAt: string | null };
+    };
+
+  assert.deepEqual(await call("groups.archive", { groupIds: [group.id] }), {
+    done: [group.id],
+    failed: [],
+  });
+  assert.equal(latestGroupUpdate().group.archived, true);
+  assert.match((await callError("group.subscribe", { groupId: group.id })).message, /归档/u);
+
+  assert.deepEqual(await call("groups.trash", { groupIds: [group.id] }), {
+    done: [group.id],
+    failed: [],
+  });
+  assert.ok(latestGroupUpdate().group.trashedAt);
+  assert.deepEqual(await call("groups.restore", { groupIds: [group.id] }), {
+    done: [group.id],
+    failed: [],
+  });
+  assert.equal(latestGroupUpdate().group.archived, true);
+  assert.equal(latestGroupUpdate().group.trashedAt, null);
+
+  assert.deepEqual(await call("groups.unarchive", { groupIds: [group.id] }), {
+    done: [group.id],
+    failed: [],
+  });
+  assert.equal(latestGroupUpdate().group.archived, false);
+  assert.equal((await call("group.subscribe", { groupId: group.id }) as { transcript: unknown[] }).transcript.length, 2);
 });
 
 test("uploads require login and are streamed to the upload service with their ticket", async (t) => {

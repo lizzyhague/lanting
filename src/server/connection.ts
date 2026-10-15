@@ -232,6 +232,14 @@ export class BrowserConnection implements EventSink {
         this.#respondOk(request.requestId, await groups.trash(request.groupIds));
         return;
       }
+      case "groups.archive": {
+        this.#respondOk(request.requestId, await groups.archive(request.groupIds));
+        return;
+      }
+      case "groups.unarchive": {
+        this.#respondOk(request.requestId, await groups.unarchive(request.groupIds));
+        return;
+      }
       case "groups.restore": {
         this.#respondOk(request.requestId, await groups.restore(request.groupIds));
         return;

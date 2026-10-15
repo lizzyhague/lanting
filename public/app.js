@@ -32,8 +32,20 @@ const MAX_MESSAGE_ATTACHMENTS = 100;
 const GROUP_SELECTION_RESTORE_DELETING_MESSAGE = "选中的群里有正在永久删除的，不能恢复。";
 const GROUP_SELECTION_VIEWS = Object.freeze({
   groups: { actions: [
+    { id: "archive", label: "归档", resultLabel: "归档", icon: "archive" },
     {
       id: "trash-active",
+      label: "删除",
+      resultLabel: "删除",
+      icon: "delete",
+      danger: true,
+      retention: true,
+    },
+  ] },
+  archived: { actions: [
+    { id: "unarchive", label: "取消归档", resultLabel: "取消归档", icon: "unarchive" },
+    {
+      id: "trash-archived",
       label: "删除",
       resultLabel: "删除",
       icon: "delete",
@@ -88,10 +100,12 @@ const elements = {
   groupList: byId("group-list"),
   groupSearchInput: byId("group-search-input"),
   listHeading: byId("list-heading"),
+  listViewBackButton: byId("list-view-back-button"),
   listTitle: byId("list-title"),
   selectButton: byId("select-button"),
   selectionHeading: byId("selection-heading"),
   listStatus: byId("list-status"),
+  archivedViewButton: byId("archived-view-button"),
   trashViewButton: byId("trash-view-button"),
   notice: byId("notice"),
   noticeText: byId("notice-text"),
@@ -191,7 +205,7 @@ const state = {
   /** 当前群输入框里待发的附件：{ localId, name, status: uploading|done|failed, attachment, error } */
   drafts: [],
   createBusy: false,
-  /** 侧栏显示哪一类：groups（群）或 trash（回收站）。 */
+  /** 侧栏显示哪一类：groups（最近）、archived（归档）或 trash（回收站）。 */
   listView: "groups",
   searchTimer: null,
   sidebarCollapsed: stateGet(SIDEBAR_COLLAPSED_KEY) === "1",
@@ -365,9 +379,9 @@ async function connect(token) {
       await request("connection.ready");
       // 断线重连后回到原来的群，按快照补齐。
       if (state.currentGroupId) {
-        // 断线期间这个群可能被删了（进了回收站或已永久删除）。
+        // 断线期间这个群可能被归档或删了。
         const group = state.groups.get(state.currentGroupId);
-        if (!group || group.trashedAt) closeGroup();
+        if (!group || group.archived || group.trashedAt) closeGroup();
         else await openGroup(state.currentGroupId, { keepPane: true });
       }
       if (generation !== state.generation || socket.readyState !== WebSocket.OPEN) return;
@@ -473,8 +487,8 @@ function handleEvent(event) {
     case "group.created":
     case "group.updated":
       state.groups.set(event.group.id, event.group);
-      // 群被移进回收站（可能是别的设备删的），正开着的这个群就关掉。
-      if (event.group.trashedAt && event.group.id === state.currentGroupId) closeGroup();
+      // 群被归档或移进回收站（可能是别的设备操作的），正开着的这个群就关掉。
+      if ((event.group.archived || event.group.trashedAt) && event.group.id === state.currentGroupId) closeGroup();
       renderGroupList();
       if (state.current && event.group.id === state.currentGroupId) {
         // 换了 usage 成员，旧成员的结果不能留着。
@@ -693,17 +707,20 @@ elements.createForm.addEventListener("submit", async (event) => {
   }
 });
 
-/* ---------- 群列表、选择与回收站 ---------- */
+/* ---------- 群列表、选择、归档与回收站 ---------- */
 
 function visibleGroups() {
-  const trash = state.listView === "trash";
   const directory = elements.directorySelect.value;
   const query = elements.groupSearchInput.value.trim().toLowerCase();
   const matching = [...state.groups.values()]
-    .filter((group) => Boolean(group.trashedAt) === trash &&
-      (!query || group.title.toLowerCase().includes(query)))
+    .filter((group) => {
+      if (state.listView === "trash") return Boolean(group.trashedAt);
+      if (group.trashedAt) return false;
+      return state.listView === "archived" ? group.archived === true : group.archived !== true;
+    })
+    .filter((group) => !query || group.title.toLowerCase().includes(query))
     .sort(compareGroupSummaries);
-  if (trash) return matching.filter((group) => group.directory === directory);
+  if (state.listView !== "groups") return matching.filter((group) => group.directory === directory);
   return [
     ...matching.filter((group) => group.pinned),
     ...matching.filter((group) => !group.pinned && group.directory === directory),
@@ -717,15 +734,19 @@ function compareGroupSummaries(left, right) {
 
 function renderGroupList() {
   const trash = state.listView === "trash";
+  const archived = state.listView === "archived";
   const groups = visibleGroups();
-  const pinned = trash ? [] : groups.filter((group) => group.pinned);
-  const regular = trash ? groups : groups.filter((group) => !group.pinned);
+  const active = state.listView === "groups";
+  const pinned = active ? groups.filter((group) => group.pinned) : [];
+  const regular = active ? groups.filter((group) => !group.pinned) : groups;
   selectionBar.reconcile(groups);
   selectionBar.setDisabled(!state.authenticated);
 
-  elements.listTitle.textContent = trash ? "回收站" : "最近群会话";
+  elements.listTitle.textContent = trash ? "回收站" : archived ? "已归档" : "最近群会话";
   elements.listHeading.hidden = selectionBar.isSelecting();
-  elements.trashViewButton.hidden = trash;
+  elements.listViewBackButton.hidden = active;
+  elements.archivedViewButton.hidden = !active;
+  elements.trashViewButton.hidden = !active;
   elements.selectButton.disabled = !state.authenticated || !groups.some(groupSelectable);
 
   if (groups.length === 0) {
@@ -734,7 +755,9 @@ function renderGroupList() {
     hint.textContent = elements.groupSearchInput.value.trim()
       ? "没有找到匹配的群会话。"
       : trash
-      ? "回收站是空的"
+      ? "回收站是空的。"
+      : archived
+      ? "还没有归档群会话。"
       : "还没有群";
     elements.groupList.replaceChildren(hint);
     return;
@@ -908,10 +931,12 @@ elements.selectButton.addEventListener("click", () => {
   selectionBar.setManualSelection(true);
 });
 
+elements.listViewBackButton.addEventListener("click", () => setListView("groups"));
+elements.archivedViewButton.addEventListener("click", () => setListView("archived"));
 elements.trashViewButton.addEventListener("click", () => setListView("trash"));
 
 function groupSelectable(group) {
-  return Boolean(group.trashedAt) || group.busy !== true;
+  return Boolean(group.trashedAt) || group.archived === true || group.busy !== true;
 }
 
 function groupActionUnavailableReason(action, group) {
@@ -922,7 +947,10 @@ function groupActionUnavailableReason(action, group) {
 
 async function executeGroupSelectionAction(action, groupIds) {
   const type = {
+    archive: "groups.archive",
+    unarchive: "groups.unarchive",
     "trash-active": "groups.trash",
+    "trash-archived": "groups.trash",
     "restore-trash": "groups.restore",
     "delete-trash": "groups.purge",
   }[action];
@@ -1003,6 +1031,7 @@ async function openGroup(groupId, { keepPane = false } = {}) {
 
 /** 点开跨目录的钉住群时，只同步目录框和列表，不先关掉正在切换的群。 */
 async function openListedGroup(group) {
+  if (group.archived || group.trashedAt) return;
   if (!state.directories.includes(group.directory)) {
     elements.listStatus.textContent = "这个群的工作目录已经不在了。";
     return;
@@ -2596,7 +2625,7 @@ let renamingGroupId = null;
 
 /** 只改 lanting 里的群名，各 AI 的原生会话名不动。 */
 function openRenameDialog(group) {
-  if (!group || group.trashedAt || group.deleting) return;
+  if (!group || group.archived || group.trashedAt || group.deleting) return;
   renamingGroupId = group.id;
   elements.renameInput.value = group.title;
   elements.renameStatus.textContent = "";
@@ -2612,7 +2641,7 @@ elements.renameForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const group = state.groups.get(renamingGroupId);
   const title = elements.renameInput.value.trim();
-  if (!group || group.trashedAt || group.deleting) {
+  if (!group || group.archived || group.trashedAt || group.deleting) {
     elements.renameDialog.close();
     return;
   }

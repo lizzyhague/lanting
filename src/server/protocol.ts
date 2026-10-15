@@ -70,7 +70,11 @@ export type BrowserRequest =
     effort: string | null;
     permission: string | null;
   }
-  | { type: "groups.trash" | "groups.restore" | "groups.purge"; requestId: string; groupIds: string[] };
+  | {
+    type: "groups.archive" | "groups.unarchive" | "groups.trash" | "groups.restore" | "groups.purge";
+    requestId: string;
+    groupIds: string[];
+  };
 
 export type BrowserEvent = Record<string, unknown> & { type: string };
 
@@ -278,6 +282,8 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         effort: nullableSetting(value.effort, "思考强度", requestId),
         permission: nullableSetting(value.permission, "权限", requestId),
       };
+    case "groups.archive":
+    case "groups.unarchive":
     case "groups.trash":
     case "groups.restore":
     case "groups.purge": {

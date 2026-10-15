@@ -67,6 +67,8 @@ export type GroupSummary = {
   updatedAt: number;
   /** 是否固定显示在最近群会话顶部。 */
   pinned: boolean;
+  /** 是否已从最近群会话移到归档。 */
+  archived: boolean;
   /** 标题栏 usage 行显示哪个成员；null 表示关闭。 */
   usageAgent: string | null;
   busy: boolean;
@@ -533,12 +535,53 @@ export class GroupService {
 
   #usageReadable(groupId: string): boolean {
     const group = this.#store.get(groupId);
-    return group !== null && !group.trashedAt && !group.deletingAt && !this.#locked.has(groupId);
+    return group !== null && !group.archived && !group.trashedAt &&
+      !group.deletingAt && !this.#locked.has(groupId);
   }
 
   #supportsUsage(group: Group, agent: string): boolean {
     const kind = group.agents[agent]?.kind;
     return kind !== undefined && this.#agents.has(kind) && typeof this.#agents.get(kind).features.usage === "function";
+  }
+
+  /** 归档只改 lanting 的记录；群必须空闲，并关掉它的会话进程。 */
+  archive(groupIds: string[]): Promise<BatchResult> {
+    return this.#batch(groupIds, async (groupId) => {
+      const group = this.#requireGroup(groupId);
+      if (group.trashedAt) throw new GroupError("group_trashed", "回收站里的群不能归档，请先恢复。");
+      if (group.archived) throw new GroupError("already_archived", "已经归档了。");
+      if (this.#runtime.isBusy(groupId)) {
+        throw new GroupError("busy", "群里正在发言或压缩，请结束后再归档。");
+      }
+      if (this.#locked.has(groupId)) throw new GroupError("busy", "这个群正在整理。");
+      this.#locked.add(groupId);
+      try {
+        await this.#runtime.closeSessions(groupId);
+        const updated = await this.#store.update(groupId, (next) => {
+          next.archived = true;
+          next.updatedAt = Date.now();
+        });
+        this.#emit({ scope: "global", payload: { type: "group.updated", group: this.#summary(updated) } });
+      } finally {
+        this.#locked.delete(groupId);
+      }
+    });
+  }
+
+  unarchive(groupIds: string[]): Promise<BatchResult> {
+    return this.#batch(groupIds, async (groupId) => {
+      const group = this.#requireGroup(groupId);
+      if (group.trashedAt) {
+        throw new GroupError("group_trashed", "回收站里的群不能取消归档，请先恢复。");
+      }
+      if (!group.archived) throw new GroupError("not_archived", "这个群没有归档。");
+      if (this.#locked.has(groupId)) throw new GroupError("busy", "这个群正在整理。");
+      const updated = await this.#store.update(groupId, (next) => {
+        next.archived = false;
+        next.updatedAt = Date.now();
+      });
+      this.#emit({ scope: "global", payload: { type: "group.updated", group: this.#summary(updated) } });
+    });
   }
 
   /** 移入回收站：只打标记，可以恢复。群必须空闲；关掉它的会话进程。 */
@@ -805,9 +848,12 @@ export class GroupService {
     return group;
   }
 
-  /** 在回收站里或正在删除的群，只能恢复或永久删除。 */
+  /** 已归档、在回收站里或正在整理的群不能作为当前群使用。 */
   #requireActive(groupId: string): Group {
     const group = this.#requireGroup(groupId);
+    if (group.archived) {
+      throw new GroupError("group_archived", "这个群已经归档，请先取消归档。");
+    }
     if (group.trashedAt || this.#locked.has(groupId)) {
       throw new GroupError("group_trashed", "这个群已经在回收站里了。");
     }
@@ -925,6 +971,7 @@ export class GroupService {
       createdAt: group.createdAt,
       updatedAt: group.updatedAt,
       pinned: group.pinned,
+      archived: group.archived,
       usageAgent: group.usageAgent,
       busy: this.#runtime.isBusy(group.id),
       busyStatus: compaction

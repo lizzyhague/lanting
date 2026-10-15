@@ -60,6 +60,7 @@ function summary(id, overrides = {}) {
     members: [],
     updatedAt: 1,
     pinned: false,
+    archived: false,
     busy: false,
     busyStatus: null,
     trashedAt: null,
@@ -120,7 +121,12 @@ function harness({ view = "groups", groups = [] } = {}) {
 
   const views = {
     groups: { actions: [
+      { id: "archive", label: "归档", resultLabel: "归档", icon: "archive" },
       { id: "trash-active", label: "删除", resultLabel: "删除", icon: "delete", danger: true, retention: true },
+    ] },
+    archived: { actions: [
+      { id: "unarchive", label: "取消归档", resultLabel: "取消归档", icon: "unarchive" },
+      { id: "trash-archived", label: "删除", resultLabel: "删除", icon: "delete", danger: true, retention: true },
     ] },
     trash: { actions: [
       { id: "restore-trash", label: "恢复", resultLabel: "恢复", icon: "restore" },
@@ -231,6 +237,27 @@ test("deleting trash groups can be purged but block restore", async () => {
   assert.match(h.confirmations[0].message, /每个 CLI 会话原文一并删除/u);
 });
 
+test("archived groups open in selection mode and use archive actions", async () => {
+  const h = harness({ view: "archived", groups: [
+    summary("active", { updatedAt: 3 }),
+    summary("archived", { archived: true, updatedAt: 2 }),
+    summary("trashed-archive", { archived: true, trashedAt: new Date().toISOString() }),
+  ] });
+
+  assert.equal(h.selectionBar.isSelecting(), true);
+  assert.match(h.elements.groupList.text, /ARCHIVED/u);
+  assert.doesNotMatch(h.elements.groupList.text, /ACTIVE/u);
+  assert.doesNotMatch(h.elements.groupList.text, /TRASHED-ARCHIVE/u);
+  h.byId("selection-select-all-button").emit("click");
+  h.respond({ done: ["archived"], failed: [] });
+  await h.selectionBar.runAction("unarchive");
+  assert.deepEqual(plain(h.requests), [{
+    type: "groups.unarchive",
+    payload: { groupIds: ["archived"] },
+  }]);
+  assert.equal(h.selectionBar.isSelecting(), true);
+});
+
 test("directory changes and group creation both return to recent groups", () => {
   const directoryChange = section(
     'elements.directorySelect.addEventListener("change"',
@@ -238,7 +265,7 @@ test("directory changes and group creation both return to recent groups", () => 
   );
   const groupCreation = section(
     'elements.createForm.addEventListener("submit"',
-    "/* ---------- 群列表、选择与回收站 ---------- */",
+    "/* ---------- 群列表、选择、归档与回收站 ---------- */",
   );
   assert.match(directoryChange, /state\.listView = "groups";[\s\S]*selectionBar\.setView\("groups"\)/u);
   assert.match(groupCreation, /setListView\("groups"\)/u);

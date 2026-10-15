@@ -172,7 +172,7 @@ test("parses the collaboration setting as raw text", () => {
   }), "invalid_field", "r3");
 });
 
-test("parses rename and trash requests", () => {
+test("parses rename, archive and trash requests", () => {
   const groupId = "00000000-0000-4000-8000-000000000000";
   assert.deepEqual(
     parseBrowserRequest(JSON.stringify({ type: "group.rename", requestId: "r1", groupId, title: "plan" })),
@@ -182,7 +182,13 @@ test("parses rename and trash requests", () => {
     parseBrowserRequest(JSON.stringify({ type: "group.pin", requestId: "r2", groupId, pinned: true })),
     { type: "group.pin", requestId: "r2", groupId, pinned: true },
   );
-  for (const type of ["groups.trash", "groups.restore", "groups.purge"]) {
+  for (const type of [
+    "groups.archive",
+    "groups.unarchive",
+    "groups.trash",
+    "groups.restore",
+    "groups.purge",
+  ]) {
     assert.deepEqual(
       parseBrowserRequest(JSON.stringify({ type, requestId: "r2", groupIds: [groupId] })),
       { type, requestId: "r2", groupIds: [groupId] },

@@ -32,6 +32,7 @@ test("groups and transcripts preserve frozen member identity after reopening", a
   const group = await store.create(NEW_GROUP);
   assert.equal(group.updatedAt, Date.parse(group.createdAt));
   assert.equal(group.pinned, false);
+  assert.equal(group.archived, false);
   assert.equal(group.usageAgent, null);
   assert.deepEqual(group.members, ["claude", "codex"]);
   assert.deepEqual(group.agents, {
@@ -133,6 +134,22 @@ test("version 2 groups written before pinning default to unpinned", async (t) =>
   saved.group.pinned = "yes";
   await writeFile(groupFile, JSON.stringify(saved));
   await assert.rejects(GroupStore.open(directory), /pinned 不对/u);
+});
+
+test("version 2 groups written before archiving default to active", async (t) => {
+  const directory = await scratch(t);
+  const store = await GroupStore.open(directory);
+  const group = await store.create(NEW_GROUP);
+  const groupFile = path.join(directory, "groups", group.id, "group.json");
+  const saved = JSON.parse(await readFile(groupFile, "utf8"));
+  delete saved.group.archived;
+  await writeFile(groupFile, JSON.stringify(saved));
+
+  assert.equal((await GroupStore.open(directory)).get(group.id)?.archived, false);
+
+  saved.group.archived = "yes";
+  await writeFile(groupFile, JSON.stringify(saved));
+  await assert.rejects(GroupStore.open(directory), /archived 不对/u);
 });
 
 test("usageAgent defaults to off, rejects bad types and drops non-members", async (t) => {

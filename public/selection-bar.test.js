@@ -62,7 +62,12 @@ function remoteViews() {
 function groupViews() {
   return {
     active: { actions: [
+      { id: "archive", label: "归档", resultLabel: "归档", icon: "archive" },
       { id: "trash-active", label: "删除", resultLabel: "删除", icon: "delete", danger: true, retention: true },
+    ] },
+    archived: { actions: [
+      { id: "unarchive", label: "取消归档", resultLabel: "取消归档", icon: "unarchive" },
+      { id: "trash-archived", label: "删除", resultLabel: "删除", icon: "delete", danger: true, retention: true },
     ] },
     trash: { actions: [
       { id: "restore-trash", label: "恢复", resultLabel: "恢复", icon: "restore" },
@@ -156,17 +161,21 @@ test("generates fixed buttons for both Remote and lanting parameter sets", () =>
     backLabel: "返回最近群会话",
     permanentDeleteDetail: "群聊中涉及的每个 CLI 会话原文一并删除",
   });
-  assert.equal(lanting.byId("selection-action-archive"), undefined);
+  assert.ok(lanting.byId("selection-action-archive"));
   assert.ok(lanting.byId("selection-action-trash-active"));
   assert.ok(lanting.byId("selection-action-delete-trash"));
   assert.equal(lanting.byId("selection-back-button").title, "返回最近群会话");
 });
 
-test("trash derives selection mode while ordinary views use the manual flag", () => {
+test("archive and trash derive selection mode while ordinary views use the manual flag", () => {
   const h = harness();
   assert.equal(h.controller.isSelecting(), false);
   h.controller.setManualSelection(true);
   assert.equal(h.controller.isSelecting(), true);
+  h.controller.setView("archived");
+  assert.equal(h.controller.isSelecting(), true);
+  assert.equal(h.byId("selection-back-button").hidden, false);
+  assert.equal(h.byId("selection-cancel-button").hidden, true);
   h.controller.setView("trash");
   assert.equal(h.controller.isSelecting(), true);
   assert.equal(h.byId("selection-back-button").hidden, false);
@@ -264,6 +273,18 @@ test("trash keeps only failed items selected and reports the first reason", asyn
   assert.deepEqual(h.notices, [{ message: "已完成 1 项，1 项失败：仍在删除", tone: "error" }]);
   assert.deepEqual(h.busyChanges, [true, false]);
   assert.equal(h.refreshes, 1);
+});
+
+test("archive keeps only failed items selected after an action", async () => {
+  const h = harness({ initialView: "archived" });
+  h.controller.reconcile([item("a"), item("b")]);
+  h.controller.toggle("a");
+  h.controller.toggle("b");
+  h.setResult({ succeeded: ["a"], failed: [{ id: "b", reason: "仍在处理" }] });
+  await h.controller.runAction("unarchive");
+
+  assert.equal(h.controller.isSelecting(), true);
+  assert.deepEqual(h.controller.selectedIds(), ["b"]);
 });
 
 test("ordinary-view success exits selection and uses the retention notice", async () => {

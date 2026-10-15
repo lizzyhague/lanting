@@ -105,6 +105,7 @@ export class GroupStore {
       createdAt: new Date(now).toISOString(),
       updatedAt: now,
       pinned: false,
+      archived: false,
       usageAgent: null,
       trashedAt: null,
       deletingAt: null,
@@ -241,6 +242,7 @@ function parseGroup(value: unknown, id: string): Group {
   }
   if (typeof group.updatedAt !== "number" || !Number.isFinite(group.updatedAt)) return fail("updatedAt 不对");
   if (group.pinned !== undefined && typeof group.pinned !== "boolean") fail("pinned 不对");
+  if (group.archived !== undefined && typeof group.archived !== "boolean") fail("archived 不对");
   if (group.usageAgent !== undefined && group.usageAgent !== null && typeof group.usageAgent !== "string") {
     fail("usageAgent 不对");
   }
@@ -256,6 +258,7 @@ function parseGroup(value: unknown, id: string): Group {
     createdAt: group.createdAt as string,
     updatedAt,
     pinned: group.pinned === true,
+    archived: group.archived === true,
     // 缺字段的旧群按关闭处理；成员里没有的也按关闭处理。
     usageAgent: typeof group.usageAgent === "string" && members.includes(group.usageAgent)
       ? group.usageAgent

@@ -170,7 +170,7 @@ export function createSelectionBar({
   cancelButton.addEventListener("click", () => setManualSelection(false));
 
   function selecting() {
-    return view === "trash" || manualSelection;
+    return view === "archived" || view === "trash" || manualSelection;
   }
 
   function unavailable() {
@@ -191,8 +191,9 @@ export function createSelectionBar({
 
   function update() {
     container.hidden = !selecting();
-    backButton.hidden = view !== "trash";
-    cancelButton.hidden = view === "trash";
+    const fixedSelection = view === "archived" || view === "trash";
+    backButton.hidden = !fixedSelection;
+    cancelButton.hidden = fixedSelection;
     count.textContent = `已选择 ${selected.size} 项`;
 
     const selectAllItems = visibleSelectAllItems();
@@ -305,7 +306,7 @@ export function createSelectionBar({
       const rawResult = await executeAction(action.id, targets.map(getId), targets);
       if (rawResult?.cancelled === true) return rawResult;
       const result = normalizeResult(rawResult);
-      if (view === "trash") {
+      if (view === "archived" || view === "trash") {
         const failed = new Set(result.failed.map((failure) => failure.id));
         selected = new Map([...selected].filter(([id]) => failed.has(id)));
       } else {
