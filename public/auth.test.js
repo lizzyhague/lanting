@@ -62,6 +62,7 @@ function harness(fetch, search = "") {
       close() {}
     },
   });
+  context.setLoginStatus = (text) => { context.elements.loginStatus.textContent = text; };
   vm.runInContext(connectSource, context);
   return { context, sockets, actions };
 }

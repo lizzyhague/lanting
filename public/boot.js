@@ -10,6 +10,7 @@
 
   var startupTimer = window.setTimeout(function () {
     if (window.lantingClientReady === true) return;
+    status.dataset.tone = "error";
     status.textContent = "页面脚本未能启动，请刷新页面；如果仍然出现此提示，请更新浏览器。";
   }, 5000);
 

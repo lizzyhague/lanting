@@ -265,7 +265,7 @@ elements.tokenForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const token = elements.tokenInput.value.trim();
   if (token.length < 32) {
-    elements.loginStatus.textContent = "访问令牌至少需要 32 个字符。";
+    setLoginStatus("访问令牌至少需要 32 个字符。", true);
     return;
   }
   state.reconnectAllowed = true;
@@ -295,7 +295,7 @@ async function connect(token) {
 
   state.authenticated = false;
   elements.connectButton.disabled = true;
-  elements.loginStatus.textContent = "正在连接主机……";
+  setLoginStatus("正在连接主机……");
   setConnectionStatus("connecting", "正在连接");
 
   try {
@@ -319,7 +319,7 @@ async function connect(token) {
       state.reconnectAllowed = false;
       elements.connectButton.disabled = false;
       showLogin();
-      elements.loginStatus.textContent = token ? "访问令牌不正确。" : "请登录。";
+      setLoginStatus(token ? "访问令牌不正确。" : "请登录。", Boolean(token));
       return;
     }
     if (!response.ok) throw new Error("登录服务暂时不可用。");
@@ -334,7 +334,7 @@ async function connect(token) {
     }
   } catch (error) {
     if (generation !== state.generation) return;
-    elements.loginStatus.textContent = errorMessage(error);
+    setLoginStatus(errorMessage(error), true);
     elements.connectButton.disabled = false;
     setConnectionStatus("disconnected", "连接已断开");
     scheduleReconnect();
@@ -352,7 +352,7 @@ async function connect(token) {
   socket.addEventListener("open", async () => {
     if (generation !== state.generation) return;
     state.authenticated = true;
-    elements.loginStatus.textContent = "";
+    setLoginStatus("");
     elements.connectButton.disabled = false;
     showApp();
     setConnectionStatus("connecting", "正在恢复连接");
@@ -370,14 +370,14 @@ async function connect(token) {
       setConnectionStatus("connected", "已连接");
     } catch (error) {
       if (generation !== state.generation) return;
-      elements.loginStatus.textContent = errorMessage(error);
+      setLoginStatus(errorMessage(error), true);
       elements.connectButton.disabled = false;
     }
   });
 
   socket.addEventListener("error", () => {
     if (generation === state.generation && !state.authenticated) {
-      elements.loginStatus.textContent = "现在无法连接主机。";
+      setLoginStatus("现在无法连接主机。", true);
       elements.connectButton.disabled = false;
     }
   });
@@ -2659,6 +2659,13 @@ function showApp() {
 function setConnectionStatus(stateName, text) {
   elements.connectionStatus.dataset.state = stateName;
   elements.connectionStatus.textContent = text;
+}
+
+/** 登录卡片的状态行：提示和进行中用次要文字色，出错才用危险色。 */
+function setLoginStatus(text, isError = false) {
+  elements.loginStatus.textContent = text;
+  if (isError) elements.loginStatus.dataset.tone = "error";
+  else delete elements.loginStatus.dataset.tone;
 }
 
 function errorMessage(error) {

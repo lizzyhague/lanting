@@ -199,7 +199,7 @@ button.primary {
   display: block;
   margin: 1.3rem 0 0.4rem;
   font-size: 0.9rem;
-  color: var(--text-muted);
+  color: var(--text-mid);
 }
 
 .login-card input {
@@ -238,6 +238,11 @@ button.primary {
   min-height: 1.4em;
   margin-bottom: 0;
   color: var(--danger) !important;
+}
+
+/* 登录状态行平时是提示，只有出错时才用危险色。 */
+#login-status:not([data-tone=\"error\"]) {
+  color: var(--text-muted) !important;
 }
 
 /* ---------- 每个 AI 的主色 ---------- */
