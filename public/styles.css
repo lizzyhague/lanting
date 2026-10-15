@@ -5,11 +5,12 @@
   color: var(--text);
 
   /* 配色输入 */
-  --tint: #111214;
+  --neutral: #0f0f10;
   --theme: #ececef;
   --theme-ink: #111214;
 
   /* 共用混合比例 */
+  --mix-tint: 3%;
   --mix-surface-sunken: 65%;
   --mix-surface-page: 100%;
   --mix-surface-1: 96%;
@@ -32,6 +33,7 @@
   --mix-copy-success: 12%;
 
   /* 推导角色 */
+  --tint: color-mix(in srgb, var(--theme) var(--mix-tint), var(--neutral));
   --surface-sunken: color-mix(in srgb, var(--tint) var(--mix-surface-sunken), black);
   --surface-page: color-mix(in srgb, var(--tint) var(--mix-surface-page), black);
   --surface-1: color-mix(in srgb, var(--tint) var(--mix-surface-1), white);
