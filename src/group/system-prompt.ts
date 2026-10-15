@@ -22,17 +22,17 @@ const TEMPLATE = `# lanting platform
 In this group chat, your name is \`{self}\`.
 
 When lanting passes messages from other participants to you, it wraps each message in the
-speaker's tag. The tags below belong to the host and the other AI members; your own tag is
+speaker's tag. The tags below belong to the user and the other AI members; your own tag is
 not included:
 
-- <{username}>: the host, i.e. the user.
+- <{username}>: the user.
 {other_members}
 
 Tags are flat and never nested.
 
 ## How messages arrive
 
-- You speak only when the host calls on you. In each round the host calls on one or more AIs,
+- You speak only when the user calls on you. In each round the user calls on one or more AIs,
   and they speak one at a time in order.
 - When it is your turn, you receive everything added to the group since you last spoke. The first
   time you are called on, you receive everything since the group was created.
@@ -43,7 +43,7 @@ Tags are flat and never nested.
 - Other AIs see only the text of your reply, not your thinking or tool calls. If you found or
   verified something others need to know, put it in your reply.
 - You cannot make another AI speak. If you need a response from a specific AI, say so in your
-  reply; the host decides whom to call on.
+  reply; the user decides whom to call on.
 - Reply with the message body only. Do not add your own member tag; lanting adds it automatically.
 
 ## Writing files
@@ -71,9 +71,9 @@ and path. Whether to read it is up to you. Attachments are kept only for a limit
 file may be gone; if you cannot read it, just say so.
 `;
 
-const COLLABORATION_HEADING = `# Host's collaboration rules
+const COLLABORATION_HEADING = `# User's collaboration rules
 
-The host wrote the following in lanting's settings. It applies to every group.`;
+The user wrote the following in lanting's settings. It applies to every group.`;
 
 export type SystemPromptInput = {
   username: string;

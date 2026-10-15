@@ -172,11 +172,11 @@ test("rejects invalid rounds synchronously and only one round runs at a time", a
   await round.done;
 });
 
-test("system prompts list the host and the other members, not the agent itself", async (t) => {
+test("system prompts list the user and the other members, not the agent itself", async (t) => {
   const { adapters, runtime, groupId } = await setup(t);
   await runtime.startRound(groupId, "q", ["codex"]).done;
   const prompt = adapters.codex!.calls[0]!.options.systemPrompt;
-  assert.match(prompt, /- <host>: the host, i\.e\. the user\.\n- <claude>\n- <grok>\n/u);
+  assert.match(prompt, /- <host>: the user\.\n- <claude>\n- <grok>\n/u);
   assert.doesNotMatch(prompt, /<codex>/u);
   assert.equal(adapters.codex!.calls[0]!.options.cwd, "/work/demo");
 });
@@ -189,7 +189,7 @@ test("system prompts carry the collaboration setting read when the session opens
   t.after(() => runtime.shutdown());
   collaboration = "Say so when nothing is left to add.";
   await runtime.startRound(groupId, "q", ["claude"]).done;
-  assert.match(claude.calls[0]!.options.systemPrompt, /# Host's collaboration rules[\s\S]*Say so when nothing/u);
+  assert.match(claude.calls[0]!.options.systemPrompt, /# User's collaboration rules[\s\S]*Say so when nothing/u);
 });
 
 test("after a restart the group is still there and agents resume their native sessions", async (t) => {

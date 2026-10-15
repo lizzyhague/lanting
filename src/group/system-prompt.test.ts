@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { buildSystemPrompt } from "./system-prompt.ts";
 
-test("fills the host tag, the other members and the agent's own name", () => {
+test("fills the user tag, the other members and the agent's own name", () => {
   const prompt = buildSystemPrompt({
     username: "alice",
     self: "claude",
@@ -11,7 +11,7 @@ test("fills the host tag, the other members and the agent's own name", () => {
   });
   assert.match(prompt, /^In this group chat, your name is `claude`\.$/mu);
   assert.match(prompt, /your own tag is\nnot included:/u);
-  assert.match(prompt, /^- <alice>: the host, i\.e\. the user\.\n- <codex>\n- <grok>\n\nTags are flat/mu);
+  assert.match(prompt, /^- <alice>: the user\.\n- <codex>\n- <grok>\n\nTags are flat/mu);
   assert.doesNotMatch(prompt, /<claude>/u);
   assert.match(prompt, /^- Reply with the message body only\. Do not add your own member tag/mu);
   assert.doesNotMatch(prompt, /working directory/u);
@@ -28,7 +28,7 @@ test("fills the host tag, the other members and the agent's own name", () => {
 
 test("drops the member line when there are no other AIs", () => {
   const prompt = buildSystemPrompt({ username: "host", self: "claude", others: [] });
-  assert.match(prompt, /^- <host>: the host, i\.e\. the user\.\n\nTags are flat/mu);
+  assert.match(prompt, /^- <host>: the user\.\n\nTags are flat/mu);
 });
 
 test("does not expand placeholders that appear inside filled values", () => {
@@ -37,14 +37,14 @@ test("does not expand placeholders that appear inside filled values", () => {
   assert.match(prompt, /^- <\{username\}>$/mu);
 });
 
-test("appends the host's collaboration rules under their own heading", () => {
+test("appends the user's collaboration rules under their own heading", () => {
   const prompt = buildSystemPrompt({
     username: "host",
     self: "claude",
     others: [],
     collaboration: "\n  - Keep the first round short.\n\n",
   });
-  assert.match(prompt, /just say so\.\n\n# Host's collaboration rules\n\n[^\n]+\n\n- Keep the first round short\.\n$/u);
+  assert.match(prompt, /just say so\.\n\n# User's collaboration rules\n\n[^\n]+\n\n- Keep the first round short\.\n$/u);
 });
 
 test("omits the collaboration section when it is blank", () => {
