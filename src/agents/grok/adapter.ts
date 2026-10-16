@@ -352,13 +352,32 @@ function permissionOutcome(
   return option ? { outcome: "selected", optionId: option.optionId } : { outcome: "cancelled" };
 }
 
+/** 过程信息的细节依次取命令、路径类参数、搜索词。 */
+const DETAIL_KEYS = [
+  "command",
+  "path",
+  "file_path",
+  "target_file",
+  "target_directory",
+  "filename",
+  "output_file",
+  "uri",
+  "resource_uri",
+  "href",
+  "url",
+  "pattern",
+  "query",
+  "keyword",
+  "keywords",
+];
+
 /** 把 ACP 的 tool_call 缩成一行过程信息。 */
 export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool"; toolName: string; detail: string } | null {
   const toolKind = typeof toolCall.kind === "string" ? toolCall.kind : "";
   if (toolKind === "think") return null;
   const title = typeof toolCall.title === "string" && toolCall.title.trim() ? toolCall.title.trim() : "";
   const input = objectField(toolCall.rawInput);
-  const detail = ["command", "path", "file_path", "pattern", "query", "url"]
+  const detail = DETAIL_KEYS
     .map((key) => input[key])
     .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? "";
   return {

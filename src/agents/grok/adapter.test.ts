@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import type { AgentEvent, ApprovalAsk, SessionOptions } from "../types.ts";
-import { GrokAdapter } from "./adapter.ts";
+import { GrokAdapter, toolActivity } from "./adapter.ts";
 
 /** 假的 `grok agent stdio`：一轮里先说一句过渡的话、调一个要审批的工具，再给最终回答。 */
 const FAKE_GROK = `#!/usr/bin/env node
@@ -163,4 +163,22 @@ test("deleting a Grok session removes its directory under any session group", as
   await adapter.features.deleteSession!("grok-1", grokHome);
   await assert.rejects(adapter.features.deleteSession!("../grok-2", grokHome), /格式不对/u);
   assert.ok((await stat(otherDir)).isDirectory());
+});
+
+test("Grok tool activity shows the path for read_file, list_dir and grep", () => {
+  assert.deepEqual(toolActivity({ title: "read_file", kind: "read", rawInput: { target_file: "/w/a.md" } }), {
+    kind: "tool",
+    toolName: "read_file",
+    detail: "/w/a.md",
+  });
+  assert.deepEqual(toolActivity({ title: "list_dir", kind: "read", rawInput: { target_directory: "/w" } }), {
+    kind: "tool",
+    toolName: "list_dir",
+    detail: "/w",
+  });
+  assert.deepEqual(toolActivity({ title: "grep", kind: "search", rawInput: { pattern: "todo", path: "/w" } }), {
+    kind: "tool",
+    toolName: "grep",
+    detail: "/w",
+  });
 });
