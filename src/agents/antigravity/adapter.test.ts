@@ -217,6 +217,7 @@ test("declares only the permission catalog", async () => {
 test("sends the group rules once in a new session and not after resume", async (t) => {
   const { adapter, cwd } = await setup(t);
   const session = await adapter.startSession(sessionOptions(cwd));
+  t.after(() => session.close());
   const nativeId = session.nativeId;
   assert.ok(nativeId);
 
@@ -231,6 +232,7 @@ test("sends the group rules once in a new session and not after resume", async (
   assert.equal(session.alive, false);
 
   const resumed = await adapter.resumeSession(nativeId, sessionOptions(cwd));
+  t.after(() => resumed.close());
   assert.equal(resumed.nativeId, nativeId);
   const events = await drain(resumed, "state");
   assert.equal(events.length, 2);
@@ -255,6 +257,7 @@ test("keeps tokens, TERM and BROWSER out of the server environment", async (t) =
     }
   });
   const session = await adapter.startSession(sessionOptions(cwd));
+  t.after(() => session.close());
   const state = JSON.parse(endOf(await drain(session, "state")).text) as { env: Record<string, boolean> };
   assert.deepEqual(state.env, { TERM: false, BROWSER: false, ACCESS_TOKEN: false, CLAUDE_CODE_OAUTH_TOKEN: false });
   await session.close();
@@ -269,6 +272,7 @@ test("asks the host and picks one-time options for commands", async (t) => {
   const { adapter, cwd } = await setup(t);
   const approvals: Approval[] = [];
   const session = await adapter.startSession(sessionOptions(cwd, "ask", approvals));
+  t.after(() => session.close());
   await drain(session, "warm up");
 
   for (const [decision, expected] of [["allow", "done:allow"], ["deny", "done:deny"]] as const) {
@@ -290,6 +294,7 @@ test("shows the command and its working directory on the approval card", async (
   const { adapter, cwd } = await setup(t);
   const approvals: Approval[] = [];
   const session = await adapter.startSession(sessionOptions(cwd, "ask", approvals));
+  t.after(() => session.close());
   const turn = drain(session, "tool");
   await waitFor(() => approvals.length > 0);
   assert.deepEqual(approvals[0]!.ask, { toolName: "bash", detail: `touch x.txt\n工作目录：${cwd}` });
@@ -302,6 +307,7 @@ test("handles edit approvals with only two options", async (t) => {
   const { adapter, cwd } = await setup(t);
   const approvals: Approval[] = [];
   const session = await adapter.startSession(sessionOptions(cwd, "ask", approvals));
+  t.after(() => session.close());
   for (const [decision, expected] of [["allow", "edit:allow"], ["deny", "edit:deny"]] as const) {
     const turn = drain(session, "edit");
     await waitFor(() => approvals.length > 0);
@@ -316,6 +322,7 @@ test("handles two approvals for the same command in one turn", async (t) => {
   const { adapter, cwd } = await setup(t);
   const approvals: Approval[] = [];
   const session = await adapter.startSession(sessionOptions(cwd, "ask", approvals));
+  t.after(() => session.close());
   const turn = drain(session, "retry");
   await waitFor(() => approvals.length > 0);
   assert.equal(approvals[0]!.ask.detail, "touch x.txt\n工作目录：/nonexistent/skills");
@@ -331,6 +338,7 @@ test("always-approve picks allow_once every time without asking", async (t) => {
   const { adapter, cwd } = await setup(t);
   const approvals: Approval[] = [];
   const session = await adapter.startSession(sessionOptions(cwd, "always-approve", approvals));
+  t.after(() => session.close());
   assert.equal(endOf(await drain(session, "tool")).text, "done:allow");
   assert.equal(endOf(await drain(session, "retry")).text, "done:allow,allow");
   assert.equal(endOf(await drain(session, "edit")).text, "edit:allow");
@@ -342,6 +350,7 @@ test("interrupt withdraws the approval and ends the turn as interrupted", async 
   const { adapter, cwd } = await setup(t);
   const approvals: Approval[] = [];
   const session = await adapter.startSession(sessionOptions(cwd, "ask", approvals));
+  t.after(() => session.close());
   await drain(session, "warm up");
   const turn = drain(session, "tool");
   await waitFor(() => approvals.length > 0);
@@ -359,6 +368,7 @@ test("close withdraws a pending approval and fails the turn", async (t) => {
   const { adapter, cwd } = await setup(t);
   const approvals: Approval[] = [];
   const session = await adapter.startSession(sessionOptions(cwd, "ask", approvals));
+  t.after(() => session.close());
   await drain(session, "warm up");
   const turn = drain(session, "tool");
   await waitFor(() => approvals.length > 0);
@@ -371,6 +381,7 @@ test("close withdraws a pending approval and fails the turn", async (t) => {
 test("does not report the SIGTERM stderr as the failure reason", async (t) => {
   const { adapter, cwd } = await setup(t);
   const session = await adapter.startSession(sessionOptions(cwd));
+  t.after(() => session.close());
   let started = false;
   const turn = drain(session, "stubborn", (event) => {
     if (event.type === "text") started = true;
@@ -387,6 +398,7 @@ test("does not report the SIGTERM stderr as the failure reason", async (t) => {
 test("maps other stop reasons, errors and crashes to failed", async (t) => {
   const { adapter, cwd } = await setup(t);
   const session = await adapter.startSession(sessionOptions(cwd));
+  t.after(() => session.close());
   await drain(session, "warm up");
   assert.deepEqual(endOf(await drain(session, "refuse")), {
     type: "end",
@@ -406,6 +418,7 @@ test("maps other stop reasons, errors and crashes to failed", async (t) => {
 test("rewrites auth_required into the login hint", async (t) => {
   const { adapter, cwd } = await setup(t);
   const session = await adapter.startSession(sessionOptions(cwd));
+  t.after(() => session.close());
   assert.deepEqual(endOf(await drain(session, "unauthorized")), {
     type: "end",
     outcome: "failed",
@@ -420,6 +433,7 @@ test("rewrites auth_required into the login hint", async (t) => {
 test("ends the turn at once when the server starts a browser login", async (t) => {
   const { adapter, cwd } = await setup(t);
   const session = await adapter.startSession(sessionOptions(cwd));
+  t.after(() => session.close());
   const end = endOf(await drain(session, "login"));
   assert.deepEqual(end, { type: "end", outcome: "failed", text: "thinking", error: LOGIN_REQUIRED_MESSAGE });
   await waitFor(() => !session.alive);
