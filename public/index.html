@@ -13,6 +13,7 @@
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icon-192.png">
     <link rel="manifest" href="/manifest.webmanifest">
+    <script src="/theme.js"></script>
     <link rel="stylesheet" href="/styles.css">
     <title>lanting</title>
   </head>
@@ -149,6 +150,15 @@
         <div class="settings-heading">
           <h2>设置</h2>
           <button id="settings-close-button" class="quiet small" type="button">关闭</button>
+        </div>
+        <div id="theme-setting" class="theme-setting">
+          <span id="theme-label" class="theme-label">外观</span>
+          <div id="theme-options" class="theme-options" role="group" aria-labelledby="theme-label">
+            <button class="small" type="button" data-theme-choice="system" aria-pressed="false">跟随系统</button>
+            <button class="small" type="button" data-theme-choice="light" aria-pressed="false">浅色</button>
+            <button class="small" type="button" data-theme-choice="dark" aria-pressed="false">深色</button>
+          </div>
+          <p class="member-note">只影响当前浏览器。</p>
         </div>
         <form id="username-form" class="username-form">
           <label for="username-input">用户名</label>

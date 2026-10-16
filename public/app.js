@@ -120,6 +120,8 @@ const elements = {
   collapseSidebarButton: byId("collapse-sidebar-button"),
   settingsDialog: byId("settings-dialog"),
   settingsCloseButton: byId("settings-close-button"),
+  themeSetting: byId("theme-setting"),
+  themeOptions: byId("theme-options"),
   usernameForm: byId("username-form"),
   usernameInput: byId("username-input"),
   usernameSaveButton: byId("username-save-button"),
@@ -2013,9 +2015,28 @@ elements.settingsButton.addEventListener("click", () => {
   elements.collaborationInput.removeAttribute("aria-invalid");
   elements.collaborationStatus.textContent = "";
   elements.settingsStatus.textContent = "";
+  renderThemeChoice();
   elements.settingsDialog.showModal();
   renderSettingsDialog();
   loadAvailableSettingsCatalogs();
+});
+
+// 外观只存在当前浏览器，由 theme.js 负责读写和应用；它没加载时不显示这一项。
+function renderThemeChoice() {
+  const theme = window.lantingTheme;
+  elements.themeSetting.hidden = !theme;
+  if (!theme) return;
+  const current = theme.get();
+  for (const button of elements.themeOptions.querySelectorAll("[data-theme-choice]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.themeChoice === current));
+  }
+}
+
+elements.themeOptions.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-theme-choice]");
+  if (!button || !window.lantingTheme) return;
+  window.lantingTheme.set(button.dataset.themeChoice);
+  renderThemeChoice();
 });
 
 elements.settingsCloseButton.addEventListener("click", () => {

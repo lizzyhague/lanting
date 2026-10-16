@@ -25,10 +25,11 @@ async function startServer(t: test.TestContext) {
   await writeFile(path.join(webRoot, "index.html"),
     '<!doctype html><html><head><script src="/app.js"></script></head><body>lanting</body></html>');
   await writeFile(path.join(webRoot, "view.html"),
-    '<!doctype html><html><head><script type="module" src="/viewer.js"></script><link href="/viewer.css" rel="stylesheet"></head></html>');
+    '<!doctype html><html><head><script src="/theme.js"></script><script type="module" src="/viewer.js"></script><link href="/viewer.css" rel="stylesheet"></head></html>');
   await writeFile(path.join(webRoot, "app.js"), "console.log('app');\n");
   await writeFile(path.join(webRoot, "agents.js"), "export const agents = [];\n");
   await writeFile(path.join(webRoot, "boot.js"), "");
+  await writeFile(path.join(webRoot, "theme.js"), "");
   await writeFile(path.join(webRoot, "confirm-dialog.js"), "");
   await writeFile(path.join(webRoot, "markdown.js"), "");
   await writeFile(path.join(webRoot, "notice.js"), "");
@@ -224,9 +225,11 @@ test("raw serves only caged Markdown and images with authentication and sandbox 
   const view = await (await fetch(`${base}/view?path=anything`)).text();
   assert.match(view, /\/assets\/[a-f0-9]{64}\/viewer\.js/u);
   assert.match(view, /\/assets\/[a-f0-9]{64}\/viewer\.css/u);
+  assert.match(view, /\/assets\/[a-f0-9]{64}\/theme\.js/u);
   for (const asset of [
     "/viewer.js",
     "/viewer.css",
+    "/theme.js",
     "/agents.js",
     "/confirm-dialog.js",
     "/notice.js",
