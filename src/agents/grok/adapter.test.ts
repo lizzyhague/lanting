@@ -108,6 +108,7 @@ test("a denied Grok permission selects the one-time reject option", async (t) =>
 test("interrupting a Grok turn ends it as interrupted and close stops the process", async (t) => {
   const { adapter, options } = await setup(t);
   const session = await adapter.resumeSession("grok-1", options);
+  t.after(() => session.close());
   const collected = collect(session.send("hang"));
   await new Promise((resolve) => setTimeout(resolve, 100));
   await session.interrupt();
