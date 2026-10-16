@@ -2279,7 +2279,7 @@ function colorPicker(agent, locked, invalid) {
       const swatch = document.createElement("button");
       swatch.type = "button";
       swatch.className = "settings-color-choice";
-      swatch.style.setProperty("--choice-color", choice.color);
+      paintAgent(swatch, choice.id);
       swatch.setAttribute("aria-label", choice.label);
       swatch.setAttribute("aria-pressed", String(agent.color === choice.id));
       swatch.disabled = locked || choice.disabled;
@@ -2674,8 +2674,13 @@ function memberColor(group, agent) {
 
 function paintAgent(element, colorId) {
   const color = paletteColor(state.palette, colorId);
-  if (color) element.style.setProperty("--agent", color);
-  else element.style.removeProperty("--agent");
+  if (color) {
+    element.style.setProperty("--agent-color", color);
+    element.dataset.palette = colorId;
+  } else {
+    element.style.removeProperty("--agent-color");
+    delete element.dataset.palette;
+  }
 }
 
 function showLogin() {

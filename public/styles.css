@@ -86,6 +86,74 @@
   --sidebar-width: clamp(260px, 20vw, 304px);
 }
 
+/* 浅色模式：只覆盖配色输入、比例和方向相反的公式，深色的值不动。 */
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+
+    --neutral: #f8f4ea;
+    --theme: #46464b;
+    --theme-ink: var(--neutral);
+    --ink: #1c1c1e;
+
+    --mix-tint: 0%;
+    --mix-surface-sunken: 95%;
+    --mix-surface-1: 97%;
+    --mix-surface-2: 50%;
+    --mix-surface-3: 92%;
+    --mix-border: 87%;
+    --mix-border-strong: 78%;
+    --mix-text: 6%;
+    --mix-text-mid: 26%;
+    --mix-text-muted: 42%;
+    --mix-danger: 80%;
+    --mix-success: 60%;
+    --mix-warning: 85%;
+    --mix-info: 85%;
+    --mix-bubble-ai: 10%;
+    --mix-permission: 14%;
+    --mix-copy-success: 16%;
+    --mix-bubble-user: 93%;
+
+    /* 往下凹的面混黑，往上浮的面混白；文字往墨色混。 */
+    --surface-sunken: color-mix(in srgb, var(--tint) var(--mix-surface-sunken), black);
+    --surface-1: color-mix(in srgb, var(--tint) var(--mix-surface-1), black);
+    --surface-2: color-mix(in srgb, var(--tint) var(--mix-surface-2), white);
+    --surface-3: color-mix(in srgb, var(--tint) var(--mix-surface-3), black);
+    --border: color-mix(in srgb, var(--tint) var(--mix-border), black);
+    --border-strong: color-mix(in srgb, var(--tint) var(--mix-border-strong), black);
+    --text: color-mix(in srgb, var(--tint) var(--mix-text), var(--ink));
+    --text-mid: color-mix(in srgb, var(--tint) var(--mix-text-mid), var(--ink));
+    --text-muted: color-mix(in srgb, var(--tint) var(--mix-text-muted), var(--ink));
+    --bubble-user: color-mix(in srgb, var(--tint) var(--mix-bubble-user), black);
+    --hover: rgb(0 0 0 / 4%);
+    --scrim: color-mix(in srgb, var(--surface-page) 40%, transparent);
+    --warning: color-mix(in srgb, #fcd34d var(--mix-warning), var(--text));
+    --info: color-mix(in srgb, #facc15 var(--mix-info), var(--text));
+    --shadow-sm: 8px rgb(0 0 0 / 8%);
+    --shadow-md: 44px rgb(0 0 0 / 10%);
+    --shadow-lg: 90px rgb(0 0 0 / 14%);
+  }
+
+  /* 成员色混入正文色的比例，12 色逐个写明；不写会继承外层成员的比例。 */
+  [data-palette="orange"] { --agent-mix: 0%; }
+  [data-palette="mint"] { --agent-mix: 40%; }
+  [data-palette="yellow"] { --agent-mix: 20%; }
+  [data-palette="blue"] { --agent-mix: 20%; }
+  [data-palette="pink"] { --agent-mix: 20%; }
+  [data-palette="teal"] { --agent-mix: 20%; }
+  [data-palette="lime"] { --agent-mix: 40%; }
+  [data-palette="lavender"] { --agent-mix: 30%; }
+  [data-palette="rose"] { --agent-mix: 20%; }
+  [data-palette="sky"] { --agent-mix: 30%; }
+  [data-palette="magenta"] { --agent-mix: 20%; }
+  [data-palette="ocean"] { --agent-mix: 10%; }
+
+  /* 个别成员色和底色同色相，气泡要单独加深；先在每个成员上清空，避免继承外层成员的值。 */
+  [data-agent] { --agent-bubble-mix: initial; }
+  [data-palette="yellow"] { --agent-bubble-mix: 20%; }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -263,9 +331,14 @@ button.primary {
 
 [data-agent] {
   --agent: var(--text-muted);
-  --bubble-ai: color-mix(in srgb, var(--agent) var(--mix-bubble-ai), var(--surface-2));
+  --bubble-ai: color-mix(in srgb, var(--agent) var(--agent-bubble-mix, var(--mix-bubble-ai)), var(--surface-2));
   --permission-fill: color-mix(in srgb, var(--agent) var(--mix-permission), var(--surface-2));
   --copy-success-fill: color-mix(in srgb, var(--agent) var(--mix-copy-success), var(--surface-2));
+}
+
+/* 12 色表里的颜色；浅色模式按 --agent-mix 混入正文色，深色模式原样使用。 */
+[data-palette] {
+  --agent: color-mix(in srgb, var(--text) var(--agent-mix, 0%), var(--agent-color));
 }
 
 .agent-dot {
@@ -885,7 +958,7 @@ button.icon-button svg {
 }
 
 .settings-color-choice {
-  background: var(--choice-color);
+  background: var(--agent);
   background-clip: content-box;
 }
 
