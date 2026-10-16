@@ -280,7 +280,7 @@ test("asks the host and picks one-time options for commands", async (t) => {
     assert.deepEqual(endOf(events), { type: "end", outcome: "completed", text: expected });
     assert.deepEqual(events.filter((event) => event.type === "activity").map((event) => event.activity), [
       { kind: "note", text: "Let me run it." },
-      { kind: "tool", toolName: "touch x.txt", detail: "" },
+      { kind: "tool", toolName: "bash", detail: "touch x.txt" },
     ]);
   }
   await session.close();
@@ -292,7 +292,7 @@ test("shows the command and its working directory on the approval card", async (
   const session = await adapter.startSession(sessionOptions(cwd, "ask", approvals));
   const turn = drain(session, "tool");
   await waitFor(() => approvals.length > 0);
-  assert.deepEqual(approvals[0]!.ask, { toolName: "touch x.txt", detail: `工作目录：${cwd}` });
+  assert.deepEqual(approvals[0]!.ask, { toolName: "bash", detail: `touch x.txt\n工作目录：${cwd}` });
   approvals[0]!.resolve({ decision: "allow", message: "" });
   await turn;
   await session.close();
@@ -318,10 +318,10 @@ test("handles two approvals for the same command in one turn", async (t) => {
   const session = await adapter.startSession(sessionOptions(cwd, "ask", approvals));
   const turn = drain(session, "retry");
   await waitFor(() => approvals.length > 0);
-  assert.equal(approvals[0]!.ask.detail, "工作目录：/nonexistent/skills");
+  assert.equal(approvals[0]!.ask.detail, "touch x.txt\n工作目录：/nonexistent/skills");
   approvals.shift()!.resolve({ decision: "allow", message: "" });
   await waitFor(() => approvals.length > 0);
-  assert.equal(approvals[0]!.ask.detail, `工作目录：${cwd}`);
+  assert.equal(approvals[0]!.ask.detail, `touch x.txt\n工作目录：${cwd}`);
   approvals.shift()!.resolve({ decision: "allow", message: "" });
   assert.equal(endOf(await turn).text, "done:allow,allow");
   await session.close();
@@ -437,11 +437,11 @@ test("reports a missing executable when opening a session", async () => {
   await assert.rejects(adapter.startSession(sessionOptions(tmpdir())), /无法启动 Antigravity/);
 });
 
-test("toolActivity uses the command or the file path", () => {
+test("toolActivity labels commands as bash and shows the command or the file path", () => {
   assert.deepEqual(toolActivity({ title: "ls -la", kind: "execute", rawInput: { CommandLine: "ls -la", Cwd: "/w" } }), {
     kind: "tool",
-    toolName: "ls -la",
-    detail: "",
+    toolName: "bash",
+    detail: "ls -la",
   });
   assert.deepEqual(toolActivity({ title: "Running view_file", kind: "read", rawInput: { absolute_path: "/w/a.md" } }), {
     kind: "tool",
