@@ -181,6 +181,7 @@ test("declares only the permission catalog", async () => {
 test("sends the group rules once in a new session and not after resume", async (t) => {
   const { adapter, cwd } = await setup(t);
   const session = await adapter.startSession(sessionOptions(cwd));
+  t.after(() => session.close());
   const nativeId = session.nativeId;
   assert.ok(nativeId);
 
@@ -196,6 +197,7 @@ test("sends the group rules once in a new session and not after resume", async (
 
   // 恢复：Cursor 重放的历史不进本轮，规则不再拼接。
   const resumed = await adapter.resumeSession(nativeId, sessionOptions(cwd));
+  t.after(() => resumed.close());
   assert.equal(resumed.nativeId, nativeId);
   const events = await drain(resumed, "state");
   assert.equal(events.length, 2);
@@ -218,6 +220,7 @@ test("asks the host and picks one-time options", async (t) => {
   const { adapter, cwd } = await setup(t);
   const approvals: Approval[] = [];
   const session = await adapter.startSession(sessionOptions(cwd, "ask", approvals));
+  t.after(() => session.close());
   await drain(session, "warm up");
 
   for (const [decision, expected] of [["allow", "done:allow-once"], ["deny", "done:reject-once"]] as const) {
@@ -239,6 +242,7 @@ test("passes the tool and Cursor's reason to the approval card", async (t) => {
   const { adapter, cwd } = await setup(t);
   const approvals: Approval[] = [];
   const session = await adapter.startSession(sessionOptions(cwd, "ask", approvals));
+  t.after(() => session.close());
   await drain(session, "warm up");
   const turn = drain(session, "tool");
   await waitFor(() => approvals.length > 0);
@@ -252,6 +256,7 @@ test("always-approve picks allow-once without asking", async (t) => {
   const { adapter, cwd } = await setup(t);
   const approvals: Approval[] = [];
   const session = await adapter.startSession(sessionOptions(cwd, "always-approve", approvals));
+  t.after(() => session.close());
   await drain(session, "warm up");
   assert.equal(endOf(await drain(session, "tool")).text, "done:allow-once");
   assert.equal(approvals.length, 0);
@@ -262,6 +267,7 @@ test("interrupt withdraws the approval and ends the turn as interrupted", async 
   const { adapter, cwd } = await setup(t);
   const approvals: Approval[] = [];
   const session = await adapter.startSession(sessionOptions(cwd, "ask", approvals));
+  t.after(() => session.close());
   await drain(session, "warm up");
   const turn = drain(session, "tool");
   await waitFor(() => approvals.length > 0);
@@ -279,6 +285,7 @@ test("close withdraws a pending approval and fails the turn", async (t) => {
   const { adapter, cwd } = await setup(t);
   const approvals: Approval[] = [];
   const session = await adapter.startSession(sessionOptions(cwd, "ask", approvals));
+  t.after(() => session.close());
   await drain(session, "warm up");
   const turn = drain(session, "tool");
   await waitFor(() => approvals.length > 0);
@@ -291,6 +298,7 @@ test("close withdraws a pending approval and fails the turn", async (t) => {
 test("question and plan requests are cancelled without blocking the turn", async (t) => {
   const { adapter, cwd } = await setup(t);
   const session = await adapter.startSession(sessionOptions(cwd));
+  t.after(() => session.close());
   await drain(session, "warm up");
   for (const [command, toolName] of [["question", "提问"], ["plan", "确认方案"]] as const) {
     const events = await drain(session, command);
@@ -304,6 +312,7 @@ test("question and plan requests are cancelled without blocking the turn", async
 test("maps other stop reasons, errors and crashes to failed", async (t) => {
   const { adapter, cwd } = await setup(t);
   const session = await adapter.startSession(sessionOptions(cwd));
+  t.after(() => session.close());
   await drain(session, "warm up");
   assert.deepEqual(endOf(await drain(session, "refuse")), {
     type: "end",

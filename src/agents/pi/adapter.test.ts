@@ -381,6 +381,7 @@ test("closing withdraws the web approval and stops the process", async (t) => {
   const aborted: string[] = [];
   const { adapter, options } = await setup(t, pendingApprover(aborted));
   const session = await adapter.startSession(options);
+  t.after(() => session.close());
   const collected = collect(session.send("hang_confirm"));
   await new Promise((resolve) => setTimeout(resolve, 100));
   await session.close();

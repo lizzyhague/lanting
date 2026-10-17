@@ -322,7 +322,7 @@ function isAuthRequired(error: unknown): boolean {
 }
 
 /**
- * 把 ACP 的 tool_call 缩成一行过程信息。执行类的标题就是命令；
+ * 把 ACP 的 tool_call 缩成一行过程信息。执行类的标题就是命令，工具名统一写成 bash，命令放进细节；
  * 编辑、读取类的标题是 "Run create_file?" 这类说明，路径在 rawInput 或 locations 里。
  */
 export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool"; toolName: string; detail: string } {
@@ -334,6 +334,9 @@ export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool";
     ...["CommandLine", "TargetFile", "absolute_path", "file_path", "path"].map((key) => input[key]),
     objectField(locations[0]).path,
   ].find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? "";
+  if (toolKind === "execute") {
+    return { kind: "tool", toolName: "bash", detail: (detail || title).replaceAll(/\s+/gu, " ").trim().slice(0, 240) };
+  }
   return {
     kind: "tool",
     toolName: (title || toolKind || "工具").slice(0, 120),
