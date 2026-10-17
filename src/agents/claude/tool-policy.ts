@@ -59,10 +59,10 @@ export async function decideToolUse(policy: ToolPolicyInput): Promise<ToolDecisi
     (typeof policy.input.command === "string" && commandDumpsEnvironment(policy.input.command)) ||
     await targetsSensitiveFile(policy.toolName, policy.input, policy.cwd)
   ) {
-    return { behavior: "deny", message: "本服务不会允许工具读取秘密文件或令牌。" };
+    return { behavior: "deny", message: "This service never lets tools read secret files or tokens." };
   }
   if (isReadOnlyTool(policy.toolName)) {
-    return { behavior: "allow", reason: "只读工具按规格直接放行。" };
+    return { behavior: "allow", reason: "Read-only tools are allowed by policy." };
   }
   return { behavior: "ask" };
 }
@@ -80,7 +80,7 @@ export function createPreToolUseHook(
 ): HookCallback {
   return async (input) => {
     if (input.hook_event_name !== "PreToolUse") {
-      return { continue: false, stopReason: "无法确认工具调用来源。" };
+      return { continue: false, stopReason: "The origin of the tool call cannot be confirmed." };
     }
     const decision = await decideToolUse({
       toolName: input.tool_name,
@@ -94,7 +94,7 @@ export function createPreToolUseHook(
         permissionDecision: decision.behavior === "deny" ? "deny" : "ask",
         permissionDecisionReason: decision.behavior === "deny"
           ? decision.message
-          : "交给宿主的权限策略确认。",
+          : "Deferring to the host permission policy.",
       },
     };
   };

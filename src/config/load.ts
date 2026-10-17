@@ -21,28 +21,28 @@ export async function loadConfig(configPath: string): Promise<AppConfig> {
   try {
     source = await readFile(configPath, "utf8");
   } catch (error) {
-    throw new Error(`无法读取配置文件：${configPath}`, { cause: error });
+    throw new Error(`Cannot read the config file: ${configPath}`, { cause: error });
   }
 
   let value: unknown;
   try {
     value = JSON.parse(source);
   } catch (error) {
-    throw new Error(`配置文件不是有效 JSON：${configPath}`, { cause: error });
+    throw new Error(`The config file is not valid JSON: ${configPath}`, { cause: error });
   }
   if (!isObject(value)) {
-    throw new Error("配置文件顶层必须是 JSON 对象。");
+    throw new Error("The config file must contain a JSON object.");
   }
 
   const configuredRoot = expandHome(requireString(value.projectRoot, "projectRoot"));
   if (!path.isAbsolute(configuredRoot)) {
-    throw new Error("projectRoot 必须是绝对路径或 ~/ 开头的路径。");
+    throw new Error("projectRoot must be an absolute path or start with ~/.");
   }
   const projectRoot = await realpath(configuredRoot).catch((error: unknown) => {
-    throw new Error(`项目根目录不存在：${configuredRoot}`, { cause: error });
+    throw new Error(`The project root does not exist: ${configuredRoot}`, { cause: error });
   });
   if (!(await stat(projectRoot)).isDirectory()) {
-    throw new Error(`项目根目录不是文件夹：${configuredRoot}`);
+    throw new Error(`The project root is not a directory: ${configuredRoot}`);
   }
 
   const agents: AppConfig["agents"] = {};
@@ -58,7 +58,7 @@ export async function loadConfig(configPath: string): Promise<AppConfig> {
 }
 
 function requireObject(value: unknown, label: string): Record<string, unknown> {
-  if (!isObject(value)) throw new Error(`${label} 必须是 JSON 对象。`);
+  if (!isObject(value)) throw new Error(`${label} must be a JSON object.`);
   return value;
 }
 

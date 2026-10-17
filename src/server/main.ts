@@ -18,7 +18,7 @@ const DEFAULT_PORT = "3010";
 
 export async function main(): Promise<void> {
   const token = process.env.ACCESS_TOKEN;
-  if (!token || token.length < 32) throw new Error("请设置至少 32 个字符的 ACCESS_TOKEN。");
+  if (!token || token.length < 32) throw new Error("Set ACCESS_TOKEN to at least 32 characters.");
 
   const configPath = path.resolve(process.env.CONFIG_PATH ?? "config.json");
   const config = await loadConfig(configPath);
@@ -55,8 +55,8 @@ export async function main(): Promise<void> {
 
   try {
     const address = await server.listen(readPort(process.env.PORT ?? DEFAULT_PORT));
-    console.log(`服务正在监听 http://${address.host}:${address.port}/`);
-    console.log(`已接入的 CLI：${agents.kinds.join("、") || "无"}`);
+    console.log(`Listening on http://${address.host}:${address.port}/`);
+    console.log(`Connected CLIs: ${agents.kinds.join(", ") || "none"}`);
     for (const adapter of adapters) adapter.start?.();
     runtime.startIdleSweeper();
     groups.startTrashSweeper();
@@ -72,7 +72,7 @@ export async function main(): Promise<void> {
 function readPort(source: string): number {
   const port = Number(source);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new Error("PORT 必须是 1 到 65535 之间的整数。");
+    throw new Error("PORT must be an integer from 1 to 65535.");
   }
   return port;
 }

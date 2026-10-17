@@ -88,7 +88,7 @@ export class ClaudeAdapter implements AgentAdapter {
       try {
         return { models: modelOptions(await runtime.listModels()), permissions: [...CLAUDE_PERMISSIONS] };
       } finally {
-        await runtime.close("模型列表已取到。");
+        await runtime.close("Model list fetched.");
       }
     });
   }
@@ -113,7 +113,7 @@ export class ClaudeAdapter implements AgentAdapter {
 }
 
 function asOwnSession(session: AgentSession): ClaudeSession {
-  if (!(session instanceof ClaudeSession)) throw new Error("会话不属于 Claude Code。");
+  if (!(session instanceof ClaudeSession)) throw new Error("The session does not belong to Claude Code.");
   return session;
 }
 
@@ -165,7 +165,7 @@ class ClaudeSession implements AgentSession {
 
   async *#run(text: string, expectCompaction: boolean): AsyncIterable<AgentEvent> {
     const runtime = this.#runtime;
-    if (!runtime || runtime.closed) throw new Error("Claude Code 运行时已关闭。");
+    if (!runtime || runtime.closed) throw new Error("The Claude Code runtime is closed.");
     const channel = new EventChannel<AgentEvent>();
     this.#channel = channel;
     this.#pending = "";
@@ -184,7 +184,7 @@ class ClaudeSession implements AgentSession {
   async compact(): Promise<void> {
     for await (const event of this.#run("/compact", true)) {
       if (event.type !== "end") continue;
-      if (event.outcome !== "completed") throw new Error(event.error ?? "压缩被打断了。");
+      if (event.outcome !== "completed") throw new Error(event.error ?? "Compaction was interrupted.");
     }
   }
 
@@ -194,19 +194,19 @@ class ClaudeSession implements AgentSession {
    */
   async usage(): Promise<UsagePart[]> {
     const runtime = this.#runtime;
-    if (!runtime || runtime.closed) throw new Error("Claude Code 运行时已关闭。");
+    if (!runtime || runtime.closed) throw new Error("The Claude Code runtime is closed.");
     const context = await runtime.getContextUsage();
     let usage: SDKControlGetUsageResponse | null = null;
     try {
       usage = await runtime.getUsage();
     } catch (error) {
-      console.error(`读取 Claude Code 套餐额度失败：${error instanceof Error ? error.message : String(error)}`);
+      console.error(`Reading the Claude Code plan quota failed: ${error instanceof Error ? error.message : String(error)}`);
     }
     return usageParts(context, usage);
   }
 
   async close(): Promise<void> {
-    await this.#runtime?.close("会话已关闭。");
+    await this.#runtime?.close("Session closed.");
   }
 
   #onEvent(event: RuntimeEvent): void {

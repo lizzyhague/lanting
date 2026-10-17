@@ -524,7 +524,7 @@ export class GroupService {
       if (result.status === "none") return;
       usage = result;
     } catch (error) {
-      console.error(`读取 ${agent} 的 usage 失败：${error instanceof Error ? error.message : String(error)}`);
+      console.error(`Reading usage for ${agent} failed: ${error instanceof Error ? error.message : String(error)}`);
       usage = { status: "unavailable" };
     }
     // Late result: discard it if the group was deleted, locked or moved to trash. A change of usageAgent doesn't matter; the result still belongs to this member.
@@ -641,7 +641,7 @@ export class GroupService {
       try {
         await this.#purge(group.id);
       } catch (error) {
-        console.error(`永久删除群 ${group.id} 失败：${error instanceof Error ? error.message : String(error)}`);
+        console.error(`Permanently deleting group ${group.id} failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
@@ -771,7 +771,7 @@ export class GroupService {
     const ownerId = randomUUID();
     const lease = await uploads.createLease(binding(group), ownerId, [...new Set(attachmentIds)]);
     const release = () => uploads.releaseLease(lease.leaseId, ownerId).catch((error: unknown) => {
-      console.error(`释放附件租约失败：${error instanceof Error ? error.message : String(error)}`);
+      console.error(`Releasing the attachment lease failed: ${error instanceof Error ? error.message : String(error)}`);
     });
     let started;
     try {
@@ -790,7 +790,7 @@ export class GroupService {
     }
     const renew = setInterval(() => {
       void uploads.renewLease(lease.leaseId, ownerId).catch((error: unknown) => {
-        console.error(`续期附件租约失败：${error instanceof Error ? error.message : String(error)}`);
+        console.error(`Renewing the attachment lease failed: ${error instanceof Error ? error.message : String(error)}`);
       });
     }, ATTACHMENT_LEASE_RENEW_INTERVAL_MS);
     renew.unref();
@@ -827,7 +827,7 @@ export class GroupService {
           this.#emit({ scope: "global", payload: { type: "group.updated", group: this.#summary(updated) } });
         }
       } catch (error) {
-        console.error(`群 ${groupId} 没有自动改名：${error instanceof Error ? error.message : String(error)}`);
+        console.error(`Automatic rename of group ${groupId} failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     return started;
@@ -995,7 +995,7 @@ export class GroupService {
       try {
         listener(event);
       } catch (error) {
-        console.error(`群事件处理出错：${error instanceof Error ? error.message : String(error)}`);
+        console.error(`Group event handler failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }

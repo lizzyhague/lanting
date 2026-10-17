@@ -265,7 +265,7 @@ test("keeps tokens, TERM and BROWSER out of the server environment", async (t) =
 
 test("fails to resume a session the server does not know", async (t) => {
   const { adapter, cwd } = await setup(t);
-  await assert.rejects(adapter.resumeSession("missing", sessionOptions(cwd)), /Antigravity session\/resume 失败：Session not found/);
+  await assert.rejects(adapter.resumeSession("missing", sessionOptions(cwd)), /Antigravity session\/resume failed: Session not found/);
 });
 
 test("asks the host and picks one-time options for commands", async (t) => {
@@ -404,13 +404,13 @@ test("maps other stop reasons, errors and crashes to failed", async (t) => {
     type: "end",
     outcome: "failed",
     text: "half",
-    error: "Antigravity 提前结束了这一轮（refusal）。",
+    error: "Antigravity ended the round early (refusal).",
   });
   const error = endOf(await drain(session, "error"));
   assert.equal(error.outcome, "failed");
   assert.match(error.error ?? "", /Upstream refused/);
   const crash = endOf(await drain(session, "crash"));
-  assert.deepEqual(crash, { type: "end", outcome: "failed", text: "before crash", error: "Antigravity 进程已退出。" });
+  assert.deepEqual(crash, { type: "end", outcome: "failed", text: "before crash", error: "The Antigravity process exited." });
   assert.equal(session.alive, false);
   await session.close();
 });
@@ -448,7 +448,7 @@ test("fails to open a session when the server starts a browser login", async (t)
 
 test("reports a missing executable when opening a session", async () => {
   const adapter = new AntigravityAdapter({ executable: "/nonexistent/agy_acp_server.par" });
-  await assert.rejects(adapter.startSession(sessionOptions(tmpdir())), /无法启动 Antigravity/);
+  await assert.rejects(adapter.startSession(sessionOptions(tmpdir())), /Cannot start Antigravity/);
 });
 
 test("toolActivity labels commands as bash and shows the command or the file path", () => {

@@ -24,7 +24,7 @@ export class ResidentAppServer {
   /** Warms up in the background; failures are only logged and must not stop lanting from starting. */
   start(): void {
     void this.#client().catch((error: unknown) => {
-      console.error(`Codex 常驻 app-server 启动失败：${errorMessage(error)}`);
+      console.error(`Starting the resident Codex app-server failed: ${errorMessage(error)}`);
     });
   }
 
@@ -43,7 +43,7 @@ export class ResidentAppServer {
   }
 
   #client(): Promise<AppServerClient> {
-    if (this.#closed) return Promise.reject(new Error("Codex 常驻 app-server 已关闭。"));
+    if (this.#closed) return Promise.reject(new Error("The resident Codex app-server is closed."));
     if (this.#ready) return this.#ready;
 
     const client = new AppServerClient({
@@ -59,7 +59,7 @@ export class ResidentAppServer {
       if (this.#closed || this.#started !== client) return;
       this.#started = null;
       this.#ready = null;
-      console.error("Codex 常驻 app-server 已退出；下次使用时会重新启动。");
+      console.error("The resident Codex app-server exited; it will restart on next use.");
     });
     return ready;
   }
@@ -72,7 +72,7 @@ export class ResidentAppServer {
         client.initialize(this.#options.initializeParams),
         new Promise<never>((_resolve, reject) => {
           timer = setTimeout(() => {
-            reject(new Error(`Codex 常驻 app-server 在 ${timeoutMs / 1_000} 秒内没有完成初始化。`));
+            reject(new Error(`The resident Codex app-server did not initialize within ${timeoutMs / 1_000} seconds.`));
           }, timeoutMs);
         }),
       ]);

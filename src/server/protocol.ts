@@ -103,20 +103,20 @@ export class ProtocolError extends Error {
 
 export function parseBrowserRequest(source: string): BrowserRequest {
   if (Buffer.byteLength(source, "utf8") > MAX_BROWSER_MESSAGE_BYTES) {
-    throw new ProtocolError("message_too_large", "消息太大。上限是 2 MiB。");
+    throw new ProtocolError("message_too_large", "The message is too large; the limit is 2 MiB.");
   }
 
   let value: unknown;
   try {
     value = JSON.parse(source);
   } catch {
-    throw new ProtocolError("invalid_json", "消息不是有效的 JSON。");
+    throw new ProtocolError("invalid_json", "The message is not valid JSON.");
   }
-  if (!isObject(value)) throw new ProtocolError("invalid_message", "消息必须是 JSON 对象。");
+  if (!isObject(value)) throw new ProtocolError("invalid_message", "The message must be a JSON object.");
 
-  const requestId = requireString(value.requestId, "请求 ID", null, 128);
+  const requestId = requireString(value.requestId, "Request ID", null, 128);
   if (typeof value.type !== "string") {
-    throw new ProtocolError("invalid_message", "消息缺少类型。", requestId);
+    throw new ProtocolError("invalid_message", "The message has no type.", requestId);
   }
 
   switch (value.type) {
@@ -127,47 +127,47 @@ export function parseBrowserRequest(source: string): BrowserRequest {
       return {
         type: "group.create",
         requestId,
-        directory: requireString(value.directory, "工作目录", requestId, 255),
-        members: requireAgentIdList(value.members, "成员", requestId),
-        title: optionalString(value.title, "群名", requestId, 200) ?? "",
+        directory: requireString(value.directory, "Directory", requestId, 255),
+        members: requireAgentIdList(value.members, "Members", requestId),
+        title: optionalString(value.title, "Title", requestId, 200) ?? "",
       };
     case "group.subscribe":
     case "group.unsubscribe":
     case "group.usage.refresh":
     case "round.interrupt":
-      return { type: value.type, requestId, groupId: requireUuid(value.groupId, "群 ID", requestId) };
+      return { type: value.type, requestId, groupId: requireUuid(value.groupId, "Group ID", requestId) };
     case "group.callOrder":
       return {
         type: "group.callOrder",
         requestId,
-        groupId: requireUuid(value.groupId, "群 ID", requestId),
-        order: requireTagList(value.order, "点名", requestId),
+        groupId: requireUuid(value.groupId, "Group ID", requestId),
+        order: requireTagList(value.order, "Order", requestId),
       };
     case "round.start": {
       // With attachments the message may be empty.
       const attachmentIds = value.attachmentIds === undefined ? [] : value.attachmentIds;
       if (!Array.isArray(attachmentIds) || attachmentIds.length > 100) {
-        throw new ProtocolError("invalid_field", "附件格式不对或过多。", requestId);
+        throw new ProtocolError("invalid_field", "Attachments are malformed or too many.", requestId);
       }
       return {
         type: "round.start",
         requestId,
-        groupId: requireUuid(value.groupId, "群 ID", requestId),
+        groupId: requireUuid(value.groupId, "Group ID", requestId),
         text: attachmentIds.length > 0
-          ? optionalString(value.text, "消息", requestId, MAX_MESSAGE_TEXT_LENGTH) ?? ""
-          : requireString(value.text, "消息", requestId, MAX_MESSAGE_TEXT_LENGTH),
-        order: requireTagList(value.order, "点名", requestId),
-        attachmentIds: attachmentIds.map((id) => requireUuid(id, "附件 ID", requestId)),
+          ? optionalString(value.text, "Text", requestId, MAX_MESSAGE_TEXT_LENGTH) ?? ""
+          : requireString(value.text, "Text", requestId, MAX_MESSAGE_TEXT_LENGTH),
+        order: requireTagList(value.order, "Order", requestId),
+        attachmentIds: attachmentIds.map((id) => requireUuid(id, "Attachment ID", requestId)),
       };
     }
     case "approval.respond": {
       if (value.decision !== "allow" && value.decision !== "deny") {
-        throw new ProtocolError("invalid_field", "审批结果只能是 allow 或 deny。", requestId);
+        throw new ProtocolError("invalid_field", "The approval decision must be allow or deny.", requestId);
       }
       return {
         type: "approval.respond",
         requestId,
-        approvalId: requireUuid(value.approvalId, "审批 ID", requestId),
+        approvalId: requireUuid(value.approvalId, "Approval ID", requestId),
         decision: value.decision,
       };
     }
@@ -175,75 +175,75 @@ export function parseBrowserRequest(source: string): BrowserRequest {
       return {
         type: "agent.catalog",
         requestId,
-        groupId: requireUuid(value.groupId, "群 ID", requestId),
+        groupId: requireUuid(value.groupId, "Group ID", requestId),
         agent: requireTag(value.agent, requestId),
       };
     case "agent.settings":
       return {
         type: "agent.settings",
         requestId,
-        groupId: requireUuid(value.groupId, "群 ID", requestId),
+        groupId: requireUuid(value.groupId, "Group ID", requestId),
         agent: requireTag(value.agent, requestId),
-        model: nullableSetting(value.model, "模型", requestId),
-        effort: nullableSetting(value.effort, "思考强度", requestId),
-        permission: nullableSetting(value.permission, "权限", requestId),
+        model: nullableSetting(value.model, "Model", requestId),
+        effort: nullableSetting(value.effort, "Effort", requestId),
+        permission: nullableSetting(value.permission, "Permission", requestId),
       };
     case "group.compact":
       return {
         type: "group.compact",
         requestId,
-        groupId: requireUuid(value.groupId, "群 ID", requestId),
-        agents: requireTagList(value.agents, "要压缩的 AI", requestId),
+        groupId: requireUuid(value.groupId, "Group ID", requestId),
+        agents: requireTagList(value.agents, "Agents to compact", requestId),
       };
     case "group.rename":
       return {
         type: "group.rename",
         requestId,
-        groupId: requireUuid(value.groupId, "群 ID", requestId),
-        title: requireString(value.title, "群名", requestId, 200),
+        groupId: requireUuid(value.groupId, "Group ID", requestId),
+        title: requireString(value.title, "Title", requestId, 200),
       };
     case "group.pin":
       if (typeof value.pinned !== "boolean") {
-        throw new ProtocolError("invalid_field", "钉住状态格式不对。", requestId);
+        throw new ProtocolError("invalid_field", "Pinned must be a boolean.", requestId);
       }
       return {
         type: "group.pin",
         requestId,
-        groupId: requireUuid(value.groupId, "群 ID", requestId),
+        groupId: requireUuid(value.groupId, "Group ID", requestId),
         pinned: value.pinned,
       };
     case "group.usage":
       return {
         type: "group.usage",
         requestId,
-        groupId: requireUuid(value.groupId, "群 ID", requestId),
+        groupId: requireUuid(value.groupId, "Group ID", requestId),
         agent: value.agent === null ? null : requireTag(value.agent, requestId),
       };
     case "attachment.ticket": {
       const size = value.expectedSize;
       if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) {
-        throw new ProtocolError("invalid_field", "文件大小不对。", requestId);
+        throw new ProtocolError("invalid_field", "The file size is invalid.", requestId);
       }
       return {
         type: "attachment.ticket",
         requestId,
-        groupId: requireUuid(value.groupId, "群 ID", requestId),
-        originalName: requireString(value.originalName, "文件名", requestId, 1_024),
-        declaredMime: optionalString(value.declaredMime, "文件类型", requestId, 255) ?? "",
+        groupId: requireUuid(value.groupId, "Group ID", requestId),
+        originalName: requireString(value.originalName, "File name", requestId, 1_024),
+        declaredMime: optionalString(value.declaredMime, "Declared MIME type", requestId, 255) ?? "",
         expectedSize: size,
       };
     }
     case "settings.username":
       // Empty strings also go to the backend, which gives the "can't be empty" explanation per the spec.
       if (typeof value.username !== "string" || value.username.length > 200) {
-        throw new ProtocolError("invalid_field", "用户名格式不对。", requestId);
+        throw new ProtocolError("invalid_field", "The username is malformed.", requestId);
       }
       return { type: "settings.username", requestId, username: value.username };
     case "settings.collaboration":
       if (typeof value.collaboration !== "string" || value.collaboration.length > MAX_COLLABORATION_LENGTH) {
         throw new ProtocolError(
           "invalid_field",
-          `群聊协作方式必须是字符串，上限是 ${MAX_COLLABORATION_LENGTH} 个字符。`,
+          `Collaboration rules must be a string of at most ${MAX_COLLABORATION_LENGTH} characters.`,
           requestId,
         );
       }
@@ -252,15 +252,15 @@ export function parseBrowserRequest(source: string): BrowserRequest {
       return { type: "settings.agent.add", requestId };
     case "settings.agent.update": {
       if (!("name" in value) && !("kind" in value) && !("color" in value)) {
-        throw new ProtocolError("invalid_field", "至少要修改一个 AI 字段。", requestId);
+        throw new ProtocolError("invalid_field", "At least one AI field must change.", requestId);
       }
       return {
         type: "settings.agent.update",
         requestId,
         agentId: requireAgentId(value.agentId, requestId),
-        ...("name" in value ? { name: looseString(value.name, "AI 名字", requestId, 200) } : {}),
-        ...("kind" in value ? { kind: looseNullableString(value.kind, "CLI 种类", requestId, 32) } : {}),
-        ...("color" in value ? { color: looseNullableString(value.color, "主色", requestId, 32) } : {}),
+        ...("name" in value ? { name: looseString(value.name, "AI name", requestId, 200) } : {}),
+        ...("kind" in value ? { kind: looseNullableString(value.kind, "CLI kind", requestId, 32) } : {}),
+        ...("color" in value ? { color: looseNullableString(value.color, "Color", requestId, 32) } : {}),
       };
     }
     case "settings.agent.remove":
@@ -269,7 +269,7 @@ export function parseBrowserRequest(source: string): BrowserRequest {
       return {
         type: "settings.agent.reorder",
         requestId,
-        order: requireAgentIdList(value.order, "AI 顺序", requestId),
+        order: requireAgentIdList(value.order, "AI order", requestId),
       };
     case "settings.catalog":
       return { type: "settings.catalog", requestId, agentId: requireAgentId(value.agentId, requestId) };
@@ -278,9 +278,9 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         type: "settings.defaults",
         requestId,
         agentId: requireAgentId(value.agentId, requestId),
-        model: nullableSetting(value.model, "模型", requestId),
-        effort: nullableSetting(value.effort, "思考强度", requestId),
-        permission: nullableSetting(value.permission, "权限", requestId),
+        model: nullableSetting(value.model, "Model", requestId),
+        effort: nullableSetting(value.effort, "Effort", requestId),
+        permission: nullableSetting(value.permission, "Permission", requestId),
       };
     case "groups.archive":
     case "groups.unarchive":
@@ -289,16 +289,16 @@ export function parseBrowserRequest(source: string): BrowserRequest {
     case "groups.purge": {
       const ids = value.groupIds;
       if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_BATCH_GROUPS) {
-        throw new ProtocolError("invalid_field", "要处理的群不能为空或过多。", requestId);
+        throw new ProtocolError("invalid_field", "The group list is empty or too long.", requestId);
       }
       return {
         type: value.type,
         requestId,
-        groupIds: ids.map((id) => requireUuid(id, "群 ID", requestId)),
+        groupIds: ids.map((id) => requireUuid(id, "Group ID", requestId)),
       };
     }
     default:
-      throw new ProtocolError("unknown_type", `不认识的消息类型：${value.type}`, requestId);
+      throw new ProtocolError("unknown_type", `Unknown message type: ${value.type}`, requestId);
   }
 }
 
@@ -309,7 +309,7 @@ function requireString(
   maxLength: number,
 ): string {
   if (typeof value !== "string" || !value || value.length > maxLength) {
-    throw new ProtocolError("invalid_field", `${label}不能为空或过长。`, requestId);
+    throw new ProtocolError("invalid_field", `${label} is empty or too long.`, requestId);
   }
   return value;
 }
@@ -322,33 +322,33 @@ function optionalString(
 ): string | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== "string" || value.length > maxLength) {
-    throw new ProtocolError("invalid_field", `${label}格式不对或过长。`, requestId);
+    throw new ProtocolError("invalid_field", `${label} is malformed or too long.`, requestId);
   }
   return value;
 }
 
 function requireUuid(value: unknown, label: string, requestId: string): string {
   if (typeof value !== "string" || !UUID_PATTERN.test(value)) {
-    throw new ProtocolError("invalid_field", `${label}格式不对。`, requestId);
+    throw new ProtocolError("invalid_field", `${label} is malformed.`, requestId);
   }
   return value;
 }
 
 function requireTag(value: unknown, requestId: string): string {
   if (typeof value !== "string" || !AGENT_NAME_PATTERN.test(value)) {
-    throw new ProtocolError("invalid_field", "AI 格式不对。", requestId);
+    throw new ProtocolError("invalid_field", "AI is malformed.", requestId);
   }
   return value;
 }
 
 function requireAgentId(value: unknown, requestId: string): string {
-  return requireUuid(value, "AI 内部 ID", requestId);
+  return requireUuid(value, "AI internal ID", requestId);
 }
 
 /** Specific name, kind and color rules are validated by the settings store, so errors land on the right field. */
 function looseString(value: unknown, label: string, requestId: string, maxLength: number): string {
   if (typeof value !== "string" || value.length > maxLength) {
-    throw new ProtocolError("invalid_field", `${label}格式不对或过长。`, requestId);
+    throw new ProtocolError("invalid_field", `${label} is malformed or too long.`, requestId);
   }
   return value;
 }
@@ -367,7 +367,7 @@ function looseNullableString(
 function nullableSetting(value: unknown, label: string, requestId: string): string | null {
   if (value === null) return null;
   if (typeof value !== "string" || !value || value.length > MAX_SETTING_LENGTH) {
-    throw new ProtocolError("invalid_field", `${label}格式不对。`, requestId);
+    throw new ProtocolError("invalid_field", `${label} is malformed.`, requestId);
   }
   return value;
 }
@@ -375,14 +375,14 @@ function nullableSetting(value: unknown, label: string, requestId: string): stri
 function requireTagList(value: unknown, label: string, requestId: string): string[] {
   if (!Array.isArray(value) || value.length > MAX_AGENTS ||
       !value.every((item) => typeof item === "string" && AGENT_NAME_PATTERN.test(item))) {
-    throw new ProtocolError("invalid_field", `${label}格式不对。`, requestId);
+    throw new ProtocolError("invalid_field", `${label} is malformed.`, requestId);
   }
   return [...value];
 }
 
 function requireAgentIdList(value: unknown, label: string, requestId: string): string[] {
   if (!Array.isArray(value) || value.length > MAX_AGENTS) {
-    throw new ProtocolError("invalid_field", `${label}格式不对。`, requestId);
+    throw new ProtocolError("invalid_field", `${label} is malformed.`, requestId);
   }
   return value.map((item) => requireUuid(item, label, requestId));
 }

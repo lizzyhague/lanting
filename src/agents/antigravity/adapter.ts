@@ -135,7 +135,7 @@ class AntigravitySession implements AgentSession {
       if (!turn) return;
       this.#finish(turn.interrupted
         ? { type: "end", outcome: "interrupted", text: turn.segment }
-        : { type: "end", outcome: "failed", text: turn.segment, error: "Antigravity 进程已退出。" });
+        : { type: "end", outcome: "failed", text: turn.segment, error: "The Antigravity process exited." });
     });
   }
 
@@ -178,8 +178,8 @@ class AntigravitySession implements AgentSession {
   }
 
   async *send(text: string): AsyncIterable<AgentEvent> {
-    if (!this.alive) throw new Error("Antigravity 进程已关闭。");
-    if (this.#turn) throw new Error("Antigravity 还在处理上一轮。");
+    if (!this.alive) throw new Error("The Antigravity process is closed.");
+    if (this.#turn) throw new Error("Antigravity is still handling the previous round.");
     const turn: Turn = { channel: new EventChannel<AgentEvent>(), segment: "", interrupted: false };
     this.#turn = turn;
     const prompt = this.#rulesPending ? firstMessage(this.#options.systemPrompt, text) : text;
@@ -192,7 +192,7 @@ class AntigravitySession implements AgentSession {
         } else if (stop === "end_turn") {
           this.#finish({ type: "end", outcome: "completed", text: turn.segment });
         } else {
-          this.#finish({ type: "end", outcome: "failed", text: turn.segment, error: `Antigravity 提前结束了这一轮（${stop}）。` });
+          this.#finish({ type: "end", outcome: "failed", text: turn.segment, error: `Antigravity ended the round early (${stop}).` });
         }
       },
       (error: unknown) => {

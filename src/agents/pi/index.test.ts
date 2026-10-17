@@ -13,8 +13,8 @@ test("validates the Pi executable when creating its adapter", async (t) => {
   await writeFile(executable, "#!/bin/sh\n", { mode: 0o700 });
 
   assert.equal((await piModule.create({ executable }, "agents.pi")).kind, "pi");
-  await assert.rejects(piModule.create({}, "agents.pi"), /必须是非空字符串/u);
-  await assert.rejects(piModule.create({ executable: "pi" }, "agents.pi"), /必须是绝对路径/u);
+  await assert.rejects(piModule.create({}, "agents.pi"), /must be a non-empty string/u);
+  await assert.rejects(piModule.create({ executable: "pi" }, "agents.pi"), /must be an absolute path/u);
   await chmod(executable, 0o600);
-  await assert.rejects(piModule.create({ executable }, "agents.pi"), /不存在或不可执行/u);
+  await assert.rejects(piModule.create({ executable }, "agents.pi"), /does not exist or is not executable/u);
 });

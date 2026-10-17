@@ -16,7 +16,7 @@ export class AgentRegistry {
 
   constructor(adapters: Iterable<AgentAdapter>) {
     for (const adapter of adapters) {
-      if (this.#adapters.has(adapter.kind)) throw new Error(`CLI 种类重复登记：${adapter.kind}`);
+      if (this.#adapters.has(adapter.kind)) throw new Error(`CLI kind registered twice: ${adapter.kind}`);
       this.#adapters.set(adapter.kind, adapter);
     }
   }
@@ -31,7 +31,7 @@ export class AgentRegistry {
 
   get(kind: AgentKind): AgentAdapter {
     const adapter = this.#adapters.get(kind);
-    if (!adapter) throw new Error(`没有登记这个 AI：${kind}`);
+    if (!adapter) throw new Error(`No adapter registered for ${kind}`);
     return adapter;
   }
 }

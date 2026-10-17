@@ -84,7 +84,7 @@ export class PiRpcClient extends EventEmitter {
     this.#process.stderr.on("error", () => {});
     // A failed launch (e.g. wrong path) emits only an error event, no exit.
     this.#process.on("error", (error) => {
-      this.#onExit({ code: null, signal: null, error: `无法启动 Pi：${error.message}` });
+      this.#onExit({ code: null, signal: null, error: `Cannot start Pi: ${error.message}` });
       markExited();
     });
     this.#process.on("exit", (code, signal) => {
@@ -110,7 +110,7 @@ export class PiRpcClient extends EventEmitter {
   /** Sends a command and waits for the response with the matching id; rejects with Pi's error when success is false. */
   request(type: string, fields: Record<string, unknown> = {}): Promise<unknown> {
     if (this.#closed || this.#exitInfo) {
-      return Promise.reject(new Error(this.#exitInfo ? exitMessage(this.#exitInfo, this.#stderrTail) : "Pi 已经关闭。"));
+      return Promise.reject(new Error(this.#exitInfo ? exitMessage(this.#exitInfo, this.#stderrTail) : "Pi is closed."));
     }
     const id = String(this.#nextId++);
     return new Promise((resolve, reject) => {
@@ -172,7 +172,7 @@ export class PiRpcClient extends EventEmitter {
   async close(): Promise<void> {
     if (!this.#closed) {
       this.#closed = true;
-      this.#failAll(new Error("Pi 已经关闭。"));
+      this.#failAll(new Error("Pi is closed."));
       if (!this.#process.stdin.destroyed) this.#process.stdin.end();
     }
     const pid = this.#process.pid;
@@ -214,11 +214,11 @@ export class PiRpcClient extends EventEmitter {
     try {
       record = JSON.parse(line);
     } catch {
-      this.emit("diagnostic", `Pi stdout 不是 JSON：${line.slice(0, 500)}`);
+      this.emit("diagnostic", `Pi stdout is not JSON: ${line.slice(0, 500)}`);
       return;
     }
     if (typeof record !== "object" || record === null || Array.isArray(record)) {
-      this.emit("diagnostic", `Pi stdout 不是 JSON 对象：${line.slice(0, 500)}`);
+      this.emit("diagnostic", `Pi stdout is not a JSON object: ${line.slice(0, 500)}`);
       return;
     }
     const message = record as Record<string, unknown>;
@@ -231,12 +231,12 @@ export class PiRpcClient extends EventEmitter {
       if (typeof message.id === "string" && typeof message.method === "string") {
         this.emit("ui", message as PiUiRequest);
       } else {
-        this.emit("diagnostic", `Pi 扩展 UI 请求缺少 id 或 method：${line.slice(0, 500)}`);
+        this.emit("diagnostic", `Pi extension UI request has no id or method: ${line.slice(0, 500)}`);
       }
       return;
     }
     if (!type) {
-      this.emit("diagnostic", `Pi stdout 记录缺少 type：${line.slice(0, 500)}`);
+      this.emit("diagnostic", `Pi stdout record has no type: ${line.slice(0, 500)}`);
       return;
     }
     this.emit("event", message as PiEvent);
@@ -247,7 +247,7 @@ export class PiRpcClient extends EventEmitter {
     const pending = id === null ? undefined : this.#pending.get(id);
     if (!pending || id === null) {
       // When the command JSON itself fails to parse, Pi answers with a parse response that has no id.
-      this.emit("diagnostic", `Pi 响应对不上命令：${line.slice(0, 500)}`);
+      this.emit("diagnostic", `Pi response matches no command: ${line.slice(0, 500)}`);
       return;
     }
     this.#pending.delete(id);
@@ -255,8 +255,8 @@ export class PiRpcClient extends EventEmitter {
       pending.resolve(message.data);
       return;
     }
-    const error = typeof message.error === "string" && message.error ? message.error : "未知错误";
-    pending.reject(new Error(`Pi 命令 ${pending.command} 失败：${error}`));
+    const error = typeof message.error === "string" && message.error ? message.error : "unknown error";
+    pending.reject(new Error(`Pi command ${pending.command} failed: ${error}`));
   }
 
   #onExit(exit: PiExit): void {
@@ -307,7 +307,7 @@ function exitMessage(exit: PiExit, stderrTail: string): string {
   if (exit.error) return exit.error;
   const status = exit.signal ?? exit.code ?? "unknown";
   const lastLine = stderrTail.trim().split("\n").at(-1)?.trim();
-  return `Pi 进程已退出（${status}）${lastLine ? `：${lastLine.slice(0, 300)}` : "。"}`;
+  return `The Pi process exited (${status})${lastLine ? `: ${lastLine.slice(0, 300)}` : "."}`;
 }
 
 function objectOf(value: unknown): Record<string, unknown> {

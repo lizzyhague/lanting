@@ -13,8 +13,8 @@ test("validates the Claude executable when creating its adapter", async (t) => {
   await writeFile(executable, "#!/bin/sh\n", { mode: 0o700 });
 
   assert.equal((await claudeModule.create({ executable }, "agents.claude")).kind, "claude");
-  await assert.rejects(claudeModule.create({}, "agents.claude"), /必须是非空字符串/u);
-  await assert.rejects(claudeModule.create({ executable: "claude" }, "agents.claude"), /必须是绝对路径/u);
+  await assert.rejects(claudeModule.create({}, "agents.claude"), /must be a non-empty string/u);
+  await assert.rejects(claudeModule.create({ executable: "claude" }, "agents.claude"), /must be an absolute path/u);
   await chmod(executable, 0o600);
-  await assert.rejects(claudeModule.create({ executable }, "agents.claude"), /不存在或不可执行/u);
+  await assert.rejects(claudeModule.create({ executable }, "agents.claude"), /does not exist or is not executable/u);
 });

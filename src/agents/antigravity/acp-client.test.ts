@@ -159,7 +159,7 @@ test("starts with --uid= and runs the handshake without authenticate", async (t)
 
 test("rejects a session/new result without a session id", async (t) => {
   const client = await setup(t);
-  await assert.rejects(client.sessionNew("/no-id"), /Antigravity 没有返回 session id/);
+  await assert.rejects(client.sessionNew("/no-id"), /Antigravity returned no session id/);
 });
 
 test("splits stdout only on LF and reassembles chunked records", async (t) => {
@@ -192,7 +192,7 @@ test("routes permission requests and answers unknown methods", async (t) => {
   client.respondPermission(901, { outcome: "selected", optionId: "allow" });
 
   assert.deepEqual(updates, []);
-  assert.ok(diagnostics.some((text) => text.includes("Antigravity 通知未处理") && text.includes("_antigravity/something_new")));
+  assert.ok(diagnostics.some((text) => text.includes("Unhandled Antigravity notification") && text.includes("_antigravity/something_new")));
 
   const answers = await client.request("answers", {}) as Array<Record<string, unknown>>;
   assert.deepEqual(answers, [
@@ -213,14 +213,14 @@ test("reports non-JSON stdout, stderr, stray responses and errors with their cod
   const diagnostics = collect<string>(client, "diagnostic");
   await assert.rejects(client.request("noise", {}), (error: unknown) => {
     assert.ok(error instanceof AntigravityRpcError);
-    assert.equal(error.message, "Antigravity noise 失败：Authentication required");
+    assert.equal(error.message, "Antigravity noise failed: Authentication required");
     assert.equal(error.code, AUTH_REQUIRED_CODE);
     assert.deepEqual(error.data, { message: "sign in" });
     return true;
   });
-  assert.ok(diagnostics.some((text) => text.includes("Antigravity stdout 不是 JSON：not json")));
-  assert.ok(diagnostics.some((text) => text.includes("Antigravity stdout 不是 JSON 对象：[1,2]")));
-  assert.ok(diagnostics.some((text) => text.includes("Antigravity 响应对不上请求") && text.includes("4242")));
+  assert.ok(diagnostics.some((text) => text.includes("Antigravity stdout is not JSON: not json")));
+  assert.ok(diagnostics.some((text) => text.includes("Antigravity stdout is not a JSON object: [1,2]")));
+  assert.ok(diagnostics.some((text) => text.includes("Antigravity response matches no request") && text.includes("4242")));
   // stderr and stdout are two pipes; arrival order isn't guaranteed.
   while (!diagnostics.some((text) => text.includes("Antigravity stderr：something on stderr"))) {
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -231,17 +231,17 @@ test("rejects pending requests with the exit status and stderr on crash", async 
   const client = await setup(t);
   const exits = collect<unknown>(client, "exit");
   const pending = client.request("hang", {});
-  const pendingRejected = assert.rejects(pending, /Antigravity 进程已退出（3）/);
-  await assert.rejects(client.request("crash", {}), /Antigravity 进程已退出（3）：fatal: server exploded/);
+  const pendingRejected = assert.rejects(pending, /The Antigravity process exited \(3\)/);
+  await assert.rejects(client.request("crash", {}), /The Antigravity process exited \(3\): fatal: server exploded/);
   await pendingRejected;
   assert.equal(client.alive, false);
   assert.deepEqual(exits, [{ code: 3, signal: null }]);
-  await assert.rejects(client.request("ping", {}), /Antigravity 进程已退出/);
+  await assert.rejects(client.request("ping", {}), /The Antigravity process exited/);
 });
 
 test("reports a missing executable instead of throwing", async () => {
   const client = new AntigravityAcpClient({ executable: "/nonexistent/agy_acp_server.par", cwd: tmpdir() });
-  await assert.rejects(client.initialize(), /无法启动 Antigravity/);
+  await assert.rejects(client.initialize(), /Cannot start Antigravity/);
   await client.close();
   assert.equal(client.alive, false);
 });
@@ -249,14 +249,14 @@ test("reports a missing executable instead of throwing", async () => {
 test("close ends pending requests and reaps the whole process group", async (t) => {
   const client = await setup(t);
   const { pid: childPid } = await client.request("spawn_child", {}) as { pid: number };
-  const pending = assert.rejects(client.request("hang", {}), /Antigravity 已经关闭/);
+  const pending = assert.rejects(client.request("hang", {}), /Antigravity is closed/);
   const groupId = client.pid!;
   await client.close();
   await pending;
   assert.equal(client.alive, false);
   assert.equal(groupExists(groupId), false);
   assert.throws(() => process.kill(childPid, 0), { code: "ESRCH" });
-  await assert.rejects(client.request("ping", {}), /Antigravity 已经关闭/);
+  await assert.rejects(client.request("ping", {}), /Antigravity is closed/);
 });
 
 test("close escalates to signals when the server ignores stdin EOF", async (t) => {

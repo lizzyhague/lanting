@@ -203,7 +203,7 @@ test("the resident Codex process restarts on the next catalog request after it e
   const { adapter, options, starts, crashOnModelList } = await setup(t);
   await adapter.features.permissions!(options.cwd);
   await writeFile(crashOnModelList, "");
-  await assert.rejects(adapter.features.models!(options.cwd), /退出/u);
+  await assert.rejects(adapter.features.models!(options.cwd), /exited/u);
   await adapter.features.models!(options.cwd);
   assert.equal((await readFile(starts, "utf8")).length, 2);
 });
@@ -212,7 +212,7 @@ test("a closed Codex adapter does not restart its resident process", async (t) =
   const { adapter, options, starts } = await setup(t);
   await adapter.features.models!(options.cwd);
   await adapter.close();
-  await assert.rejects(adapter.features.models!(options.cwd), /已关闭/u);
+  await assert.rejects(adapter.features.models!(options.cwd), /closed/u);
   assert.equal((await readFile(starts, "utf8")).length, 1);
 });
 

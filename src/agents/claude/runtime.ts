@@ -122,7 +122,7 @@ export class ClaudeRuntime {
       await runtime.#begin();
       return runtime;
     } catch (error) {
-      await runtime.close("Claude Code 运行时初始化失败。");
+      await runtime.close("Claude Code runtime initialization failed.");
       throw error;
     }
   }
@@ -192,25 +192,25 @@ export class ClaudeRuntime {
 
   /** Models actually available to the account. */
   async listModels(): Promise<ModelInfo[]> {
-    if (!this.#query) throw new Error("运行时尚未就绪。");
+    if (!this.#query) throw new Error("The runtime is not ready.");
     return this.#query.supportedModels();
   }
 
   /** Plan quota: an experimental SDK API whose fields may change. */
   async getUsage(): Promise<SDKControlGetUsageResponse> {
-    if (!this.#query) throw new Error("运行时尚未就绪。");
+    if (!this.#query) throw new Error("The runtime is not ready.");
     return this.#query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET();
   }
 
   async getContextUsage(): Promise<SDKControlGetContextUsageResponse> {
-    if (!this.#query) throw new Error("运行时尚未就绪。");
+    if (!this.#query) throw new Error("The runtime is not ready.");
     return this.#query.getContextUsage();
   }
 
   async #canUseTool(toolName: string, input: Record<string, unknown>): Promise<PermissionResult> {
     // Outside an active round, or while the round is being interrupted, no new tool calls are allowed.
     if (!this.#turn || this.#turn.interrupted) {
-      return { behavior: "deny", message: "当前没有进行中的发言，已拒绝这次工具调用。" };
+      return { behavior: "deny", message: "No reply is in progress, so this tool call was denied." };
     }
     if (this.#options.permissionMode === "bypassPermissions") return { behavior: "allow" };
     const answer = await this.#options.requestApproval({
@@ -219,7 +219,7 @@ export class ClaudeRuntime {
     });
     return answer.decision === "allow"
       ? { behavior: "allow" }
-      : { behavior: "deny", message: answer.message || "群主拒绝了这次工具调用。" };
+      : { behavior: "deny", message: answer.message || "The user denied this tool call." };
   }
 
   /**
@@ -227,8 +227,8 @@ export class ClaudeRuntime {
    * expectCompaction is for `/compact`: as in Relayu, it is sent as a round's internal message.
    */
   async startTurn(text: string, expectCompaction = false): Promise<void> {
-    if (this.closed) throw new Error("运行时已关闭。");
-    if (this.#turn) throw new Error("会话仍在处理上一轮。");
+    if (this.closed) throw new Error("The runtime is closed.");
+    if (this.#turn) throw new Error("The session is still handling the previous round.");
     this.#turn = {
       result: null,
       interrupted: false,
@@ -262,11 +262,11 @@ export class ClaudeRuntime {
 
     const receipt = await withTimeout(conversation.interrupt(), INTERRUPT_TIMEOUT_MS);
     if (!receipt.ok || (receipt.value?.still_queued?.length ?? 0) > 0) {
-      await this.close("打断未能确认，已关闭运行时。");
+      await this.close("The interrupt was not acknowledged; the runtime was closed.");
       return "closed";
     }
     if (!await this.#waitForTurnEnd(INTERRUPT_TIMEOUT_MS)) {
-      await this.close("打断后未回到空闲，已关闭运行时。");
+      await this.close("The session did not return to idle after the interrupt; the runtime was closed.");
       return "closed";
     }
     return "interrupted";
@@ -289,7 +289,7 @@ export class ClaudeRuntime {
       // The read loop ending only means stdout hit EOF; it doesn't mean the process exited, let alone its children.
       await this.#readLoop.catch(() => undefined);
       this.#exitConfirmed = processGroup === null || await processGroup.terminate();
-      if (!this.#exitConfirmed) console.error(`Claude Code 进程未确认退出（${this.#options.sessionId}）。`);
+      if (!this.#exitConfirmed) console.error(`Claude Code process exit not confirmed (${this.#options.sessionId}).`);
       this.#finishTurn(this.#forcedOutcome ?? { status: "interrupted" });
       this.#options.onEvent({ type: "closed", reason });
     })();
@@ -300,11 +300,11 @@ export class ClaudeRuntime {
     try {
       for await (const message of conversation) this.#handle(message);
       if (!this.#closePromise) {
-        this.#forcedOutcome = { status: "failed", message: "Claude Code 运行时已退出。" };
-        void this.close("Claude Code 运行时已退出。");
+        this.#forcedOutcome = { status: "failed", message: "The Claude Code runtime exited." };
+        void this.close("The Claude Code runtime exited.");
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Claude Code 运行时读取失败。";
+      const message = error instanceof Error ? error.message : "Reading from the Claude Code runtime failed.";
       // The stderr tail goes only to server logs; it may contain absolute paths, so it isn't sent to the browser.
       const stderrTail = this.#closePromise ? "" : this.#processGroup?.stderrTail.trim();
       if (stderrTail) console.error(`Claude Code stderr（${this.#options.sessionId}）：${stderrTail}`);
@@ -356,7 +356,7 @@ export class ClaudeRuntime {
       // result doesn't mean the session is idle; keep waiting for idle. The watchdog is only a fallback.
       this.#clearWatchdog();
       this.#idleWatchdog = setTimeout(() => {
-        const text = "本轮结束后没有等到会话回到空闲状态。";
+        const text = "The session did not return to idle after the round.";
         this.#forcedOutcome = { status: "failed", message: text };
         void this.close(text);
       }, IDLE_WATCHDOG_MS);
@@ -427,7 +427,7 @@ class InputQueue {
   #started = false;
 
   push(message: SDKUserMessage): Promise<void> {
-    if (this.#closed) return Promise.reject(new Error("输入队列已关闭。"));
+    if (this.#closed) return Promise.reject(new Error("The input queue is closed."));
     return new Promise<void>((resolve, reject) => {
       this.#items.push({ message, handOver: resolve, fail: reject });
       this.#notify?.();
@@ -436,14 +436,14 @@ class InputQueue {
 
   close(): void {
     this.#closed = true;
-    const error = new Error("输入队列已关闭。");
+    const error = new Error("The input queue is closed.");
     for (const item of this.#items.splice(0)) item.fail(error);
     this.#notify?.();
   }
 
   /** Only one read loop may ever exist; a second one would get half the messages each, showing up as randomly lost messages. */
   async *stream(): AsyncGenerator<SDKUserMessage> {
-    if (this.#started) throw new Error("输入队列只能被迭代一次。");
+    if (this.#started) throw new Error("The input queue can only be iterated once.");
     this.#started = true;
     while (!this.#closed) {
       const item = this.#items.shift();
@@ -465,25 +465,25 @@ class InputQueue {
 /** Explicit failure wins; in short sessions result may still be success, so compaction's own signal must be checked. */
 function compactionOutcome(turn: Turn): TurnOutcome {
   if (turn.compactResult === "failed") {
-    return { status: "failed", message: turn.compactError || "Claude Code 未能压缩上下文。" };
+    return { status: "failed", message: turn.compactError || "Claude Code could not compact the context." };
   }
   if (turn.compactBoundary || turn.compactResult === "success") return { status: "completed" };
-  return { status: "failed", message: "这一轮结束了，但没有确认压缩成功。" };
+  return { status: "failed", message: "The round ended without confirming that compaction succeeded." };
 }
 
 function outcomeOf(result: SDKResultMessage, interrupted: boolean): TurnOutcome {
   if (interrupted) return { status: "interrupted" };
   if (result.subtype === "success") {
     return result.is_error
-      ? { status: "failed", message: result.result || "Claude 未能完成回答。" }
+      ? { status: "failed", message: result.result || "Claude could not finish the answer." }
       : { status: "completed" };
   }
   if (result.errors.length > 0) return { status: "failed", message: result.errors.join("；") };
   const labels: Record<typeof result.subtype, string> = {
-    error_during_execution: "Claude 执行时发生错误。",
-    error_max_turns: "本轮已达到最大步骤数。",
-    error_max_budget_usd: "本轮已达到费用上限。",
-    error_max_structured_output_retries: "结构化输出重试次数已用完。",
+    error_during_execution: "Claude hit an error during execution.",
+    error_max_turns: "The round reached the maximum number of turns.",
+    error_max_budget_usd: "The round reached the budget limit.",
+    error_max_structured_output_retries: "Structured output retries are exhausted.",
   };
   return { status: "failed", message: labels[result.subtype] };
 }

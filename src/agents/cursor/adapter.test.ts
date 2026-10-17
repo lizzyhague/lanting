@@ -213,7 +213,7 @@ test("sends the group rules once in a new session and not after resume", async (
 
 test("fails to resume a session Cursor does not know", async (t) => {
   const { adapter, cwd } = await setup(t);
-  await assert.rejects(adapter.resumeSession("missing", sessionOptions(cwd)), /Cursor session\/load 失败：Session not found/);
+  await assert.rejects(adapter.resumeSession("missing", sessionOptions(cwd)), /Cursor session\/load failed: Session not found/);
 });
 
 test("asks the host and picks one-time options", async (t) => {
@@ -318,20 +318,20 @@ test("maps other stop reasons, errors and crashes to failed", async (t) => {
     type: "end",
     outcome: "failed",
     text: "half",
-    error: "Cursor 提前结束了这一轮（refusal）。",
+    error: "Cursor ended the round early (refusal).",
   });
   const error = endOf(await drain(session, "error"));
   assert.equal(error.outcome, "failed");
   assert.match(error.error ?? "", /Upstream refused/);
   const crash = endOf(await drain(session, "crash"));
-  assert.deepEqual(crash, { type: "end", outcome: "failed", text: "before crash", error: "Cursor 进程已退出。" });
+  assert.deepEqual(crash, { type: "end", outcome: "failed", text: "before crash", error: "The Cursor process exited." });
   assert.equal(session.alive, false);
   await session.close();
 });
 
 test("reports a missing executable when opening a session", async () => {
   const adapter = new CursorAdapter({ executable: "/nonexistent/agent" });
-  await assert.rejects(adapter.startSession(sessionOptions(tmpdir())), /无法启动 Cursor/);
+  await assert.rejects(adapter.startSession(sessionOptions(tmpdir())), /Cannot start Cursor/);
 });
 
 test("toolActivity strips Cursor's backticked titles", () => {

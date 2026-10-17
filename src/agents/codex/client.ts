@@ -121,8 +121,8 @@ export class AppServerClient {
     });
     this.#child.once("exit", (code, signal) => {
       const detail = code === 0
-        ? "codex app-server 已退出。"
-        : `codex app-server 异常退出（code=${String(code)}, signal=${String(signal)}）。`;
+        ? "codex app-server exited."
+        : `codex app-server exited abnormally (code=${String(code)}, signal=${String(signal)}).`;
       this.#fail(new Error(this.#stderrTail.trim() || detail));
       this.#resolveExit();
     });
@@ -138,7 +138,7 @@ export class AppServerClient {
   async initialize(params: InitializeParams): Promise<InitializeResponse> {
     const result = await this.request("initialize", params);
     if (!isInitializeResponse(result)) {
-      throw new Error("codex app-server 返回了无法识别的初始化结果。");
+      throw new Error("codex app-server returned an unrecognized initialize result.");
     }
 
     this.notify({ method: "initialized" });
@@ -147,7 +147,7 @@ export class AppServerClient {
 
   request<Result = unknown>(method: string, params: unknown): Promise<Result> {
     if (this.#closed) {
-      return Promise.reject(new Error("codex app-server 连接已经关闭。"));
+      return Promise.reject(new Error("The codex app-server connection is closed."));
     }
 
     const id = this.#nextRequestId;
@@ -182,7 +182,7 @@ export class AppServerClient {
 
   respondToServerRequest(id: RequestId, result: unknown): void {
     if (this.#closed) {
-      throw new Error("codex app-server 连接已经关闭。");
+      throw new Error("The codex app-server connection is closed.");
     }
     this.#write({ id, result });
   }
@@ -199,7 +199,7 @@ export class AppServerClient {
 
   notify(notification: ClientNotification): void {
     if (this.#closed) {
-      throw new Error("codex app-server 连接已经关闭。");
+      throw new Error("The codex app-server connection is closed.");
     }
     this.#write(notification);
   }
@@ -327,7 +327,7 @@ export class AppServerClient {
   #handleResponse(message: JsonObject): void {
     const id = message.id;
     if (typeof id !== "string" && typeof id !== "number") {
-      this.#fail(new Error("codex app-server 响应缺少有效请求 ID。"));
+      this.#fail(new Error("A codex app-server response has no valid request ID."));
       return;
     }
 
@@ -347,7 +347,7 @@ export class AppServerClient {
   #warnUnexpectedLine(line: string): void {
     this.#unexpectedLines += 1;
     if (this.#unexpectedLines <= MAX_LOGGED_UNEXPECTED_LINES) {
-      console.warn(`忽略 codex app-server 的非 JSONL 输出：${line.slice(0, 200)}`);
+      console.warn(`Ignoring non-JSONL output from codex app-server: ${line.slice(0, 200)}`);
     }
   }
 
@@ -396,12 +396,12 @@ function isInitializeResponse(value: unknown): value is InitializeResponse {
 
 function normalizeRpcError(value: unknown): RpcErrorPayload {
   if (!isJsonObject(value)) {
-    return { code: -1, message: "codex app-server 返回了未知错误。" };
+    return { code: -1, message: "codex app-server returned an unknown error." };
   }
 
   return {
     code: typeof value.code === "number" ? value.code : -1,
-    message: typeof value.message === "string" ? value.message : "codex app-server 返回了未知错误。",
+    message: typeof value.message === "string" ? value.message : "codex app-server returned an unknown error.",
     ...(value.data === undefined ? {} : { data: value.data }),
   };
 }

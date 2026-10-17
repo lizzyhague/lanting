@@ -271,7 +271,7 @@ test("websocket requires login and answers connection.ready", async (t) => {
   assert.deepEqual(await next(), {
     type: "error",
     requestId: null,
-    error: { code: "invalid_json", message: "消息不是有效的 JSON。" },
+    error: { code: "invalid_json", message: "The message is not valid JSON." },
   });
 });
 

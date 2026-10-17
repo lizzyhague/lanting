@@ -121,7 +121,7 @@ export class GroupStore {
     return this.#enqueue(id, async (record) => {
       const next = structuredClone(record.group);
       mutate(next);
-      if (next.id !== id) throw new Error("不能修改群 id。");
+      if (next.id !== id) throw new Error("The group id cannot change.");
       await this.#writeGroup(next);
       record.group = next;
       return structuredClone(next);
@@ -163,7 +163,7 @@ export class GroupStore {
 
   #require(id: string): GroupRecord {
     const record = this.#records.get(id);
-    if (!record) throw new Error(`群不存在：${id}`);
+    if (!record) throw new Error(`Group does not exist: ${id}`);
     return record;
   }
 
@@ -191,22 +191,22 @@ export class GroupStore {
 
 function parseGroup(value: unknown, id: string): Group {
   const fail = (detail: string): never => {
-    throw new Error(`群数据损坏（${id}）：${detail}`);
+    throw new Error(`Group data is corrupt (${id}): ${detail}`);
   };
-  if (value === null) fail("缺少 group.json");
-  if (!isObject(value)) return fail("格式或版本不对");
+  if (value === null) fail("group.json is missing");
+  if (!isObject(value)) return fail("wrong format or version");
   const root = value;
-  if (root.version === 1) throw new Error("群数据是旧版本（1），需要先清理。");
+  if (root.version === 1) throw new Error("Group data is from an old version (1) and must be cleared first.");
   if (root.version !== STORE_VERSION || !isObject(root.group)) {
-    return fail("格式或版本不对");
+    return fail("wrong format or version");
   }
   const group = root.group;
-  if (group.id !== id) fail("id 和目录名不一致");
-  const members = stringArray(group.members) ?? fail("members 不对");
-  if (!members.every((member) => AGENT_NAME_PATTERN.test(member))) fail("members 里有非法标签");
-  const callOrder = stringArray(group.callOrder) ?? fail("callOrder 不对");
-  if (!callOrder.every((agent) => members.includes(agent))) fail("callOrder 里有不是成员的 AI");
-  if (!isObject(group.agents)) fail("agents 不对");
+  if (group.id !== id) fail("id does not match the directory name");
+  const members = stringArray(group.members) ?? fail("invalid members");
+  if (!members.every((member) => AGENT_NAME_PATTERN.test(member))) fail("members contains an invalid tag");
+  const callOrder = stringArray(group.callOrder) ?? fail("invalid callOrder");
+  if (!callOrder.every((agent) => members.includes(agent))) fail("callOrder contains an AI that is not a member");
+  if (!isObject(group.agents)) fail("invalid agents");
   const agents: { [agent: string]: AgentState } = {};
   for (const member of members) {
     const state = (group.agents as { [key: string]: unknown })[member];
@@ -215,7 +215,7 @@ function parseGroup(value: unknown, id: string): Group {
         !isPaletteId(state.color) ||
         !(state.nativeSessionId === null || typeof state.nativeSessionId === "string") ||
         !Number.isSafeInteger(state.cursor) || (state.cursor as number) < 0) {
-      fail(`agents.${member} 不对`);
+      fail(`invalid agents.${member}`);
     }
     const valid = state as {
       kind: AgentKind;
@@ -224,7 +224,7 @@ function parseGroup(value: unknown, id: string): Group {
       cursor: number;
       settings: unknown;
     };
-    const settings = parseSettings(valid.settings) ?? fail(`agents.${member}.settings 不对`);
+    const settings = parseSettings(valid.settings) ?? fail(`invalid agents.${member}.settings`);
     agents[member] = {
       kind: valid.kind,
       color: valid.color,
@@ -234,17 +234,17 @@ function parseGroup(value: unknown, id: string): Group {
     };
   }
   for (const key of ["title", "cwd", "username", "createdAt"] as const) {
-    if (typeof group[key] !== "string") fail(`${key} 不对`);
+    if (typeof group[key] !== "string") fail(`invalid ${key}`);
   }
   for (const key of ["trashedAt", "deletingAt"] as const) {
     const value = group[key];
-    if (value !== null && typeof value !== "string") fail(`${key} 不对`);
+    if (value !== null && typeof value !== "string") fail(`invalid ${key}`);
   }
-  if (typeof group.updatedAt !== "number" || !Number.isFinite(group.updatedAt)) return fail("updatedAt 不对");
-  if (group.pinned !== undefined && typeof group.pinned !== "boolean") fail("pinned 不对");
-  if (group.archived !== undefined && typeof group.archived !== "boolean") fail("archived 不对");
+  if (typeof group.updatedAt !== "number" || !Number.isFinite(group.updatedAt)) return fail("invalid updatedAt");
+  if (group.pinned !== undefined && typeof group.pinned !== "boolean") fail("invalid pinned");
+  if (group.archived !== undefined && typeof group.archived !== "boolean") fail("invalid archived");
   if (group.usageAgent !== undefined && group.usageAgent !== null && typeof group.usageAgent !== "string") {
-    fail("usageAgent 不对");
+    fail("invalid usageAgent");
   }
   const updatedAt = group.updatedAt;
   return {
@@ -270,38 +270,38 @@ function parseGroup(value: unknown, id: string): Group {
 
 function parseTranscript(value: unknown, id: string): TranscriptEntry[] {
   const fail = (detail: string): never => {
-    throw new Error(`群聊记录损坏（${id}）：${detail}`);
+    throw new Error(`Chat record is corrupt (${id}): ${detail}`);
   };
-  if (value === null) fail("缺少 transcript.json");
-  if (!isObject(value)) return fail("格式或版本不对");
+  if (value === null) fail("transcript.json is missing");
+  if (!isObject(value)) return fail("wrong format or version");
   const root = value;
-  if (root.version === 1) throw new Error("群聊记录是旧版本（1），需要先清理。");
+  if (root.version === 1) throw new Error("The chat record is from an old version (1) and must be cleared first.");
   if (root.version !== STORE_VERSION || !Array.isArray(root.entries)) {
-    return fail("格式或版本不对");
+    return fail("wrong format or version");
   }
   const entries: TranscriptEntry[] = [];
   for (const raw of root.entries) {
     const expected = entries.length + 1;
     if (!isObject(raw) || raw.seq !== expected || typeof raw.at !== "string" ||
         typeof raw.text !== "string") {
-      fail(`第 ${expected} 条不对`);
+      fail(`invalid entry ${expected}`);
     }
     const entry = raw as { [key: string]: unknown };
-    const from = parseSpeaker(entry.from) ?? fail(`第 ${expected} 条的发言者不对`);
+    const from = parseSpeaker(entry.from) ?? fail(`invalid speaker in entry ${expected}`);
     const status = entry.status;
-    if (status !== undefined && !isReplyStatus(status)) fail(`第 ${expected} 条的状态不对`);
-    if (entry.error !== undefined && typeof entry.error !== "string") fail(`第 ${expected} 条的错误信息不对`);
+    if (status !== undefined && !isReplyStatus(status)) fail(`invalid status in entry ${expected}`);
+    if (entry.error !== undefined && typeof entry.error !== "string") fail(`invalid error in entry ${expected}`);
     const activities = entry.activities;
     if (activities !== undefined && !(Array.isArray(activities) &&
         activities.every((item) => isObject(item) && typeof item.kind === "string"))) {
-      fail(`第 ${expected} 条的过程信息不对`);
+      fail(`invalid activities in entry ${expected}`);
     }
     const attachments = entry.attachments;
     if (attachments !== undefined && !(Array.isArray(attachments) && attachments.every(isStoredAttachment))) {
-      fail(`第 ${expected} 条的附件不对`);
+      fail(`invalid attachments in entry ${expected}`);
     }
     const recipients = entry.recipients;
-    if (recipients !== undefined && stringArray(recipients) === null) fail(`第 ${expected} 条的附件收件人不对`);
+    if (recipients !== undefined && stringArray(recipients) === null) fail(`invalid attachment recipients in entry ${expected}`);
     entries.push({
       seq: expected,
       at: entry.at as string,
@@ -319,16 +319,16 @@ function parseTranscript(value: unknown, id: string): TranscriptEntry[] {
 
 function validateNewGroup(input: NewGroup): void {
   const tags = input.members.map((member) => member.tag);
-  if (tags.some((tag) => !AGENT_NAME_PATTERN.test(tag))) throw new Error("群成员标签不合法。");
-  if (new Set(tags).size !== tags.length) throw new Error("群成员标签不能重复。");
+  if (tags.some((tag) => !AGENT_NAME_PATTERN.test(tag))) throw new Error("Invalid member tag.");
+  if (new Set(tags).size !== tags.length) throw new Error("Member tags must be unique.");
   for (const member of input.members) {
-    if (!isAgentKind(member.kind)) throw new Error(`群成员 ${member.tag} 的 CLI 种类不合法。`);
-    if (!isPaletteId(member.color)) throw new Error(`群成员 ${member.tag} 的主色不合法。`);
-    if (parseSettings(member.settings) === null) throw new Error(`群成员 ${member.tag} 的设置不合法。`);
+    if (!isAgentKind(member.kind)) throw new Error(`Invalid CLI kind for member ${member.tag}.`);
+    if (!isPaletteId(member.color)) throw new Error(`Invalid color for member ${member.tag}.`);
+    if (parseSettings(member.settings) === null) throw new Error(`Invalid settings for member ${member.tag}.`);
   }
   const callOrder = input.callOrder ?? [];
-  if (new Set(callOrder).size !== callOrder.length) throw new Error("callOrder 里有重复的 AI。");
-  if (!callOrder.every((tag) => tags.includes(tag))) throw new Error("callOrder 里有不是成员的 AI。");
+  if (new Set(callOrder).size !== callOrder.length) throw new Error("callOrder contains duplicate AIs.");
+  if (!callOrder.every((tag) => tags.includes(tag))) throw new Error("callOrder contains an AI that is not a member.");
 }
 
 function isStoredAttachment(value: unknown): boolean {

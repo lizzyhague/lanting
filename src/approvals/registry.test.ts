@@ -25,7 +25,7 @@ test("unanswered requests are denied after the timeout", async () => {
   const registry = new ApprovalRegistry(10);
   const answer = await registry.request("g1", "claude", { toolName: "Bash", detail: "" });
   assert.equal(answer.decision, "deny");
-  assert.match(answer.message, /超时/u);
+  assert.match(answer.message, /denied automatically/u);
 });
 
 test("cancel denies only the matching group and agent", async () => {

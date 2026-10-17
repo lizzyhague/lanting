@@ -138,10 +138,10 @@ test("answers an extension UI request with Pi's own id", async (t) => {
 test("reports non-JSON stdout, stderr and failed commands", async (t) => {
   const client = await setup(t);
   const diagnostics = collect<string>(client, "diagnostic");
-  await assert.rejects(client.request("noise"), /Pi 命令 noise 失败：Model not found: x\/y/);
+  await assert.rejects(client.request("noise"), /Pi command noise failed: Model not found: x\/y/);
   await client.request("ping");
-  assert.ok(diagnostics.some((text) => text.includes("Pi stdout 不是 JSON：not json")));
-  assert.ok(diagnostics.some((text) => text.includes("Pi 响应对不上命令") && text.includes("parse")));
+  assert.ok(diagnostics.some((text) => text.includes("Pi stdout is not JSON: not json")));
+  assert.ok(diagnostics.some((text) => text.includes("Pi response matches no command") && text.includes("parse")));
   // stderr and stdout are two pipes; arrival order isn't guaranteed.
   while (!diagnostics.some((text) => text.includes("something on stderr"))) {
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -152,17 +152,17 @@ test("rejects pending commands with the exit status and stderr on crash", async 
   const client = await setup(t);
   const exits = collect<unknown>(client, "exit");
   const pending = client.request("hang");
-  const pendingRejected = assert.rejects(pending, /Pi 进程已退出（3）/);
-  await assert.rejects(client.request("crash"), /Pi 进程已退出（3）：fatal: provider exploded/);
+  const pendingRejected = assert.rejects(pending, /The Pi process exited \(3\)/);
+  await assert.rejects(client.request("crash"), /The Pi process exited \(3\): fatal: provider exploded/);
   await pendingRejected;
   assert.equal(client.alive, false);
   assert.deepEqual(exits, [{ code: 3, signal: null }]);
-  await assert.rejects(client.request("ping"), /Pi 进程已退出/);
+  await assert.rejects(client.request("ping"), /The Pi process exited/);
 });
 
 test("reports a missing executable instead of throwing", async () => {
   const client = new PiRpcClient({ executable: "/nonexistent/pi", cwd: tmpdir() });
-  await assert.rejects(client.request("ping"), /无法启动 Pi/);
+  await assert.rejects(client.request("ping"), /Cannot start Pi/);
   await client.close();
   assert.equal(client.alive, false);
 });
@@ -170,7 +170,7 @@ test("reports a missing executable instead of throwing", async () => {
 test("close ends pending commands and reaps the whole process group", async (t) => {
   const client = await setup(t);
   const { pid: childPid } = await client.request("spawn_child") as { pid: number };
-  const pending = assert.rejects(client.request("hang"), /Pi 已经关闭/);
+  const pending = assert.rejects(client.request("hang"), /Pi is closed/);
   const groupId = client.pid!;
   await client.close();
   await pending;

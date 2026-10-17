@@ -13,8 +13,8 @@ test("validates the Codex executable when creating its adapter", async (t) => {
   await writeFile(executable, "#!/bin/sh\n", { mode: 0o700 });
 
   assert.equal((await codexModule.create({ executable }, "agents.codex")).kind, "codex");
-  await assert.rejects(codexModule.create({}, "agents.codex"), /必须是非空字符串/u);
-  await assert.rejects(codexModule.create({ executable: "codex" }, "agents.codex"), /必须是绝对路径/u);
+  await assert.rejects(codexModule.create({}, "agents.codex"), /must be a non-empty string/u);
+  await assert.rejects(codexModule.create({ executable: "codex" }, "agents.codex"), /must be an absolute path/u);
   await chmod(executable, 0o600);
-  await assert.rejects(codexModule.create({ executable }, "agents.codex"), /不存在或不可执行/u);
+  await assert.rejects(codexModule.create({ executable }, "agents.codex"), /does not exist or is not executable/u);
 });

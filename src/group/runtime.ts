@@ -346,7 +346,7 @@ export class GroupRuntime {
       }
       if (round.interrupted) outcome = "interrupted";
     } catch (error) {
-      console.error(`群 ${groupId} 的这一轮出错：${errorMessage(error)}`);
+      console.error(`Round in group ${groupId} failed: ${errorMessage(error)}`);
       outcome = "failed";
     } finally {
       this.#approvals.cancel(groupId);
@@ -369,7 +369,7 @@ export class GroupRuntime {
         });
       }
     } catch (error) {
-      console.error(`群 ${groupId} 压缩上下文出错：${errorMessage(error)}`);
+      console.error(`Compaction in group ${groupId} failed: ${errorMessage(error)}`);
     } finally {
       await this.#touchUpdatedAt(groupId);
       this.#compactions.delete(groupId);
@@ -579,7 +579,7 @@ export class GroupRuntime {
     try {
       await this.#store.touch(groupId);
     } catch (error) {
-      console.error(`更新群 ${groupId} 的最近活动时间失败：${errorMessage(error)}`);
+      console.error(`Updating the last activity time of group ${groupId} failed: ${errorMessage(error)}`);
     }
   }
 
@@ -588,7 +588,7 @@ export class GroupRuntime {
     if (this.#sessions.get(key)?.session !== session) return;
     this.#sessions.delete(key);
     await session.close().catch((error: unknown) => {
-      console.error(`关闭 ${agent} 的会话失败：${errorMessage(error)}`);
+      console.error(`Closing the session of ${agent} failed: ${errorMessage(error)}`);
     });
   }
 
@@ -615,7 +615,7 @@ export class GroupRuntime {
       try {
         listener(event);
       } catch (error) {
-        console.error(`群事件处理出错：${errorMessage(error)}`);
+        console.error(`Group event handler failed: ${errorMessage(error)}`);
       }
     }
   }

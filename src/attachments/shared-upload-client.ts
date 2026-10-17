@@ -86,7 +86,7 @@ export class SharedUploadClient {
           : undefined,
       }, (response) => void collectResponse<Result>(response).then(resolve, reject));
       request.once("error", (error) => reject(connectionError(error)));
-      request.setTimeout(30_000, () => request.destroy(new Error("共享上传服务请求超时。")));
+      request.setTimeout(30_000, () => request.destroy(new Error("The shared upload service request timed out.")));
       request.end(body ?? undefined);
     });
   }
@@ -109,7 +109,7 @@ export class SharedUploadClient {
         },
       }, (response) => void collectResponse<Result>(response).then(resolve, reject));
       request.once("error", (error) => reject(connectionError(error)));
-      source.once("aborted", () => request.destroy(new Error("浏览器中断了上传。")));
+      source.once("aborted", () => request.destroy(new Error("The browser aborted the upload.")));
       source.once("error", (error) => request.destroy(error));
       source.pipe(request);
     });
@@ -160,7 +160,7 @@ async function collectResponse<Result>(response: IncomingMessage): Promise<Resul
 }
 
 function connectionError(error: Error): SharedUploadError {
-  console.error(`无法连接共享上传服务：${error.message}`);
+  console.error(`Cannot reach the shared upload service: ${error.message}`);
   return new SharedUploadError("upload_service_unavailable", "共享上传服务暂时不可用。", 503);
 }
 

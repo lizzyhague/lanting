@@ -229,12 +229,12 @@ function validateSettings(value: unknown, previous?: Settings): asserts value is
 
 function parseSettingsFile(value: unknown): Settings {
   const fail = (detail: string): never => {
-    throw new Error(`设置文件损坏：${detail}`);
+    throw new Error(`Settings file is corrupt: ${detail}`);
   };
-  if (!isObject(value)) return fail("格式不对");
+  if (!isObject(value)) return fail("wrong format");
   const root = value;
-  if (root.version === 1) throw new Error("设置文件是旧版本（1），需要先清理。");
-  if (root.version !== STORE_VERSION || !isObject(root.settings)) return fail("格式或版本不对");
+  if (root.version === 1) throw new Error("The settings file is from an old version (1) and must be cleared first.");
+  if (root.version !== STORE_VERSION || !isObject(root.settings)) return fail("wrong format or version");
   // Files written before this field existed lack it and are treated as empty.
   const settings = { collaboration: "", ...root.settings };
   try {

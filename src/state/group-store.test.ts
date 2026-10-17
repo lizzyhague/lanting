@@ -85,17 +85,17 @@ test("create rejects invalid member identity and call order before writing", asy
   const store = await GroupStore.open(directory);
   const first = NEW_GROUP.members[0]!;
 
-  await assert.rejects(store.create({ ...NEW_GROUP, members: [{ ...first, tag: "Bad" }] }), /标签不合法/u);
-  await assert.rejects(store.create({ ...NEW_GROUP, members: [first, { ...first }] }), /标签不能重复/u);
-  await assert.rejects(store.create({ ...NEW_GROUP, callOrder: ["missing"] }), /不是成员/u);
+  await assert.rejects(store.create({ ...NEW_GROUP, members: [{ ...first, tag: "Bad" }] }), /Invalid member tag/u);
+  await assert.rejects(store.create({ ...NEW_GROUP, members: [first, { ...first }] }), /tags must be unique/u);
+  await assert.rejects(store.create({ ...NEW_GROUP, callOrder: ["missing"] }), /not a member/u);
   await assert.rejects(store.create({
     ...NEW_GROUP,
     members: [{ ...first, kind: "unknown" as AgentKind }],
-  }), /CLI 种类不合法/u);
+  }), /Invalid CLI kind/u);
   await assert.rejects(store.create({
     ...NEW_GROUP,
     members: [{ ...first, color: "unknown" as PaletteId }],
-  }), /主色不合法/u);
+  }), /Invalid color/u);
   assert.deepEqual(await readdir(path.join(directory, "groups")), []);
 });
 
@@ -133,7 +133,7 @@ test("version 2 groups written before pinning default to unpinned", async (t) =>
 
   saved.group.pinned = "yes";
   await writeFile(groupFile, JSON.stringify(saved));
-  await assert.rejects(GroupStore.open(directory), /pinned 不对/u);
+  await assert.rejects(GroupStore.open(directory), /invalid pinned/u);
 });
 
 test("version 2 groups written before archiving default to active", async (t) => {
@@ -149,7 +149,7 @@ test("version 2 groups written before archiving default to active", async (t) =>
 
   saved.group.archived = "yes";
   await writeFile(groupFile, JSON.stringify(saved));
-  await assert.rejects(GroupStore.open(directory), /archived 不对/u);
+  await assert.rejects(GroupStore.open(directory), /invalid archived/u);
 });
 
 test("usageAgent defaults to off, rejects bad types and drops non-members", async (t) => {
@@ -172,7 +172,7 @@ test("usageAgent defaults to off, rejects bad types and drops non-members", asyn
 
   saved.group.usageAgent = 1;
   await writeFile(groupFile, JSON.stringify(saved));
-  await assert.rejects(GroupStore.open(directory), /usageAgent 不对/u);
+  await assert.rejects(GroupStore.open(directory), /invalid usageAgent/u);
 });
 
 test("invalid frozen member tags, kinds, and colors are rejected", async (t) => {
@@ -183,19 +183,19 @@ test("invalid frozen member tags, kinds, and colors are rejected", async (t) => 
   const saved = JSON.parse(await readFile(groupFile, "utf8"));
   const cases: { pattern: RegExp; change: (value: typeof saved) => void }[] = [
     {
-      pattern: /非法标签/u,
+      pattern: /invalid tag/u,
       change: (value) => {
         value.group.members[0] = "Bad";
       },
     },
     {
-      pattern: /agents\.claude 不对/u,
+      pattern: /invalid agents\.claude/u,
       change: (value) => {
         value.group.agents.claude.kind = "unknown";
       },
     },
     {
-      pattern: /agents\.claude 不对/u,
+      pattern: /invalid agents\.claude/u,
       change: (value) => {
         value.group.agents.claude.color = "unknown";
       },
@@ -220,7 +220,7 @@ test("version 1 group data is rejected without changing its bytes", async (t) =>
   const source = `${JSON.stringify(old)}\n`;
   await writeFile(groupFile, source);
 
-  await assert.rejects(GroupStore.open(directory), /群数据是旧版本（1）.*清理/u);
+  await assert.rejects(GroupStore.open(directory), /Group data is from an old version \(1\).*cleared/u);
   assert.equal(await readFile(groupFile, "utf8"), source);
 });
 
@@ -233,7 +233,7 @@ test("version 1 transcript data is rejected", async (t) => {
   old.version = 1;
   await writeFile(transcriptFile, JSON.stringify(old));
 
-  await assert.rejects(GroupStore.open(directory), /群聊记录是旧版本（1）.*清理/u);
+  await assert.rejects(GroupStore.open(directory), /chat record is from an old version \(1\).*cleared/u);
 });
 
 test("notice entries survive reopening", async (t) => {
@@ -252,7 +252,7 @@ test("returned groups are copies; changes only land through update", async (t) =
   assert.equal(store.get(group.id)?.title, "demo");
   await assert.rejects(store.update(group.id, (next) => {
     next.id = "other";
-  }), /不能修改群 id/u);
+  }), /group id cannot change/u);
   assert.equal(store.get(group.id)?.id, group.id);
 });
 
@@ -272,10 +272,10 @@ test("a corrupt group file stops the store from opening instead of being overwri
   const group = await store.create(NEW_GROUP);
   const groupFile = path.join(directory, "groups", group.id, "group.json");
   await writeFile(groupFile, "{");
-  await assert.rejects(GroupStore.open(directory), /不是有效 JSON/u);
+  await assert.rejects(GroupStore.open(directory), /not valid JSON/u);
 
   await writeFile(groupFile, JSON.stringify({ version: 2, group: { id: group.id } }));
-  await assert.rejects(GroupStore.open(directory), /群数据损坏/u);
+  await assert.rejects(GroupStore.open(directory), /Group data is corrupt/u);
   assert.deepEqual(await readdir(path.join(directory, "groups", group.id)), ["group.json", "transcript.json"]);
 });
 

@@ -13,8 +13,8 @@ test("validates the Grok executable when creating its adapter", async (t) => {
   await writeFile(executable, "#!/bin/sh\n", { mode: 0o700 });
 
   assert.equal((await grokModule.create({ executable }, "agents.grok")).kind, "grok");
-  await assert.rejects(grokModule.create({}, "agents.grok"), /必须是非空字符串/u);
-  await assert.rejects(grokModule.create({ executable: "grok" }, "agents.grok"), /必须是绝对路径/u);
+  await assert.rejects(grokModule.create({}, "agents.grok"), /must be a non-empty string/u);
+  await assert.rejects(grokModule.create({ executable: "grok" }, "agents.grok"), /must be an absolute path/u);
   await chmod(executable, 0o600);
-  await assert.rejects(grokModule.create({ executable }, "agents.grok"), /不存在或不可执行/u);
+  await assert.rejects(grokModule.create({ executable }, "agents.grok"), /does not exist or is not executable/u);
 });

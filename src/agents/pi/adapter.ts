@@ -86,7 +86,7 @@ export class PiAdapter implements AgentAdapter {
 }
 
 function asOwnSession(session: AgentSession): PiSession {
-  if (!(session instanceof PiSession)) throw new Error("会话不属于 Pi。");
+  if (!(session instanceof PiSession)) throw new Error("The session does not belong to Pi.");
   return session;
 }
 
@@ -125,7 +125,7 @@ class PiSession implements AgentSession {
       if (!turn) return;
       this.#finish(turn.interrupted
         ? { type: "end", outcome: "interrupted", text: lastText(turn) }
-        : { type: "end", outcome: "failed", text: lastText(turn), error: "Pi 进程已退出。" });
+        : { type: "end", outcome: "failed", text: lastText(turn), error: "The Pi process exited." });
     });
   }
 
@@ -145,11 +145,11 @@ class PiSession implements AgentSession {
     try {
       if (sessionFile) {
         const { cancelled } = await client.switchSession(sessionFile);
-        if (cancelled) throw new Error("Pi 扩展拒绝了恢复会话。");
+        if (cancelled) throw new Error("A Pi extension refused to resume the session.");
       }
       const state = await client.getState();
       if (typeof state.sessionFile !== "string" || !state.sessionFile) {
-        throw new Error("Pi 没有返回 session 文件路径。");
+        throw new Error("Pi returned no session file path.");
       }
       session.#sessionFile = state.sessionFile;
       const { model, effort } = options.settings;
@@ -178,8 +178,8 @@ class PiSession implements AgentSession {
   }
 
   async *send(text: string): AsyncIterable<AgentEvent> {
-    if (!this.alive) throw new Error("Pi 进程已关闭。");
-    if (this.#turn) throw new Error("Pi 还在处理上一轮。");
+    if (!this.alive) throw new Error("The Pi process is closed.");
+    if (this.#turn) throw new Error("Pi is still handling the previous round.");
     const turn: Turn = { channel: new EventChannel<AgentEvent>(), segment: "", last: null, streaming: false, interrupted: false };
     this.#turn = turn;
     // Event listeners are installed before prompt; prompt succeeding only means it was accepted, and the round ends at agent_settled.
@@ -203,8 +203,8 @@ class PiSession implements AgentSession {
   }
 
   async compact(): Promise<void> {
-    if (!this.alive) throw new Error("Pi 进程已关闭。");
-    if (this.#turn) throw new Error("Pi 还在处理上一轮。");
+    if (!this.alive) throw new Error("The Pi process is closed.");
+    if (this.#turn) throw new Error("Pi is still handling the previous round.");
     await this.#client.compact();
   }
 
@@ -282,16 +282,16 @@ class PiSession implements AgentSession {
         turn.channel.push({ type: "activity", activity: toolActivity(event) });
         return;
       case "auto_retry_start":
-        this.#note(turn, `Pi 自动重试（${event.attempt}/${event.maxAttempts}）：${stringField(event.errorMessage)}`);
+        this.#note(turn, `Pi is retrying (${event.attempt}/${event.maxAttempts}): ${stringField(event.errorMessage)}`);
         return;
       case "compaction_start":
-        this.#note(turn, "Pi 正在压缩上下文。");
+        this.#note(turn, "Pi is compacting its context.");
         return;
       case "compaction_end":
-        if (typeof event.errorMessage === "string") this.#note(turn, `Pi 压缩上下文失败：${event.errorMessage}`);
+        if (typeof event.errorMessage === "string") this.#note(turn, `Pi context compaction failed: ${event.errorMessage}`);
         return;
       case "extension_error":
-        this.#note(turn, `Pi 扩展出错：${stringField(event.error)}`);
+        this.#note(turn, `Pi extension error: ${stringField(event.error)}`);
         return;
       case "agent_settled":
         this.#settle(turn, event.aborted === true);
@@ -305,9 +305,9 @@ class PiSession implements AgentSession {
     if (turn.interrupted || aborted || last?.stopReason === "aborted") {
       this.#finish({ type: "end", outcome: "interrupted", text });
     } else if (last?.stopReason === "error") {
-      this.#finish({ type: "end", outcome: "failed", text, error: stringField(last.errorMessage) || "Pi 调用模型出错。" });
+      this.#finish({ type: "end", outcome: "failed", text, error: stringField(last.errorMessage) || "Pi's model call failed." });
     } else if (!text.trim()) {
-      this.#finish({ type: "end", outcome: "failed", text, error: "Pi 没有给出最终回复。" });
+      this.#finish({ type: "end", outcome: "failed", text, error: "Pi gave no final reply." });
     } else {
       this.#finish({ type: "end", outcome: "completed", text });
     }
@@ -386,7 +386,7 @@ function currentModelId(state: Record<string, unknown>): string | null {
 /** Model ids in lanting are `provider/modelId`; modelId itself may contain slashes. */
 export function splitModelId(id: string): { provider: string; modelId: string } {
   const slash = id.indexOf("/");
-  if (slash <= 0 || slash === id.length - 1) throw new Error(`Pi 模型 id 格式不对：${id}`);
+  if (slash <= 0 || slash === id.length - 1) throw new Error(`Malformed Pi model id: ${id}`);
   return { provider: id.slice(0, slash), modelId: id.slice(slash + 1) };
 }
 

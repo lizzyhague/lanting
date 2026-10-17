@@ -215,7 +215,7 @@ test("resuming loads the saved session file and still appends the group prompt",
   t.after(() => session.close());
   assert.equal(session.nativeId, "/fake/sessions/old.jsonl");
   assert.equal((await stateOf(session)).rules, "group rules");
-  await assert.rejects(adapter.resumeSession("/fake/sessions/locked.jsonl", options), /拒绝了恢复会话/u);
+  await assert.rejects(adapter.resumeSession("/fake/sessions/locked.jsonl", options), /refused to resume the session/u);
 });
 
 test("model and thinking settings are applied when the session opens", async (t) => {
@@ -229,7 +229,7 @@ test("model and thinking settings are applied when the session opens", async (t)
   assert.equal(state.modelSets, 1);
   assert.equal(state.thinkingSets, 1);
   assert.deepEqual(splitModelId("deepseek/deepseek-flash"), { provider: "deepseek", modelId: "deepseek-flash" });
-  assert.throws(() => splitModelId("no-provider"), /格式不对/u);
+  assert.throws(() => splitModelId("no-provider"), /Malformed/u);
 });
 
 test("resuming skips set_model when the model and thinking already match", async (t) => {
@@ -317,7 +317,7 @@ test("the turn waits for agent_settled across automatic retries", async (t) => {
   const session = await adapter.startSession(options);
   t.after(() => session.close());
   const events = await collect(session.send("retry"));
-  assert.deepEqual(activities(events), [{ kind: "note", text: "Pi 自动重试（1/3）：529 overloaded" }]);
+  assert.deepEqual(activities(events), [{ kind: "note", text: "Pi is retrying (1/3): 529 overloaded" }]);
   assert.deepEqual(events.at(-1), { type: "end", outcome: "completed", text: "recovered" });
 });
 
@@ -328,9 +328,9 @@ test("provider errors, empty replies and crashes end as failed", async (t) => {
   assert.deepEqual((await collect(session.send("fail"))).at(-1),
     { type: "end", outcome: "failed", text: "", error: "429 rate limited" });
   assert.deepEqual((await collect(session.send("empty"))).at(-1),
-    { type: "end", outcome: "failed", text: "", error: "Pi 没有给出最终回复。" });
+    { type: "end", outcome: "failed", text: "", error: "Pi gave no final reply." });
   assert.deepEqual((await collect(session.send("crash"))).at(-1),
-    { type: "end", outcome: "failed", text: "half", error: "Pi 进程已退出。" });
+    { type: "end", outcome: "failed", text: "half", error: "The Pi process exited." });
   assert.equal(session.alive, false);
 });
 
@@ -387,7 +387,7 @@ test("closing withdraws the web approval and stops the process", async (t) => {
   await session.close();
   assert.deepEqual(aborted, ["Allow bash?"]);
   assert.equal(session.alive, false);
-  assert.deepEqual((await collected).at(-1), { type: "end", outcome: "failed", text: "", error: "Pi 进程已退出。" });
+  assert.deepEqual((await collected).at(-1), { type: "end", outcome: "failed", text: "", error: "The Pi process exited." });
 });
 
 test("unsupported dialogs are cancelled and notifications become notes", async (t) => {

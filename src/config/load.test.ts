@@ -66,24 +66,24 @@ test("rejects a relative, missing, or non-directory project root", async (t) => 
   await writeFile(file, "");
 
   await writeFile(configPath, JSON.stringify({ projectRoot: "projects" }));
-  await assert.rejects(loadConfig(configPath), /必须是绝对路径/u);
+  await assert.rejects(loadConfig(configPath), /must be an absolute path/u);
 
   await writeFile(configPath, JSON.stringify({ projectRoot: path.join(directory, "missing") }));
-  await assert.rejects(loadConfig(configPath), /不存在/u);
+  await assert.rejects(loadConfig(configPath), /does not exist/u);
 
   await writeFile(configPath, JSON.stringify({ projectRoot: file }));
-  await assert.rejects(loadConfig(configPath), /不是文件夹/u);
+  await assert.rejects(loadConfig(configPath), /not a directory/u);
 });
 
 test("rejects unreadable or malformed config files", async (t) => {
   const directory = await scratch(t);
   const configPath = path.join(directory, "config.json");
 
-  await assert.rejects(loadConfig(configPath), /无法读取配置文件/u);
+  await assert.rejects(loadConfig(configPath), /Cannot read the config file/u);
   await writeFile(configPath, "{");
-  await assert.rejects(loadConfig(configPath), /不是有效 JSON/u);
+  await assert.rejects(loadConfig(configPath), /not valid JSON/u);
   await writeFile(configPath, "[]");
-  await assert.rejects(loadConfig(configPath), /顶层必须是 JSON 对象/u);
+  await assert.rejects(loadConfig(configPath), /must contain a JSON object/u);
   await writeFile(configPath, "{}");
-  await assert.rejects(loadConfig(configPath), /projectRoot 必须是非空字符串/u);
+  await assert.rejects(loadConfig(configPath), /projectRoot must be a non-empty string/u);
 });

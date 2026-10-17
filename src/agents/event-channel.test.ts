@@ -24,5 +24,5 @@ test("can only be iterated once", async () => {
   for await (const _ of channel) assert.fail();
   await assert.rejects(async () => {
     for await (const _ of channel) assert.fail();
-  }, /只能被迭代一次/u);
+  }, /can only be iterated once/u);
 });

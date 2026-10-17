@@ -17,7 +17,7 @@ export class EventChannel<T> implements AsyncIterable<T> {
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<T> {
-    if (this.#iterated) throw new Error("事件流只能被迭代一次。");
+    if (this.#iterated) throw new Error("The event stream can only be iterated once.");
     this.#iterated = true;
     while (true) {
       const item = this.#items.shift();

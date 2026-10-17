@@ -24,6 +24,6 @@ export async function ensurePreviewRoot(
     await mkdir(directory, { recursive: true, mode: 0o700 });
     return await realpath(directory);
   } catch (error) {
-    throw new Error(`无法准备文件预览目录：${directory}`, { cause: error });
+    throw new Error(`Cannot prepare the file preview directory: ${directory}`, { cause: error });
   }
 }

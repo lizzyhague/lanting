@@ -119,7 +119,7 @@ export class CursorAcpClient extends EventEmitter {
     this.#process.stderr.on("error", () => {});
     // A failed launch (e.g. wrong path) emits only an error event, no exit.
     this.#process.on("error", (error) => {
-      this.#onExit({ code: null, signal: null, error: `无法启动 Cursor：${error.message}` });
+      this.#onExit({ code: null, signal: null, error: `Cannot start Cursor: ${error.message}` });
       markExited();
     });
     this.#process.on("exit", (code, signal) => {
@@ -162,7 +162,7 @@ export class CursorAcpClient extends EventEmitter {
   async sessionNew(cwd: string): Promise<string> {
     const result = objectOf(await this.request("session/new", { cwd, mcpServers: [] }));
     if (typeof result.sessionId !== "string" || !result.sessionId) {
-      throw new Error("Cursor 没有返回 session id。");
+      throw new Error("Cursor returned no session id.");
     }
     return result.sessionId;
   }
@@ -197,7 +197,7 @@ export class CursorAcpClient extends EventEmitter {
 
   request(method: string, params: unknown): Promise<unknown> {
     if (this.#closed || this.#exitInfo) {
-      return Promise.reject(new Error(this.#closed || !this.#exitInfo ? "Cursor 已经关闭。" : exitMessage(this.#exitInfo, this.#stderrTail)));
+      return Promise.reject(new Error(this.#closed || !this.#exitInfo ? "Cursor is closed." : exitMessage(this.#exitInfo, this.#stderrTail)));
     }
     const id = this.#nextId++;
     return new Promise((resolve, reject) => {
@@ -217,7 +217,7 @@ export class CursorAcpClient extends EventEmitter {
   async close(): Promise<void> {
     if (!this.#closed) {
       this.#closed = true;
-      this.#failAll(new Error("Cursor 已经关闭。"));
+      this.#failAll(new Error("Cursor is closed."));
       if (!this.#process.stdin.destroyed) this.#process.stdin.end();
     }
     const pid = this.#process.pid;
@@ -259,11 +259,11 @@ export class CursorAcpClient extends EventEmitter {
     try {
       record = JSON.parse(line);
     } catch {
-      this.emit("diagnostic", `Cursor stdout 不是 JSON：${line.slice(0, 500)}`);
+      this.emit("diagnostic", `Cursor stdout is not JSON: ${line.slice(0, 500)}`);
       return;
     }
     if (typeof record !== "object" || record === null || Array.isArray(record)) {
-      this.emit("diagnostic", `Cursor stdout 不是 JSON 对象：${line.slice(0, 500)}`);
+      this.emit("diagnostic", `Cursor stdout is not a JSON object: ${line.slice(0, 500)}`);
       return;
     }
     const message = record as Record<string, unknown>;
@@ -316,21 +316,21 @@ export class CursorAcpClient extends EventEmitter {
       this.emit("notice", { method, params } satisfies CursorNotice);
       return;
     }
-    this.emit("diagnostic", `Cursor 通知未处理：${line.slice(0, 500)}`);
+    this.emit("diagnostic", `Unhandled Cursor notification: ${line.slice(0, 500)}`);
   }
 
   #onResponse(message: Record<string, unknown>, line: string): void {
     const id = typeof message.id === "number" ? message.id : null;
     const pending = id === null ? undefined : this.#pending.get(id);
     if (!pending || id === null) {
-      this.emit("diagnostic", `Cursor 响应对不上请求：${line.slice(0, 500)}`);
+      this.emit("diagnostic", `Cursor response matches no request: ${line.slice(0, 500)}`);
       return;
     }
     this.#pending.delete(id);
     const error = objectOf(message.error);
     if (message.error !== undefined && message.error !== null) {
-      const text = typeof error.message === "string" && error.message ? error.message : "未知错误";
-      pending.reject(new Error(`Cursor ${pending.method} 失败：${text}`));
+      const text = typeof error.message === "string" && error.message ? error.message : "unknown error";
+      pending.reject(new Error(`Cursor ${pending.method} failed: ${text}`));
       return;
     }
     pending.resolve(message.result);
@@ -384,7 +384,7 @@ function exitMessage(exit: CursorExit, stderrTail: string): string {
   if (exit.error) return exit.error;
   const status = exit.signal ?? exit.code ?? "unknown";
   const lastLine = stderrTail.trim().split("\n").at(-1)?.trim();
-  return `Cursor 进程已退出（${status}）${lastLine ? `：${lastLine.slice(0, 300)}` : "。"}`;
+  return `The Cursor process exited (${status})${lastLine ? `: ${lastLine.slice(0, 300)}` : "."}`;
 }
 
 function isPermissionOption(value: unknown): value is CursorPermissionOption {

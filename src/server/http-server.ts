@@ -84,7 +84,7 @@ export class WebServer {
   #listening = false;
 
   constructor(options: WebServerOptions) {
-    if (!options.token) throw new Error("访问令牌不能为空。");
+    if (!options.token) throw new Error("The access token must not be empty.");
     this.#token = options.token;
     this.#auth = new CookieAuth(options.token);
     this.#fileRoots = options.fileRoots ?? [];
@@ -100,7 +100,7 @@ export class WebServer {
       void this.#serveHttp(request, response).catch((error: unknown) => {
         console.error(error);
         if (response.headersSent) response.destroy();
-        else sendJson(response, 500, { error: { message: "请求失败。" } });
+        else sendJson(response, 500, { error: { message: "The request failed." } });
       });
     });
     this.#webSockets = new WebSocketServer({
@@ -134,7 +134,7 @@ export class WebServer {
   }
 
   listen(port: number): Promise<ServerAddress> {
-    if (this.#listening) return Promise.reject(new Error("服务已经启动。"));
+    if (this.#listening) return Promise.reject(new Error("The server is already listening."));
     return new Promise((resolve, reject) => {
       const onError = (error: Error) => {
         this.#http.off("listening", onListening);
@@ -185,12 +185,12 @@ export class WebServer {
     }
     if (["/auth/session", "/raw", "/attachments/upload"].includes(pathname)) {
       if (!this.#originAllowed(request)) {
-        sendJson(response, 403, { error: { message: "请求来源不匹配。" } });
+        sendJson(response, 403, { error: { message: "Request origin mismatch." } });
         return;
       }
       const cookie = this.#auth.read(request.headers.cookie);
       if (!cookie) {
-        sendJson(response, 401, { error: { message: "请先登录。" } });
+        sendJson(response, 401, { error: { message: "Sign in first." } });
         return;
       }
       // Authenticated HTTP requests renew the cookie.
@@ -203,7 +203,7 @@ export class WebServer {
     if (pathname === "/auth/session") {
       if (request.method !== "GET") {
         response.setHeader("allow", "GET");
-        sendJson(response, 405, { error: { message: "只允许 GET。" } });
+        sendJson(response, 405, { error: { message: "Only GET is allowed." } });
       } else {
         sendJson(response, 200, { authenticated: true });
       }
@@ -255,7 +255,7 @@ export class WebServer {
     );
     if (request.method !== "GET" && request.method !== "HEAD") {
       response.setHeader("allow", "GET, HEAD");
-      sendJson(response, 405, { error: { message: "只允许 GET 或 HEAD。" } });
+      sendJson(response, 405, { error: { message: "Only GET or HEAD is allowed." } });
       return;
     }
     const params = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
@@ -263,7 +263,7 @@ export class WebServer {
       ? await openViewableFile(this.#fileRoots, params.get("path")!)
       : null;
     if (!file) {
-      sendJson(response, 404, { error: { message: "文件不存在或不允许查看。" } });
+      sendJson(response, 404, { error: { message: "The file does not exist or cannot be viewed." } });
       return;
     }
     try {
@@ -284,15 +284,15 @@ export class WebServer {
   async #login(request: IncomingMessage, response: ServerResponse): Promise<void> {
     if (request.method !== "POST") {
       response.setHeader("allow", "POST");
-      sendJson(response, 405, { error: { message: "只允许 POST。" } });
+      sendJson(response, 405, { error: { message: "Only POST is allowed." } });
       return;
     }
     if (!this.#originAllowed(request)) {
-      sendJson(response, 403, { error: { message: "登录来源不匹配。" } });
+      sendJson(response, 403, { error: { message: "Sign-in origin mismatch." } });
       return;
     }
     if (request.headers["content-type"]?.split(";")[0]?.trim() !== "application/json") {
-      sendJson(response, 415, { error: { message: "需要 JSON 请求。" } });
+      sendJson(response, 415, { error: { message: "A JSON request is required." } });
       return;
     }
     const chunks: Buffer[] = [];
@@ -302,7 +302,7 @@ export class WebServer {
         const buffer = Buffer.from(chunk);
         length += buffer.length;
         if (length > 16_384) {
-          sendJson(response, 413, { error: { message: "登录请求过大。" } });
+          sendJson(response, 413, { error: { message: "The sign-in request is too large." } });
           return;
         }
         chunks.push(buffer);
@@ -310,15 +310,15 @@ export class WebServer {
       const value: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       if (typeof value !== "object" || value === null ||
           !("token" in value) || typeof value.token !== "string") {
-        sendJson(response, 400, { error: { message: "请提供访问令牌。" } });
+        sendJson(response, 400, { error: { message: "Provide the access token." } });
         return;
       }
       if (!secretsEqual(value.token, this.#token)) {
-        sendJson(response, 401, { error: { message: "访问令牌不正确。" } });
+        sendJson(response, 401, { error: { message: "The access token is incorrect." } });
         return;
       }
     } catch {
-      sendJson(response, 400, { error: { message: "登录请求无效。" } });
+      sendJson(response, 400, { error: { message: "Invalid sign-in request." } });
       return;
     }
     response.setHeader("set-cookie", this.#auth.header(this.#auth.issue()));
@@ -414,7 +414,7 @@ export class WebServer {
     // On protocol errors such as oversized frames or invalid UTF-8, ws closes the connection itself and then emits error;
     // an error with no listener would exit the whole process, so this only logs.
     webSocket.on("error", (error) => {
-      console.error(`WebSocket 连接出错，已断开：${error.message}`);
+      console.error(`WebSocket error, connection closed: ${error.message}`);
     });
     webSocket.once("close", () => {
       clearInterval(heartbeat);

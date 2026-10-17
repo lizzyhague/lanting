@@ -60,7 +60,7 @@ export class AcpClient extends EventEmitter {
       if (text) this.emit("stderr", text);
     });
     proc.on("exit", (code, signal) => {
-      this.#failAll(new Error(`Grok Worker 已退出（${signal ?? code ?? "unknown"}）。`));
+      this.#failAll(new Error(`The Grok worker exited (${signal ?? code ?? "unknown"}).`));
       this.emit("exit", { code, signal });
     });
   }
@@ -93,7 +93,7 @@ export class AcpClient extends EventEmitter {
       _meta: { yoloMode, rules },
     }) as { sessionId?: string };
     if (!result?.sessionId) {
-      throw new Error("Grok 没有返回 session id。");
+      throw new Error("Grok returned no session id.");
     }
     return result.sessionId;
   }
@@ -130,7 +130,7 @@ export class AcpClient extends EventEmitter {
       resetToAuto: false,
     }) as { success?: boolean };
     if (result?.success !== true) {
-      throw new Error("Grok 没有完成会话重命名。");
+      throw new Error("Grok did not finish renaming the session.");
     }
   }
 
@@ -174,7 +174,7 @@ export class AcpClient extends EventEmitter {
 
   request(method: string, params: unknown): Promise<unknown> {
     if (this.#closed) {
-      return Promise.reject(new Error("Grok Worker 已经关闭。"));
+      return Promise.reject(new Error("The Grok worker is closed."));
     }
     const id = this.#nextId++;
     return new Promise((resolve, reject) => {
@@ -190,7 +190,7 @@ export class AcpClient extends EventEmitter {
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
-    this.#failAll(new Error("Grok Worker 已关闭。"));
+    this.#failAll(new Error("The Grok worker is closed."));
     if (!this.#proc.killed) {
       this.#proc.stdin.end();
     }

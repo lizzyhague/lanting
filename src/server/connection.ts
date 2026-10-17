@@ -286,7 +286,7 @@ export class BrowserConnection implements EventSink {
   #sendProtocolError(error: unknown): void {
     const known = error instanceof ProtocolError
       ? error
-      : new ProtocolError("invalid_message", "无法解析消息。");
+      : new ProtocolError("invalid_message", "The message could not be parsed.");
     this.#send({
       type: "error",
       requestId: known.requestId,

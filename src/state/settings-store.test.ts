@@ -109,7 +109,7 @@ test("a version 1 file is rejected without changing its bytes", async (t) => {
   const source = '{"version":1,"settings":{"username":"host","defaults":{},"createMembers":null}}\n';
   await writeFile(file, source);
 
-  await assert.rejects(SettingsStore.open(directory, ["claude"]), /旧版本（1）.*清理/u);
+  await assert.rejects(SettingsStore.open(directory, ["claude"]), /old version \(1\).*cleared/u);
   assert.equal(await readFile(file, "utf8"), source);
 });
 
@@ -124,7 +124,7 @@ test("a corrupt version 2 file stops the store from opening", async (t) => {
       createMembers: null,
     },
   }));
-  await assert.rejects(SettingsStore.open(directory, ["claude"]), /设置文件损坏：主色不在调色板里/u);
+  await assert.rejects(SettingsStore.open(directory, ["claude"]), /Settings file is corrupt: 主色不在调色板里/u);
 });
 
 test("settings survive reopening and callers only receive copies", async (t) => {

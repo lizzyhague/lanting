@@ -41,5 +41,5 @@ test("reports a preview-root preparation failure", async (t) => {
   const occupied = path.join(temp, "occupied");
   await writeFile(occupied, "not a directory");
 
-  await assert.rejects(ensurePreviewRoot(occupied), /无法准备文件预览目录/u);
+  await assert.rejects(ensurePreviewRoot(occupied), /Cannot prepare the file preview directory/u);
 });

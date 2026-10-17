@@ -162,7 +162,7 @@ test("deleting a Grok session removes its directory under any session group", as
   await assert.rejects(stat(sessionDir), { code: "ENOENT" });
   assert.ok((await stat(otherDir)).isDirectory());
   await adapter.features.deleteSession!("grok-1", grokHome);
-  await assert.rejects(adapter.features.deleteSession!("../grok-2", grokHome), /格式不对/u);
+  await assert.rejects(adapter.features.deleteSession!("../grok-2", grokHome), /Malformed/u);
   assert.ok((await stat(otherDir)).isDirectory());
 });
 

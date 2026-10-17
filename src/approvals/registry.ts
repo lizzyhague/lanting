@@ -68,12 +68,12 @@ export class ApprovalRegistry {
         resolve(answer);
       };
       const timer = setTimeout(() => {
-        settle({ decision: "deny", message: "等待确认超时，已自动拒绝。" }, "timeout");
+        settle({ decision: "deny", message: "Nobody approved in time, so the request was denied automatically." }, "timeout");
       }, this.#timeoutMs);
       timer.unref();
       this.#entries.set(request.approvalId, { request, settle, timer });
       this.#emit({ type: "approval.requested", approval: request });
-      const withdraw = () => settle({ decision: "deny", message: "AI 收回了这次申请。" }, "cancelled");
+      const withdraw = () => settle({ decision: "deny", message: "The AI withdrew this request." }, "cancelled");
       if (signal?.aborted) withdraw();
       else signal?.addEventListener("abort", withdraw, { once: true });
     });
@@ -85,7 +85,7 @@ export class ApprovalRegistry {
     if (!entry) return false;
     entry.settle({
       decision,
-      message: decision === "allow" ? "" : "群主拒绝了这次工具调用。",
+      message: decision === "allow" ? "" : "The user denied this tool call.",
     }, "user");
     return true;
   }
@@ -95,7 +95,7 @@ export class ApprovalRegistry {
     for (const entry of [...this.#entries.values()]) {
       if (entry.request.groupId !== groupId) continue;
       if (agent !== undefined && entry.request.agent !== agent) continue;
-      entry.settle({ decision: "deny", message: "这一轮已结束，工具调用被取消。" }, "cancelled");
+      entry.settle({ decision: "deny", message: "This round has ended, so the tool call was cancelled." }, "cancelled");
     }
   }
 
@@ -110,7 +110,7 @@ export class ApprovalRegistry {
       try {
         listener(event);
       } catch (error) {
-        console.error(`审批事件处理出错：${error instanceof Error ? error.message : String(error)}`);
+        console.error(`Approval event handler failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }

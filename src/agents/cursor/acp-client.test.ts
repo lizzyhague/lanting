@@ -166,7 +166,7 @@ test("runs the handshake with Cursor's own methods", async (t) => {
 
 test("rejects a session/new result without a session id", async (t) => {
   const client = await setup(t);
-  await assert.rejects(client.sessionNew("/no-id"), /Cursor 没有返回 session id/);
+  await assert.rejects(client.sessionNew("/no-id"), /Cursor returned no session id/);
 });
 
 test("splits stdout only on LF and reassembles chunked records", async (t) => {
@@ -209,7 +209,7 @@ test("routes permission, blocking requests, notices and unknown methods", async 
     { method: "cursor/task", params: { id: "k" } },
   ]);
   assert.deepEqual(updates, []);
-  assert.ok(diagnostics.some((text) => text.includes("Cursor 通知未处理") && text.includes("cursor/something_new")));
+  assert.ok(diagnostics.some((text) => text.includes("Unhandled Cursor notification") && text.includes("cursor/something_new")));
 
   const answers = await client.request("answers", {}) as Array<Record<string, unknown>>;
   assert.deepEqual(answers, [
@@ -230,10 +230,10 @@ test("sends session/cancel as a notification", async (t) => {
 test("reports non-JSON stdout, stderr, stray responses and errors", async (t) => {
   const client = await setup(t);
   const diagnostics = collect<string>(client, "diagnostic");
-  await assert.rejects(client.request("noise", {}), /Cursor noise 失败：Upstream refused/);
-  assert.ok(diagnostics.some((text) => text.includes("Cursor stdout 不是 JSON：not json")));
-  assert.ok(diagnostics.some((text) => text.includes("Cursor stdout 不是 JSON 对象：[1,2]")));
-  assert.ok(diagnostics.some((text) => text.includes("Cursor 响应对不上请求") && text.includes("4242")));
+  await assert.rejects(client.request("noise", {}), /Cursor noise failed: Upstream refused/);
+  assert.ok(diagnostics.some((text) => text.includes("Cursor stdout is not JSON: not json")));
+  assert.ok(diagnostics.some((text) => text.includes("Cursor stdout is not a JSON object: [1,2]")));
+  assert.ok(diagnostics.some((text) => text.includes("Cursor response matches no request") && text.includes("4242")));
   // stderr and stdout are two pipes; arrival order isn't guaranteed.
   while (!diagnostics.some((text) => text.includes("Cursor stderr：something on stderr"))) {
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -244,17 +244,17 @@ test("rejects pending requests with the exit status and stderr on crash", async 
   const client = await setup(t);
   const exits = collect<unknown>(client, "exit");
   const pending = client.request("hang", {});
-  const pendingRejected = assert.rejects(pending, /Cursor 进程已退出（3）/);
-  await assert.rejects(client.request("crash", {}), /Cursor 进程已退出（3）：fatal: cursor exploded/);
+  const pendingRejected = assert.rejects(pending, /The Cursor process exited \(3\)/);
+  await assert.rejects(client.request("crash", {}), /The Cursor process exited \(3\): fatal: cursor exploded/);
   await pendingRejected;
   assert.equal(client.alive, false);
   assert.deepEqual(exits, [{ code: 3, signal: null }]);
-  await assert.rejects(client.request("ping", {}), /Cursor 进程已退出/);
+  await assert.rejects(client.request("ping", {}), /The Cursor process exited/);
 });
 
 test("reports a missing executable instead of throwing", async () => {
   const client = new CursorAcpClient({ executable: "/nonexistent/agent", cwd: tmpdir() });
-  await assert.rejects(client.initialize(), /无法启动 Cursor/);
+  await assert.rejects(client.initialize(), /Cannot start Cursor/);
   await client.close();
   assert.equal(client.alive, false);
 });
@@ -262,14 +262,14 @@ test("reports a missing executable instead of throwing", async () => {
 test("close ends pending requests and reaps the whole process group", async (t) => {
   const client = await setup(t);
   const { pid: childPid } = await client.request("spawn_child", {}) as { pid: number };
-  const pending = assert.rejects(client.request("hang", {}), /Cursor 已经关闭/);
+  const pending = assert.rejects(client.request("hang", {}), /Cursor is closed/);
   const groupId = client.pid!;
   await client.close();
   await pending;
   assert.equal(client.alive, false);
   assert.equal(groupExists(groupId), false);
   assert.throws(() => process.kill(childPid, 0), { code: "ESRCH" });
-  await assert.rejects(client.request("ping", {}), /Cursor 已经关闭/);
+  await assert.rejects(client.request("ping", {}), /Cursor is closed/);
 });
 
 test("close escalates to signals when Cursor ignores stdin EOF", async (t) => {

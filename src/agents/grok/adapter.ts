@@ -70,7 +70,7 @@ export class GrokAdapter implements AgentAdapter {
       const child = spawnGrok(this.#options.executable, cwd);
       const client = new AcpClient(child);
       try {
-        if (child.pid === undefined) throw new Error("无法启动 Grok。");
+        if (child.pid === undefined) throw new Error("Cannot start Grok.");
         return { models: modelOptions(await client.initialize()), permissions: [...GROK_PERMISSIONS] };
       } finally {
         await client.close();
@@ -85,7 +85,7 @@ export class GrokAdapter implements AgentAdapter {
    */
   async #deleteSession(nativeId: string): Promise<void> {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(nativeId) || nativeId.includes("..")) {
-      throw new Error(`Grok 会话 id 格式不对：${nativeId}`);
+      throw new Error(`Malformed Grok session id: ${nativeId}`);
     }
     const root = path.join(this.#options.grokHome ?? resolveGrokHome(), "sessions");
     for (const group of await readdir(root, { withFileTypes: true }).catch(() => [])) {
@@ -106,7 +106,7 @@ export class GrokAdapter implements AgentAdapter {
 }
 
 function asOwnSession(session: AgentSession): GrokSession {
-  if (!(session instanceof GrokSession)) throw new Error("会话不属于 Grok Build。");
+  if (!(session instanceof GrokSession)) throw new Error("The session does not belong to Grok Build.");
   return session;
 }
 
@@ -144,7 +144,7 @@ class GrokSession implements AgentSession {
     this.#client.on("exit", () => {
       this.#exited = true;
       for (const controller of this.#approvals) controller.abort();
-      this.#finish({ type: "end", outcome: "failed", text: this.#turn?.segment ?? "", error: "Grok 进程已退出。" });
+      this.#finish({ type: "end", outcome: "failed", text: this.#turn?.segment ?? "", error: "The Grok process exited." });
     });
   }
 
@@ -157,7 +157,7 @@ class GrokSession implements AgentSession {
     const session = new GrokSession(child, options);
     const yolo = options.settings.permission === ALWAYS_APPROVE;
     try {
-      if (child.pid === undefined) throw new Error("无法启动 Grok。");
+      if (child.pid === undefined) throw new Error("Cannot start Grok.");
       await session.#client.initialize();
       if (sessionId) {
         await session.#client.sessionResume(sessionId, options.cwd, yolo);
@@ -184,8 +184,8 @@ class GrokSession implements AgentSession {
   }
 
   async *send(text: string): AsyncIterable<AgentEvent> {
-    if (!this.alive) throw new Error("Grok 进程已关闭。");
-    if (this.#turn) throw new Error("Grok 还在处理上一轮。");
+    if (!this.alive) throw new Error("The Grok process is closed.");
+    if (this.#turn) throw new Error("Grok is still handling the previous round.");
     const turn: Turn = { channel: new EventChannel<AgentEvent>(), segment: "", interrupted: false };
     this.#turn = turn;
     void this.#client.sessionPrompt(this.#sessionId, text).then(
@@ -196,7 +196,7 @@ class GrokSession implements AgentSession {
         } else if (stop === "end_turn") {
           this.#finish({ type: "end", outcome: "completed", text: turn.segment });
         } else {
-          this.#finish({ type: "end", outcome: "failed", text: turn.segment, error: `Grok 提前结束了这一轮（${stop}）。` });
+          this.#finish({ type: "end", outcome: "failed", text: turn.segment, error: `Grok ended the round early (${stop}).` });
         }
       },
       (error: unknown) => {
@@ -212,8 +212,8 @@ class GrokSession implements AgentSession {
   }
 
   async compact(): Promise<void> {
-    if (!this.alive) throw new Error("Grok 进程已关闭。");
-    if (this.#turn) throw new Error("Grok 还在处理上一轮。");
+    if (!this.alive) throw new Error("The Grok process is closed.");
+    if (this.#turn) throw new Error("Grok is still handling the previous round.");
     await this.#client.sessionCompact(this.#sessionId);
   }
 
@@ -317,7 +317,7 @@ function spawnGrok(executable: string, cwd: string): ChildProcessWithoutNullStre
   }) as ChildProcessWithoutNullStreams;
   // On a failed launch (e.g. wrong path) pid is empty and the caller reports "can't start Grok";
   // without catching the error event, the whole service would exit on an unhandled error.
-  child.on("error", (error) => console.error(`Grok 进程出错：${error.message}`));
+  child.on("error", (error) => console.error(`Grok process error: ${error.message}`));
   return child;
 }
 

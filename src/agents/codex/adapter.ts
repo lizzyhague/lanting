@@ -134,7 +134,7 @@ async function readQuota(client: Pick<ResidentAppServer, "request">): Promise<Qu
       });
     });
   } catch (error) {
-    console.error(`读取 Codex 套餐额度失败：${error instanceof Error ? error.message : String(error)}`);
+    console.error(`Reading the Codex plan quota failed: ${error instanceof Error ? error.message : String(error)}`);
     return [];
   }
 }
@@ -157,7 +157,7 @@ export function usageParts(context: number | null, windows: readonly QuotaWindow
 }
 
 function asOwnSession(session: AgentSession): CodexSession {
-  if (!(session instanceof CodexSession)) throw new Error("会话不属于 Codex CLI。");
+  if (!(session instanceof CodexSession)) throw new Error("The session does not belong to Codex CLI.");
   return session;
 }
 
@@ -195,7 +195,7 @@ class CodexSession implements AgentSession {
     client.onServerRequest((message) => this.#onServerRequest(message));
     void client.whenExited().then(() => {
       this.#exited = true;
-      this.#finish({ type: "end", outcome: "failed", text: this.#turn?.pending ?? "", error: "codex app-server 已退出。" });
+      this.#finish({ type: "end", outcome: "failed", text: this.#turn?.pending ?? "", error: "codex app-server exited." });
     });
   }
 
@@ -226,7 +226,7 @@ class CodexSession implements AgentSession {
           developerInstructions: options.systemPrompt,
         });
       const id = readThreadId(response);
-      if (threadId && id !== threadId) throw new Error("Codex 返回了错误的会话。");
+      if (threadId && id !== threadId) throw new Error("Codex returned the wrong session.");
       session.#threadId = id;
       const settings = settingsUpdate(options);
       if (settings) await client.request("thread/settings/update", { threadId: id, ...settings });
@@ -251,7 +251,7 @@ class CodexSession implements AgentSession {
       this.#client.request("thread/compact/start", { threadId: this.#threadId }).then(() => null)
     )) {
       if (event.type !== "end") continue;
-      if (event.outcome !== "completed") throw new Error(event.error ?? "压缩被打断了。");
+      if (event.outcome !== "completed") throw new Error(event.error ?? "Compaction was interrupted.");
     }
   }
 
@@ -264,8 +264,8 @@ class CodexSession implements AgentSession {
 
   /** start sends the round's request and returns the turn id; returns null when the response has no id, waiting for turn/started. */
   async *#run(start: () => Promise<string | null>): AsyncIterable<AgentEvent> {
-    if (!this.alive) throw new Error("codex app-server 已关闭。");
-    if (this.#turn) throw new Error("Codex 还在处理上一轮。");
+    if (!this.alive) throw new Error("codex app-server is closed.");
+    if (this.#turn) throw new Error("Codex is still handling the previous round.");
     const turn: Turn = {
       channel: new EventChannel<AgentEvent>(),
       id: null,
@@ -392,7 +392,7 @@ class CodexSession implements AgentSession {
           outcome,
           text: turn.pending,
           ...(outcome === "failed"
-            ? { error: typeof error === "string" ? error : turn.lastError ?? "Codex 未能完成这一轮。" }
+            ? { error: typeof error === "string" ? error : turn.lastError ?? "Codex could not finish the round." }
             : {}),
         });
         return;
@@ -407,7 +407,7 @@ class CodexSession implements AgentSession {
     const method = typeof message.method === "string" ? message.method : "";
     const approval = readApproval(method, params);
     if (!approval || params.threadId !== this.#threadId) {
-      this.#client.rejectServerRequest(id, `lanting 不支持这个请求：${method}`);
+      this.#client.rejectServerRequest(id, `lanting does not support this request: ${method}`);
       return;
     }
     const controller = new AbortController();
@@ -420,7 +420,7 @@ class CodexSession implements AgentSession {
       })
       .catch((error: unknown) => {
         this.#approvals.delete(id);
-        console.error(`Codex 审批处理出错：${error instanceof Error ? error.message : String(error)}`);
+        console.error(`Codex approval handling failed: ${error instanceof Error ? error.message : String(error)}`);
       });
   }
 }
@@ -450,7 +450,7 @@ async function listModels(client: Pick<AppServerClient, "request">): Promise<Mod
   const seen = new Set<string>();
   do {
     const response = asObject(await client.request("model/list", { cursor, limit: 100, includeHidden: false }));
-    if (!response || !Array.isArray(response.data)) throw new Error("Codex 返回了无法识别的模型列表。");
+    if (!response || !Array.isArray(response.data)) throw new Error("Codex returned an unrecognized model list.");
     for (const value of response.data) {
       const model = asObject(value);
       if (!model || typeof model.id !== "string" || model.hidden === true) continue;
@@ -480,7 +480,7 @@ async function listModels(client: Pick<AppServerClient, "request">): Promise<Mod
 /** Permission profiles only have an id and description; as in Codex Remote, Chinese labels are given by name. Unselectable profiles aren't listed. */
 async function listPermissions(client: Pick<AppServerClient, "request">, cwd: string): Promise<PermissionOption[]> {
   const response = asObject(await client.request("permissionProfile/list", { cursor: null, limit: 100, cwd }));
-  if (!response || !Array.isArray(response.data)) throw new Error("Codex 返回了无法识别的权限列表。");
+  if (!response || !Array.isArray(response.data)) throw new Error("Codex returned an unrecognized permission list.");
   return response.data.flatMap((value) => {
     const profile = asObject(value);
     if (!profile || typeof profile.id !== "string" || profile.allowed !== true) return [];
@@ -587,13 +587,13 @@ export function toolActivity(item: JsonObject | null): { kind: "tool"; toolName:
 
 function readThreadId(value: unknown): string {
   const id = asObject(asObject(value)?.thread)?.id;
-  if (typeof id !== "string" || !id) throw new Error("Codex 返回了无法识别的会话。");
+  if (typeof id !== "string" || !id) throw new Error("Codex returned an unrecognized session.");
   return id;
 }
 
 function readTurnId(value: unknown): string {
   const id = asObject(asObject(value)?.turn)?.id;
-  if (typeof id !== "string" || !id) throw new Error("Codex 返回了无法识别的任务启动结果。");
+  if (typeof id !== "string" || !id) throw new Error("Codex returned an unrecognized turn start result.");
   return id;
 }
 

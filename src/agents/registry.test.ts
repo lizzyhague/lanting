@@ -22,6 +22,6 @@ test("registers adapters by kind and rejects a duplicate kind", () => {
   assert.equal(registry.has("codex"), false);
   assert.throws(
     () => new AgentRegistry([new FakeAdapter("claude"), new FakeAdapter("claude")]),
-    /CLI 种类重复登记：claude/u,
+    /CLI kind registered twice: claude/u,
   );
 });
