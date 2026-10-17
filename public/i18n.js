@@ -47,9 +47,11 @@
     return choice === "system" ? browserLanguage() : choice;
   }
 
+  // A translation may be { one, other }; params.count picks the form.
   function t(key, params) {
     var entry = strings[key];
     var text = entry ? (entry[language] != null ? entry[language] : entry.zh) : key;
+    if (text && typeof text === "object") text = params && params.count === 1 ? text.one : text.other;
     if (!params) return text;
     return text.replace(/\{(\w+)\}/g, function (match, name) {
       return Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match;

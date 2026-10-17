@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { t } from "./i18n.test-support.js";
 import vm from "node:vm";
 
 const [source, styles] = await Promise.all([
@@ -37,6 +38,7 @@ class FakeElement {
 test("approvals use the Relayu three-part card without losing the agent color", () => {
   const approvalList = new FakeElement("div");
   const context = vm.createContext({
+    t,
     state: {
       current: {
         group: {},

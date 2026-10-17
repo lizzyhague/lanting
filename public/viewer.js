@@ -1,5 +1,8 @@
 import { renderMarkdown } from "./markdown.js";
 
+/** Interface text from i18n.js, which loads in <head> before this module. */
+const t = (key, params) => globalThis.lantingI18n ? globalThis.lantingI18n.t(key, params) : key;
+
 const status = document.getElementById("viewer-status");
 const content = document.getElementById("file-content");
 const login = document.getElementById("viewer-login");
@@ -45,8 +48,11 @@ function rewriteRelativeLinks(root) {
 }
 
 async function loadFile() {
+  document.getElementById("file-name").textContent = t("viewer.title");
+  document.title = `${t("viewer.title")} · lanting`;
+  status.textContent = t("viewer.loading");
   if (!filePath || params.getAll("path").length !== 1) {
-    throw new Error("链接缺少有效的文件路径。");
+    throw new Error(t("viewer.badLink"));
   }
   const name = filePath.split("/").pop() || filePath;
   document.getElementById("file-name").textContent = name;
@@ -55,15 +61,15 @@ async function loadFile() {
   const markdown = /\.md$/i.test(filePath);
   const response = await fetch(raw, { method: markdown ? "GET" : "HEAD", cache: "no-store" });
   if (response.status === 401) {
-    status.textContent = "请先登录 lanting，再查看此文件。";
+    status.textContent = t("viewer.loginRequired");
     login.href = `/?${new URLSearchParams({ returnTo: location.pathname + location.search })}`;
     login.hidden = false;
     return;
   }
   if (!response.ok) {
     throw new Error(response.status === 404
-      ? "文件不存在或不允许查看。"
-      : "文件读取失败，请稍后刷新重试。");
+      ? t("viewer.notFound")
+      : t("viewer.readFailed"));
   }
   if (markdown) {
     content.append(renderMarkdown(await response.text()));
@@ -74,16 +80,16 @@ async function loadFile() {
     image.className = "viewer-image";
     image.addEventListener("error", () => {
       status.hidden = false;
-      status.textContent = "图片无法显示，文件可能已变化，请刷新重试。";
+      status.textContent = t("viewer.imageFailed");
     });
     image.src = raw;
     content.append(image);
   } else {
-    throw new Error("此文件类型不支持查看。");
+    throw new Error(t("viewer.unsupported"));
   }
   status.hidden = true;
 }
 
 void loadFile().catch((error) => {
-  status.textContent = error instanceof Error ? error.message : "无法读取文件。";
+  status.textContent = error instanceof Error ? error.message : t("viewer.failed");
 });

@@ -87,10 +87,10 @@ export function createNoticeController({
     }
     const lifetime = options.lifetime ?? "temporary";
     const tone = options.tone ?? "warning";
-    if (!LIFETIMES.has(lifetime)) throw new TypeError(`无法识别的提示生命周期：${lifetime}`);
-    if (!TONES.has(tone)) throw new TypeError(`无法识别的提示类型：${tone}`);
+    if (!LIFETIMES.has(lifetime)) throw new TypeError(`Unknown notice lifetime: ${lifetime}`);
+    if (!TONES.has(tone)) throw new TypeError(`Unknown notice tone: ${tone}`);
     const key = typeof options.key === "string" && options.key ? options.key : null;
-    if (lifetime === "state" && !key) throw new TypeError("状态提示必须提供 key。");
+    if (lifetime === "state" && !key) throw new TypeError("State notices require a key.");
     if (key && lifetime !== "temporary" && dismissedKeys.has(key) && options.force !== true) {
       return null;
     }

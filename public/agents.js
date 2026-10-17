@@ -1,3 +1,6 @@
+/** Interface text from i18n.js; looked up on each call so a language switch applies to the next render. */
+const t = (key, params) => globalThis.lantingI18n ? globalThis.lantingI18n.t(key, params) : key;
+
 export function createCandidates(settings) {
   return settings.agents.filter((agent) => agent.complete);
 }
@@ -99,10 +102,10 @@ export function formatLocalTime(timestamp) {
  * when the read fails or has no result yet it shows "usage unavailable"; otherwise it ends with the last reply time.
  */
 export function usageTexts(usage, lastReply) {
-  if (usage?.status === "not_started") return ["未启动"];
+  if (usage?.status === "not_started") return [t("usage.notStarted")];
   const texts = usage?.status === "ok"
     ? usage.parts.map((part) => part.text.replaceAll("{time}", formatLocalTime(part.time)))
-    : ["额度查询不可用"];
-  texts.push(lastReply ? `最后回复时间 ${formatLocalTime(lastReply)}` : "最后回复时间不可用");
+    : [t("usage.unavailable")];
+  texts.push(lastReply ? t("usage.lastReply", { time: formatLocalTime(lastReply) }) : t("usage.lastReplyUnavailable"));
   return texts;
 }

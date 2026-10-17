@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
+const SCRIPTS = ["app.js", "boot.js", "agents.js", "markdown.js", "viewer.js", "selection-bar.js", "confirm-dialog.js"];
+const scripts = await Promise.all(SCRIPTS.map((file) => readFile(new URL(`./${file}`, import.meta.url), "utf8")));
 const [stringsSource, source, html, viewHtml, app, boot] = await Promise.all([
   readFile(new URL("./strings.js", import.meta.url), "utf8"),
   readFile(new URL("./i18n.js", import.meta.url), "utf8"),
@@ -144,7 +146,10 @@ test("every string has both languages and the same placeholders in each", () => 
   for (const [key, entry] of Object.entries(loadStrings())) {
     assert.deepEqual(Object.keys(entry).sort(), ["en", "zh"], key);
     const names = (text) => [...text.matchAll(/\{(\w+)\}/gu)].map((match) => match[1]).sort();
-    assert.deepEqual(names(entry.en), names(entry.zh), key);
+    // A { one, other } translation is checked through its "other" form, which keeps every placeholder.
+    const forms = (text) => typeof text === "string" ? { other: text } : text;
+    assert.deepEqual(names(forms(entry.en).other), names(forms(entry.zh).other), key);
+    for (const form of Object.values(forms(entry.en))) assert.equal(typeof form, "string", key);
   }
 });
 
@@ -163,8 +168,42 @@ test("markup keeps the Chinese text as its default, and every key used exists", 
       assert.equal(value?.[1], strings[match[2]].zh, `${match[1]} of ${match[2]}`);
     }
   }
-  for (const match of `${app}\n${boot}`.matchAll(/\bt\("([^"]+)"/gu)) {
-    assert.ok(strings[match[1]], match[1]);
+});
+
+/** Every quoted literal inside a t(...) call, including both branches of a conditional key. */
+function keysInCalls(code) {
+  const keys = [];
+  for (const start of code.matchAll(/\bt\(/gu)) {
+    let depth = 0;
+    let end = start.index + 1;
+    for (; end < code.length; end += 1) {
+      if (code[end] === "(") depth += 1;
+      else if (code[end] === ")" && --depth === 0) break;
+    }
+    const call = code.slice(start.index, end);
+    for (const match of call.matchAll(/"([a-z]+(?:\.[A-Za-z]+)+)"/gu)) keys.push(match[1]);
+  }
+  return keys;
+}
+
+test("every key the scripts use exists, including keys built from a state name", () => {
+  const strings = loadStrings();
+  for (const key of scripts.flatMap(keysInCalls)) assert.ok(strings[key], key);
+  for (const status of ["interrupted", "failed", "thinking", "tool", "replying", "approval", "stopping"]) {
+    assert.ok(strings[`status.${status}`], status);
+  }
+  for (const action of ["compacting", "replying"]) {
+    assert.ok(strings[`list.busy.${action}`], action);
+    assert.ok(strings[`list.busyAgent.${action}`], action);
+  }
+  for (const match of app.matchAll(/(?:labelKey|doneKey): "([^"]+)"/gu)) assert.ok(strings[match[1]], match[1]);
+  for (const match of app.matchAll(/setConnectionStatus\("\w+", "([^"]+)"\)/gu)) assert.ok(strings[match[1]], match[1]);
+});
+
+test("the page scripts no longer contain Chinese interface text", () => {
+  for (const [index, code] of scripts.entries()) {
+    const lines = code.split("\n").filter((line) => /[\u4e00-\u9fff]/u.test(line));
+    assert.deepEqual(lines, [], SCRIPTS[index]);
   }
 });
 

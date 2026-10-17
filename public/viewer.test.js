@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { lantingI18n } from "./i18n.test-support.js";
 import vm from "node:vm";
 
 import { renderMarkdown } from "./markdown.js";
@@ -47,6 +48,7 @@ async function view(filePath, response) {
   document.getElementById("viewer-login").hidden = true;
   const requests = [];
   await vm.runInNewContext(viewer, {
+    lantingI18n,
     document,
     URLSearchParams,
     location: { pathname: "/view", search: `?${new URLSearchParams({ path: filePath })}` },

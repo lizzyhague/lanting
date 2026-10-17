@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import "./i18n.test-support.js";
 
 import { parseMarkdown, renderMarkdown, sanitizeHref, tokenizeInline } from "./markdown.js";
 

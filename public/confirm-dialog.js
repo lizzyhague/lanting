@@ -1,3 +1,6 @@
+/** Interface text from i18n.js; looked up on each call so a language switch applies to the next render. */
+const t = (key, params) => globalThis.lantingI18n ? globalThis.lantingI18n.t(key, params) : key;
+
 export function createConfirmDialog({
   dialog,
   titleElement,
@@ -18,7 +21,7 @@ export function createConfirmDialog({
     dialog.close("");
   });
 
-  function show(message, { title = "确认", confirmLabel = "确定", danger = false } = {}) {
+  function show(message, { title = t("confirm.title"), confirmLabel = t("confirm.ok"), danger = false } = {}) {
     titleElement.textContent = title;
     const paragraphs = String(message).split(/\n+/u).map((part) => part.trim()).filter(Boolean);
     messageElement.replaceChildren(...paragraphs.map((text) => {

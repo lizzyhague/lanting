@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { lantingI18n } from "./i18n.test-support.js";
 
 import { createSelectionBar, trashRemainingText } from "./selection-bar.js";
 
@@ -45,16 +46,16 @@ const document = {
 function remoteViews() {
   return {
     active: { actions: [
-      { id: "archive", label: "归档", resultLabel: "归档", icon: "archive" },
-      { id: "trash-active", label: "删除", resultLabel: "删除", icon: "delete", danger: true, retention: true },
+      { id: "archive", labelKey: "selection.archive", doneKey: "selection.doneArchive", icon: "archive" },
+      { id: "trash-active", labelKey: "common.delete", doneKey: "selection.doneTrash", icon: "delete", danger: true },
     ] },
     archived: { actions: [
-      { id: "unarchive", label: "取消归档", resultLabel: "取消归档", icon: "unarchive" },
-      { id: "trash-archived", label: "删除", resultLabel: "删除", icon: "delete", danger: true, retention: true },
+      { id: "unarchive", labelKey: "selection.unarchive", doneKey: "selection.doneUnarchive", icon: "unarchive" },
+      { id: "trash-archived", labelKey: "common.delete", doneKey: "selection.doneTrash", icon: "delete", danger: true },
     ] },
     trash: { actions: [
-      { id: "restore-trash", label: "恢复", resultLabel: "恢复", icon: "restore" },
-      { id: "delete-trash", label: "永久删除", resultLabel: "永久删除", icon: "purge", danger: true, permanent: true },
+      { id: "restore-trash", labelKey: "selection.restore", doneKey: "selection.doneRestore", icon: "restore" },
+      { id: "delete-trash", labelKey: "selection.purge", doneKey: "selection.donePurge", icon: "purge", danger: true, permanent: true },
     ] },
   };
 }
@@ -62,16 +63,16 @@ function remoteViews() {
 function groupViews() {
   return {
     active: { actions: [
-      { id: "archive", label: "归档", resultLabel: "归档", icon: "archive" },
-      { id: "trash-active", label: "删除", resultLabel: "删除", icon: "delete", danger: true, retention: true },
+      { id: "archive", labelKey: "selection.archive", doneKey: "selection.doneArchive", icon: "archive" },
+      { id: "trash-active", labelKey: "common.delete", doneKey: "selection.doneTrash", icon: "delete", danger: true },
     ] },
     archived: { actions: [
-      { id: "unarchive", label: "取消归档", resultLabel: "取消归档", icon: "unarchive" },
-      { id: "trash-archived", label: "删除", resultLabel: "删除", icon: "delete", danger: true, retention: true },
+      { id: "unarchive", labelKey: "selection.unarchive", doneKey: "selection.doneUnarchive", icon: "unarchive" },
+      { id: "trash-archived", labelKey: "common.delete", doneKey: "selection.doneTrash", icon: "delete", danger: true },
     ] },
     trash: { actions: [
-      { id: "restore-trash", label: "恢复", resultLabel: "恢复", icon: "restore" },
-      { id: "delete-trash", label: "永久删除", resultLabel: "永久删除", icon: "purge", danger: true, permanent: true },
+      { id: "restore-trash", labelKey: "selection.restore", doneKey: "selection.doneRestore", icon: "restore" },
+      { id: "delete-trash", labelKey: "selection.purge", doneKey: "selection.donePurge", icon: "purge", danger: true, permanent: true },
     ] },
   };
 }
@@ -83,9 +84,6 @@ function item(id, overrides = {}) {
 function harness({
   views = remoteViews(),
   initialView = "active",
-  noun = "会话",
-  backLabel = "返回最近会话",
-  permanentDeleteDetail = "会话原文会一并删除",
   getActionUnavailableReason = () => "",
 } = {}) {
   const container = new FakeElement();
@@ -101,10 +99,6 @@ function harness({
     container,
     views,
     initialView,
-    noun,
-    backLabel,
-    untitledLabel: noun === "群" ? "未命名群" : "新会话",
-    permanentDeleteDetail,
     getId: (entry) => entry.id,
     getTitle: (entry) => entry.title,
     isSelectable: (entry) => entry.selectable,
@@ -155,12 +149,7 @@ test("generates fixed buttons for both Remote and lanting parameter sets", () =>
   assert.equal(remote.byId("selection-action-archive").hidden, false);
   assert.equal(remote.byId("selection-action-unarchive").hidden, true);
 
-  const lanting = harness({
-    views: groupViews(),
-    noun: "群",
-    backLabel: "返回最近群会话",
-    permanentDeleteDetail: "群聊中涉及的每个 CLI 会话原文一并删除",
-  });
+  const lanting = harness({ views: groupViews() });
   assert.ok(lanting.byId("selection-action-archive"));
   assert.ok(lanting.byId("selection-action-trash-active"));
   assert.ok(lanting.byId("selection-action-delete-trash"));
@@ -299,40 +288,35 @@ test("ordinary-view success exits selection and uses the retention notice", asyn
   assert.equal(h.controller.isSelecting(), false);
   assert.deepEqual(h.controller.selectedIds(), []);
   assert.deepEqual(h.notices, [{
-    message: "已删除 2 个会话，30 天后自动永久删除。",
+    message: "已删除 2 个群，30 天后自动永久删除。",
     tone: "info",
   }]);
 });
 
-for (const scenario of [
-  {
-    label: "Remote",
-    options: {},
-    expectedTitle: "永久删除会话",
-    expectedDetail: "会话原文会一并删除",
-  },
-  {
-    label: "lanting",
-    options: {
-      views: groupViews(),
-      noun: "群",
-      permanentDeleteDetail: "群聊中涉及的每个 CLI 会话原文一并删除",
-    },
-    expectedTitle: "永久删除群",
-    expectedDetail: "群聊中涉及的每个 CLI 会话原文一并删除",
-  },
-]) {
-  test(`${scenario.label} permanent deletion uses its parameterized copy`, async () => {
-    const h = harness({ initialView: "trash", ...scenario.options });
-    h.controller.reconcile([item("a", { title: "标题" })]);
-    h.controller.toggle("a");
-    h.rejectConfirm();
-    await h.controller.runAction("delete-trash");
-    assert.equal(h.executions.length, 0);
-    assert.equal(h.confirmations[0].options.title, scenario.expectedTitle);
-    assert.match(h.confirmations[0].message, new RegExp(scenario.expectedDetail, "u"));
-  });
-}
+test("permanent deletion asks first, naming a single item or counting several", async () => {
+  const h = harness({ views: groupViews(), initialView: "trash" });
+  h.controller.reconcile([item("a", { title: "标题" }), item("b")]);
+  h.controller.toggle("a");
+  h.rejectConfirm();
+  await h.controller.runAction("delete-trash");
+  assert.equal(h.executions.length, 0);
+  assert.equal(h.confirmations[0].options.title, "永久删除群");
+  assert.equal(h.confirmations[0].options.confirmLabel, "永久删除");
+  assert.match(h.confirmations[0].message, /立刻永久删除「标题」。[\s\S]*每个 CLI 会话原文一并删除/u);
+  h.controller.toggle("b");
+  await h.controller.runAction("delete-trash");
+  assert.match(h.confirmations[1].message, /立刻永久删除 2 个群/u);
+});
+
+test("relabel rewrites the button labels in the current language", (t) => {
+  t.after(() => lantingI18n.set("zh"));
+  const h = harness();
+  lantingI18n.set("en");
+  h.controller.relabel();
+  assert.equal(h.byId("selection-back-button").getAttribute("aria-label"), "Back to recent groups");
+  assert.equal(h.byId("selection-action-archive").title, "Archive");
+  assert.equal(h.byId("selection-count").textContent, "0 selected");
+});
 
 test("trash remaining text accepts seconds, milliseconds, ISO text and expired values", () => {
   const now = Date.UTC(2026, 0, 1);

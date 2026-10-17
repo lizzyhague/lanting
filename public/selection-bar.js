@@ -1,3 +1,6 @@
+/** Interface text from i18n.js; looked up on each call so a language switch applies to the next render. */
+const t = (key, params) => globalThis.lantingI18n ? globalThis.lantingI18n.t(key, params) : key;
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 const ICONS = Object.freeze({
@@ -66,13 +69,17 @@ function icon(document, name) {
   return svg;
 }
 
+function setLabel(element, label) {
+  element.setAttribute("aria-label", label);
+  element.title = label;
+}
+
 function button(document, { id, label, iconName, danger = false }) {
   const element = document.createElement("button");
   element.id = id;
   element.type = "button";
   element.className = `quiet small icon-button${danger ? " danger" : ""}`;
-  element.setAttribute("aria-label", label);
-  element.title = label;
+  setLabel(element, label);
   element.append(icon(document, iconName));
   return element;
 }
@@ -81,7 +88,7 @@ function normalizeResult(result) {
   const succeeded = Array.isArray(result?.succeeded) ? result.succeeded : [];
   const failed = Array.isArray(result?.failed) ? result.failed.map((failure) => ({
     id: failure?.id ?? failure?.sessionId ?? failure?.groupId,
-    reason: failure?.reason ?? failure?.message ?? "操作失败。",
+    reason: failure?.reason ?? failure?.message ?? t("selection.failed"),
   })) : [];
   return { succeeded, failed };
 }
@@ -90,10 +97,6 @@ export function createSelectionBar({
   container,
   views,
   initialView,
-  noun,
-  untitledLabel,
-  backLabel = "返回最近会话",
-  permanentDeleteDetail,
   getId,
   getTitle,
   isSelectable,
@@ -119,12 +122,12 @@ export function createSelectionBar({
 
   const backButton = button(document, {
     id: "selection-back-button",
-    label: backLabel,
+    label: t("list.backToRecent"),
     iconName: "back",
   });
   const cancelButton = button(document, {
     id: "selection-cancel-button",
-    label: "取消",
+    label: t("common.cancel"),
     iconName: "cancel",
   });
   const end = document.createElement("div");
@@ -141,7 +144,7 @@ export function createSelectionBar({
       actions.set(action.id, action);
       const actionButton = button(document, {
         id: `selection-action-${action.id}`,
-        label: action.label,
+        label: t(action.labelKey),
         iconName: action.icon,
         danger: action.danger,
       });
@@ -153,12 +156,12 @@ export function createSelectionBar({
 
   const selectAllButton = button(document, {
     id: "selection-select-all-button",
-    label: "全选",
+    label: t("selection.selectAll"),
     iconName: "select-all",
   });
   const selectNoneButton = button(document, {
     id: "selection-select-none-button",
-    label: "全部取消",
+    label: t("selection.selectNone"),
     iconName: "select-none",
   });
   selectAllButton.addEventListener("click", selectAll);
@@ -194,7 +197,7 @@ export function createSelectionBar({
     const fixedSelection = view === "archived" || view === "trash";
     backButton.hidden = !fixedSelection;
     cancelButton.hidden = fixedSelection;
-    count.textContent = `已选择 ${selected.size} 项`;
+    count.textContent = t("selection.count", { count: selected.size });
 
     const selectAllItems = visibleSelectAllItems();
     const allSelected = selectAllItems.length > 0 &&
@@ -290,11 +293,11 @@ export function createSelectionBar({
 
     if (action.permanent) {
       const message = targets.length === 1
-        ? `立刻永久删除「${getTitle(targets[0]) || untitledLabel}」。这一步无法撤销，${permanentDeleteDetail}。继续吗？`
-        : `立刻永久删除 ${targets.length} 个${noun}。这一步无法撤销，${permanentDeleteDetail}。继续吗？`;
+        ? t("selection.purgeOne", { title: getTitle(targets[0]) || t("group.untitled") })
+        : t("selection.purgeMany", { count: targets.length });
       if (!await confirm(message, {
-        title: `永久删除${noun}`,
-        confirmLabel: "永久删除",
+        title: t("selection.purgeTitle"),
+        confirmLabel: t("selection.purge"),
         danger: true,
       })) return null;
     }
@@ -318,13 +321,13 @@ export function createSelectionBar({
       await refreshItems();
 
       if (result.failed.length > 0) {
-        notify(
-          `已完成 ${result.succeeded.length} 项，${result.failed.length} 项失败：${result.failed[0].reason}`,
-          "error",
-        );
+        notify(t("selection.partial", {
+          done: result.succeeded.length,
+          failed: result.failed.length,
+          reason: result.failed[0].reason,
+        }), "error");
       } else if (result.succeeded.length > 0) {
-        const retention = action.retention ? "，30 天后自动永久删除" : "";
-        notify(`已${action.resultLabel} ${result.succeeded.length} 个${noun}${retention}。`, "info");
+        notify(t(action.doneKey, { count: result.succeeded.length }), "info");
       }
       return result;
     } catch (error) {
@@ -335,6 +338,16 @@ export function createSelectionBar({
       onBusyChange(false);
       update();
     }
+  }
+
+  /** Rewrites every button label in the current language, e.g. after a language switch. */
+  function relabel() {
+    setLabel(backButton, t("list.backToRecent"));
+    setLabel(cancelButton, t("common.cancel"));
+    for (const [id, actionButton] of actionButtons) setLabel(actionButton, t(actions.get(id).labelKey));
+    setLabel(selectAllButton, t("selection.selectAll"));
+    setLabel(selectNoneButton, t("selection.selectNone"));
+    update();
   }
 
   update();
@@ -350,6 +363,7 @@ export function createSelectionBar({
     toggle,
     setDisabled,
     runAction,
+    relabel,
   };
 }
 
@@ -359,9 +373,9 @@ export function trashRemainingText(purgeAt, now = Date.now()) {
     : typeof purgeAt === "string"
     ? Date.parse(purgeAt)
     : Number.NaN;
-  if (!Number.isFinite(timestamp)) return "30 天后自动删除";
+  if (!Number.isFinite(timestamp)) return t("trash.remaining", { count: 30 });
   const milliseconds = timestamp - now;
-  if (milliseconds <= 0) return "即将自动删除";
+  if (milliseconds <= 0) return t("trash.soon");
   const days = Math.max(1, Math.ceil(milliseconds / 86_400_000));
-  return `${days} 天后自动删除`;
+  return t("trash.remaining", { count: days });
 }

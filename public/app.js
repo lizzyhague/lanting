@@ -35,36 +35,35 @@ const STICK_TO_BOTTOM_PX = 80;
 /** Matches ai-remote-upload's limit. */
 const MAX_UPLOAD_BYTES = 25 * 1_048_576;
 const MAX_MESSAGE_ATTACHMENTS = 100;
-const GROUP_SELECTION_RESTORE_DELETING_MESSAGE = "选中的群里有正在永久删除的，不能恢复。";
 const GROUP_SELECTION_VIEWS = Object.freeze({
   groups: { actions: [
-    { id: "archive", label: "归档", resultLabel: "归档", icon: "archive" },
+    { id: "archive", labelKey: "selection.archive", doneKey: "selection.doneArchive", icon: "archive" },
     {
       id: "trash-active",
-      label: "删除",
-      resultLabel: "删除",
+      labelKey: "common.delete",
+      doneKey: "selection.doneTrash",
       icon: "delete",
       danger: true,
       retention: true,
     },
   ] },
   archived: { actions: [
-    { id: "unarchive", label: "取消归档", resultLabel: "取消归档", icon: "unarchive" },
+    { id: "unarchive", labelKey: "selection.unarchive", doneKey: "selection.doneUnarchive", icon: "unarchive" },
     {
       id: "trash-archived",
-      label: "删除",
-      resultLabel: "删除",
+      labelKey: "common.delete",
+      doneKey: "selection.doneTrash",
       icon: "delete",
       danger: true,
       retention: true,
     },
   ] },
   trash: { actions: [
-    { id: "restore-trash", label: "恢复", resultLabel: "恢复", icon: "restore" },
+    { id: "restore-trash", labelKey: "selection.restore", doneKey: "selection.doneRestore", icon: "restore" },
     {
       id: "delete-trash",
-      label: "永久删除",
-      resultLabel: "永久删除",
+      labelKey: "selection.purge",
+      doneKey: "selection.donePurge",
       icon: "purge",
       danger: true,
       permanent: true,
@@ -86,7 +85,7 @@ document.documentElement.style.setProperty("--scrollbar-width", `${measureScroll
 
 function byId(id) {
   const element = document.getElementById(id);
-  if (!element) throw new Error(`页面缺少元素：${id}`);
+  if (!element) throw new Error(`Page element missing: ${id}`);
   return element;
 }
 
@@ -262,10 +261,6 @@ const selectionBar = createSelectionBar({
   container: elements.selectionHeading,
   views: GROUP_SELECTION_VIEWS,
   initialView: state.listView,
-  noun: "群",
-  untitledLabel: "未命名群",
-  backLabel: "返回最近群会话",
-  permanentDeleteDetail: "群聊中涉及的每个 CLI 会话原文一并删除",
   getId: (group) => group.id,
   getTitle: (group) => group.title,
   isSelectable: groupSelectable,
@@ -313,7 +308,7 @@ async function connect(token) {
   const generation = ++state.generation;
   clearTimeout(state.reconnectTimer);
   state.reconnectTimer = null;
-  rejectPending(new Error("连接已重新建立。"));
+  rejectPending(new Error(t("connection.reestablished")));
 
   if (state.socket) {
     state.socket.onclose = null;
@@ -324,7 +319,7 @@ async function connect(token) {
   state.authenticated = false;
   elements.connectButton.disabled = true;
   setLoginStatus(t("login.connecting"), "progress");
-  setConnectionStatus("connecting", "正在连接");
+  setConnectionStatus("connecting", "connection.connecting");
 
   try {
     let response;
@@ -362,7 +357,7 @@ async function connect(token) {
     if (generation !== state.generation) return;
     setLoginStatus(errorMessage(error), "error");
     elements.connectButton.disabled = false;
-    setConnectionStatus("disconnected", "连接已断开");
+    setConnectionStatus("disconnected", "connection.disconnected");
     scheduleReconnect();
     return;
   }
@@ -381,7 +376,7 @@ async function connect(token) {
     setLoginStatus("");
     elements.connectButton.disabled = false;
     showApp();
-    setConnectionStatus("connecting", "正在恢复连接");
+    setConnectionStatus("connecting", "connection.restoring");
     try {
       await loadAppState();
       await request("connection.ready");
@@ -393,7 +388,7 @@ async function connect(token) {
         else await openGroup(state.currentGroupId, { keepPane: true });
       }
       if (generation !== state.generation || socket.readyState !== WebSocket.OPEN) return;
-      setConnectionStatus("connected", "已连接");
+      setConnectionStatus("connected", "connection.connected");
     } catch (error) {
       if (generation !== state.generation) return;
       setLoginStatus(errorMessage(error), "error");
@@ -403,7 +398,7 @@ async function connect(token) {
 
   socket.addEventListener("error", () => {
     if (generation === state.generation && !state.authenticated) {
-      setLoginStatus("现在无法连接主机。", "error");
+      setLoginStatus(t("login.hostUnreachable"), "error");
       elements.connectButton.disabled = false;
     }
   });
@@ -412,8 +407,8 @@ async function connect(token) {
     if (generation !== state.generation) return;
     state.socket = null;
     state.authenticated = false;
-    rejectPending(new Error("连接已断开。"));
-    setConnectionStatus("disconnected", "连接已断开");
+    rejectPending(new Error(t("connection.lost")));
+    setConnectionStatus("disconnected", "connection.disconnected");
     renderComposer();
     scheduleReconnect();
   });
@@ -430,13 +425,13 @@ function scheduleReconnect() {
 function request(type, fields = {}) {
   const socket = state.socket;
   if (!socket || socket.readyState !== WebSocket.OPEN) {
-    return Promise.reject(new Error("还没有连接到主机。"));
+    return Promise.reject(new Error(t("request.notConnected")));
   }
   const requestId = `r${state.nextRequestId++}`;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       state.pending.delete(requestId);
-      reject(new Error("请求超时。"));
+      reject(new Error(t("request.timeout")));
     }, REQUEST_TIMEOUT_MS);
     state.pending.set(requestId, { resolve, reject, timer });
     socket.send(JSON.stringify({ ...fields, type, requestId }));
@@ -466,7 +461,7 @@ function handleSocketMessage(data) {
     if (message.ok) {
       entry.resolve(message.data);
     } else {
-      const error = new Error(message.error?.message ?? "请求失败。");
+      const error = new Error(message.error?.message ?? t("request.failed"));
       error.code = message.error?.code;
       error.details = message.error?.details;
       entry.reject(error);
@@ -558,7 +553,7 @@ function handleEvent(event) {
       current.round = null;
       renderLive();
       renderComposer();
-      if (event.outcome === "failed") elements.composerStatus.textContent = "这一轮因为出错提前结束了。";
+      if (event.outcome === "failed") elements.composerStatus.textContent = t("round.failedEarly");
       return;
     case "compact.started":
       current.compaction = { agents: event.agents, current: null };
@@ -628,7 +623,7 @@ function applySettings(settings) {
 function renderCreateForm() {
   const select = elements.directorySelect;
   const previous = select.value;
-  select.replaceChildren(new Option("选择工作目录", ""));
+  select.replaceChildren(new Option(t("create.chooseDirectory"), ""));
   for (const name of state.directories) select.add(new Option(name, name));
   const saved = stateGet(DIRECTORY_KEY);
   const selected = state.directories.includes(previous)
@@ -654,7 +649,7 @@ function renderCreateForm() {
   if (candidates.length === 0) {
     const hint = document.createElement("span");
     hint.className = "empty-hint";
-    hint.textContent = "还没有设置完整的 AI";
+    hint.textContent = t("create.noAgents");
     elements.memberPicks.append(hint);
   }
   updateCreateButton();
@@ -750,7 +745,7 @@ function renderGroupList() {
   selectionBar.reconcile(groups);
   selectionBar.setDisabled(!state.authenticated);
 
-  elements.listTitle.textContent = trash ? "回收站" : archived ? "已归档" : "最近群会话";
+  elements.listTitle.textContent = t(trash ? "list.trash" : archived ? "list.archived" : "list.recent");
   elements.listHeading.hidden = selectionBar.isSelecting();
   elements.listViewBackButton.hidden = active;
   elements.archivedViewButton.hidden = !active;
@@ -761,12 +756,12 @@ function renderGroupList() {
     const hint = document.createElement("p");
     hint.className = "empty-hint";
     hint.textContent = elements.groupSearchInput.value.trim()
-      ? "没有找到匹配的群会话。"
+      ? t("list.noMatch")
       : trash
-      ? "回收站是空的。"
+      ? t("list.trashEmpty")
       : archived
-      ? "还没有归档群会话。"
-      : "还没有群";
+      ? t("list.archivedEmpty")
+      : t("list.empty");
     elements.groupList.replaceChildren(hint);
     return;
   }
@@ -804,7 +799,7 @@ function groupItem(group, trash) {
     check.checked = selectable && selectionBar.isSelected(group.id);
     check.disabled = !selectable || selectionBar.isDisabled();
     check.setAttribute("aria-hidden", "true");
-    if (!selectable) open.title = "这个群正在发言或压缩，暂时不能整理。";
+    if (!selectable) open.title = t("list.busyNotSelectable");
     title.append(check);
   }
   title.append(document.createTextNode(group.title));
@@ -818,12 +813,14 @@ function groupItem(group, trash) {
   const badge = document.createElement("span");
   badge.className = "busy-badge";
   if (trash) {
-    badge.textContent = group.deleting ? "正在删除" : trashRemainingText(group.purgeAt);
+    badge.textContent = group.deleting ? t("list.deleting") : trashRemainingText(group.purgeAt);
     badge.classList.add("purge-badge");
   } else if (group.busy) {
     const status = group.busyStatus;
-    const action = status?.kind === "compacting" ? "压缩中" : "发言中";
-    badge.textContent = status?.agent ? `${status.agent} ${action}` : action;
+    const action = status?.kind === "compacting" ? "compacting" : "replying";
+    badge.textContent = status?.agent
+      ? t(`list.busyAgent.${action}`, { agent: status.agent })
+      : t(`list.busy.${action}`);
     if (status?.agent) paintAgent(badge, memberColor(group, status.agent));
   }
   if (badge.textContent) meta.append(badge);
@@ -839,8 +836,8 @@ function groupItem(group, trash) {
     const rename = document.createElement("button");
     rename.className = "group-rename-trigger quiet small icon-button";
     rename.type = "button";
-    rename.setAttribute("aria-label", `重命名 ${group.title}`);
-    rename.title = "重命名";
+    rename.setAttribute("aria-label", t("list.renameGroup", { title: group.title }));
+    rename.title = t("rename.title");
     rename.append(groupRenameIcon());
     rename.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -850,8 +847,8 @@ function groupItem(group, trash) {
     pin.className = "group-pin-trigger quiet small icon-button";
     pin.type = "button";
     pin.setAttribute("aria-pressed", String(Boolean(group.pinned)));
-    pin.setAttribute("aria-label", group.pinned ? `取消钉住 ${group.title}` : `钉住 ${group.title}`);
-    pin.title = group.pinned ? "取消钉住" : "钉住后会一直显示在最近群会话顶部";
+    pin.setAttribute("aria-label", t(group.pinned ? "list.unpinGroup" : "list.pinGroup", { title: group.title }));
+    pin.title = t(group.pinned ? "list.unpin" : "list.pinHint");
     pin.append(groupPinIcon(Boolean(group.pinned)));
     pin.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -949,7 +946,7 @@ function groupSelectable(group) {
 
 function groupActionUnavailableReason(action, group) {
   return action.id === "restore-trash" && group.deleting
-    ? GROUP_SELECTION_RESTORE_DELETING_MESSAGE
+    ? t("selection.restoreDeleting")
     : "";
 }
 
@@ -962,7 +959,7 @@ async function executeGroupSelectionAction(action, groupIds) {
     "restore-trash": "groups.restore",
     "delete-trash": "groups.purge",
   }[action];
-  if (!type) throw new Error("未知的群整理操作。");
+  if (!type) throw new Error(`Unknown group selection action: ${action}`);
   const result = await request(type, { groupIds });
   return {
     succeeded: result.done,
@@ -1041,7 +1038,7 @@ async function openGroup(groupId, { keepPane = false } = {}) {
 async function openListedGroup(group) {
   if (group.archived || group.trashedAt) return;
   if (!state.directories.includes(group.directory)) {
-    elements.listStatus.textContent = "这个群的工作目录已经不在了。";
+    elements.listStatus.textContent = t("group.directoryGone");
     return;
   }
   if (group.directory !== elements.directorySelect.value) {
@@ -1090,11 +1087,11 @@ function memberFlower(member, group) {
   button.append(agentDot(member, group));
   button.addEventListener("click", () => {
     if (group.unavailable.includes(member)) {
-      elements.composerStatus.textContent = `${member} 未接入`;
+      elements.composerStatus.textContent = t("usage.memberNotConnected", { member });
       return;
     }
     if (!memberSupports(group, member, "usage")) {
-      elements.composerStatus.textContent = `${member} 不支持 usage`;
+      elements.composerStatus.textContent = t("usage.memberUnsupported", { member });
       return;
     }
     void setUsageAgent(group.usageAgent === member ? null : member);
@@ -1200,7 +1197,8 @@ function brandWordmark() {
   svg.setAttribute("class", "brand-wordmark");
   svg.setAttribute("viewBox", "0 0 1249 874");
   svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", "兰亭");
+  svg.setAttribute("aria-label", t("common.wordmark"));
+  svg.setAttribute("data-i18n-aria-label", "common.wordmark");
   const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
   use.setAttribute("href", "#brand-wordmark");
   svg.append(use);
@@ -1280,7 +1278,7 @@ function entryElement(entry) {
   if (entry.status === "failed") {
     const error = document.createElement("p");
     error.className = "entry-error";
-    error.textContent = entry.error || "发言出错。";
+    error.textContent = entry.error || t("entry.failed");
     article.append(error);
   }
   return article;
@@ -1290,15 +1288,9 @@ function speakerLabel(agent, status) {
   const label = document.createElement("div");
   label.className = "speaker";
   label.append(agentDot(agent), document.createTextNode(agent));
-  const note = {
-    interrupted: "已打断",
-    failed: "出错",
-    thinking: "正在思考",
-    tool: "正在执行工具",
-    replying: "正在回复",
-    approval: "等待批准",
-    stopping: "正在停止",
-  }[status];
+  const note = ["interrupted", "failed", "thinking", "tool", "replying", "approval", "stopping"].includes(status)
+    ? t(`status.${status}`)
+    : null;
   if (note) {
     const badge = document.createElement("span");
     badge.className = `status-badge status-${status}`;
@@ -1324,7 +1316,7 @@ function activityDetails(activities) {
   const details = document.createElement("details");
   details.className = "activities";
   const summary = document.createElement("summary");
-  summary.textContent = `过程 ${activities.length} 条`;
+  summary.textContent = t("activity.count", { count: activities.length });
   details.append(summary, activityList(activities));
   return details;
 }
@@ -1341,11 +1333,11 @@ function activityItem(activity) {
   item.dataset.kind = activity.kind;
   if (activity.kind === "tool") {
     const name = document.createElement("strong");
-    name.textContent = String(activity.toolName ?? "工具");
+    name.textContent = String(activity.toolName ?? t("activity.tool"));
     item.append(name);
     if (activity.detail) item.append(document.createTextNode(` ${activity.detail}`));
   } else if (activity.kind === "denied") {
-    item.textContent = `已拒绝 ${activity.toolName ?? ""}：${activity.message ?? ""}`;
+    item.textContent = t("activity.denied", { tool: activity.toolName ?? "", message: activity.message ?? "" });
   } else if (activity.kind === "note") {
     item.textContent = String(activity.text ?? "");
   } else {
@@ -1364,8 +1356,8 @@ function renderLive() {
       const waiting = document.createElement("p");
       waiting.className = "live-waiting";
       waiting.append(document.createTextNode(compaction.current
-        ? `正在压缩 ${compaction.current} 的上下文`
-        : "准备压缩上下文"), thinkingDots());
+        ? t("live.compacting", { agent: compaction.current })
+        : t("live.preparingCompaction")), thinkingDots());
       if (compaction.current) {
         waiting.dataset.agent = compaction.current;
         paintAgent(waiting, memberColor(state.current?.group, compaction.current));
@@ -1380,7 +1372,7 @@ function renderLive() {
     if (!round.speaking) {
       const waiting = document.createElement("p");
       waiting.className = "live-waiting";
-      waiting.append(document.createTextNode("等待发言"), thinkingDots());
+      waiting.append(document.createTextNode(t("live.waiting")), thinkingDots());
       live.replaceChildren(waiting);
       return;
     }
@@ -1436,7 +1428,7 @@ function renderApprovals() {
     paintAgent(card, memberColor(state.current?.group, approval.agent));
     const title = document.createElement("p");
     title.className = "permission-card-title";
-    title.append(agentDot(approval.agent), document.createTextNode(`${approval.agent} 请求使用 ${approval.toolName}`));
+    title.append(agentDot(approval.agent), document.createTextNode(t("approval.title", { agent: approval.agent, tool: approval.toolName })));
     card.append(title);
     const body = document.createElement("div");
     body.className = "permission-card-body";
@@ -1452,7 +1444,7 @@ function renderApprovals() {
     countdown.className = "permission-card-countdown";
     countdown.dataset.deadline = String(approval.deadline);
     actions.append(countdown);
-    for (const [decision, label, className] of [["deny", "拒绝", "danger"], ["allow", "允许", "primary"]]) {
+    for (const [decision, label, className] of [["deny", t("approval.deny"), "danger"], ["allow", t("approval.allow"), "primary"]]) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = className;
@@ -1480,7 +1472,7 @@ function startCountdown() {
   const tick = () => {
     for (const countdown of elements.approvalList.querySelectorAll(".permission-card-countdown")) {
       const seconds = Math.max(0, Math.round((Number(countdown.dataset.deadline) - Date.now()) / 1_000));
-      countdown.textContent = `${seconds} 秒后自动拒绝`;
+      countdown.textContent = t("approval.countdown", { count: seconds });
     }
   };
   tick();
@@ -1508,7 +1500,7 @@ function renderCallPicks() {
     const unavailable = group.unavailable.includes(member);
     const selected = state.callOrder.includes(member);
     const pick = agentPick(member, memberColor(group, member),
-      unavailable ? `${member}（未接入）` : member, selected);
+      unavailable ? t("member.notConnected", { member }) : member, selected);
     pick.disabled = state.savingOrder || unavailable;
     pick.addEventListener("click", () => {
       void saveCallOrder(toggleMember(state.callOrder, member, !selected));
@@ -1552,7 +1544,7 @@ async function saveCallOrder(order, removingUnavailable = false) {
       state.callOrder = [...current.group.callOrder];
       if (removingUnavailable) state.skipUnavailableOrderSave = true;
     }
-    elements.composerStatus.textContent = `点名没有保存：${errorMessage(error)}`;
+    elements.composerStatus.textContent = t("callOrder.saveFailed", { error: errorMessage(error) });
   } finally {
     state.savingOrder = false;
     renderCallPicks();
@@ -1566,7 +1558,7 @@ function renderComposer() {
   const busy = Boolean(current?.group.busy || current?.round || current?.compaction);
   // Once compaction starts it isn't interrupted; only replies can be interrupted.
   const canInterrupt = busy && !Boolean(current?.compaction && !current?.round);
-  const taskLabel = canInterrupt ? state.interrupting ? "正在停止" : "停止" : "发送";
+  const taskLabel = t(canInterrupt ? state.interrupting ? "composer.stopping" : "composer.stop" : "composer.send");
   elements.taskButton.dataset.action = canInterrupt ? "stop" : "send";
   elements.taskButton.setAttribute("aria-label", taskLabel);
   elements.taskButton.title = taskLabel;
@@ -1698,11 +1690,11 @@ function renderPlusMenu() {
     item.setAttribute("aria-expanded", String(state.plusLevel === level));
     return item;
   };
-  const compactItem = submenuItem("压缩上下文", "compact");
-  const settingsItem = submenuItem("AI 设置", "settings");
+  const compactItem = submenuItem(t("plus.compact"), "compact");
+  const settingsItem = submenuItem(t("plus.settings"), "settings");
   // Hidden, not grayed out, when no member can be chosen.
-  const usageItem = usageMembers.length > 0 ? submenuItem("AI usage", "usage") : null;
-  const attachItem = menuItem("添加附件", null, !state.authenticated, () => {
+  const usageItem = usageMembers.length > 0 ? submenuItem(t("plus.usage"), "usage") : null;
+  const attachItem = menuItem(t("plus.attach"), null, !state.authenticated, () => {
     closePopovers();
     elements.fileInput.click();
   });
@@ -1716,7 +1708,7 @@ function renderPlusMenu() {
   }
   elements.plusSubmenu.hidden = false;
   if (state.plusLevel === "usage") {
-    const back = menuItem("‹ AI usage", null, false, () => {
+    const back = menuItem(`‹ ${t("plus.usage")}`, null, false, () => {
       state.plusLevel = "root";
       renderPlusMenu();
     });
@@ -1731,27 +1723,27 @@ function renderPlusMenu() {
       item.setAttribute("aria-checked", String(selected));
       return item;
     });
-    const off = menuItem("关闭", null, !state.authenticated, () => {
+    const off = menuItem(t("plus.usageOff"), null, !state.authenticated, () => {
       closePopovers();
       if (group.usageAgent !== null) void setUsageAgent(null);
     });
     off.setAttribute("aria-checked", String(group.usageAgent === null));
     elements.plusSubmenu.replaceChildren(back, ...choices, off);
   } else if (state.plusLevel === "settings") {
-    const back = menuItem("‹ AI 设置", null, false, () => {
+    const back = menuItem(`‹ ${t("plus.settings")}`, null, false, () => {
       state.plusLevel = "root";
       renderPlusMenu();
     });
     back.classList.add("menu-back");
     const choices = group.members.map((member) => {
       const unavailable = group.unavailable.includes(member);
-      return menuItem(unavailable ? `${member}（未接入）` : member, member, unavailable, () => {
+      return menuItem(unavailable ? t("member.notConnected", { member }) : member, member, unavailable, () => {
         toggleAgentPanel(member);
       });
     });
     elements.plusSubmenu.replaceChildren(back, ...choices);
   } else {
-    const back = menuItem("‹ 压缩上下文", null, false, () => {
+    const back = menuItem(`‹ ${t("plus.compact")}`, null, false, () => {
       state.plusLevel = "root";
       renderPlusMenu();
     });
@@ -1762,14 +1754,14 @@ function renderPlusMenu() {
         const unavailable = group.unavailable.includes(member);
         const unsupported = !unavailable && !memberSupports(group, member, "compact");
         const label = unavailable
-          ? `${member}（未接入）`
-          : unsupported ? `${member}（不支持）` : member;
+          ? t("member.notConnected", { member })
+          : unsupported ? t("member.unsupported", { member }) : member;
         return menuItem(label, member, disabled || unavailable || unsupported, () => {
           closePopovers();
           void compact([member]);
         });
       }),
-      menuItem("全部", null, disabled, () => {
+      menuItem(t("plus.all"), null, disabled, () => {
         closePopovers();
         void compact([...group.members]);
       }),
@@ -1810,7 +1802,7 @@ async function compact(agents) {
   try {
     await request("group.compact", { groupId: current.group.id, agents });
   } catch (error) {
-    elements.composerStatus.textContent = `没有开始压缩：${errorMessage(error)}`;
+    elements.composerStatus.textContent = t("compact.startFailed", { error: errorMessage(error) });
   }
 }
 
@@ -1885,7 +1877,7 @@ function memberRow(group, agent) {
   const supportsCompact = !unavailable && memberSupports(group, agent, "compact");
   compactButton.type = "button";
   compactButton.className = "small";
-  compactButton.textContent = unavailable ? "压缩（未接入）" : supportsCompact ? "压缩" : "压缩（不支持）";
+  compactButton.textContent = t(unavailable ? "member.compactNotConnected" : supportsCompact ? "member.compact" : "member.compactUnsupported");
   compactButton.disabled = groupBusy() || !state.authenticated || unavailable || !supportsCompact;
   compactButton.addEventListener("click", () => {
     closePopovers();
@@ -1904,17 +1896,17 @@ function memberRow(group, agent) {
       () => {},
       true,
     ));
-    row.append(statusLine("这个 CLI 未接入。"));
+    row.append(statusLine(t("member.cliNotConnected")));
     return row;
   }
 
   const entry = state.catalogs.get(catalogKey(group.id, agent));
   if (!entry) {
-    row.append(statusLine("正在读取可选的模型和权限……"));
+    row.append(statusLine(t("catalog.loading")));
     return row;
   }
   if (entry.error) {
-    row.append(statusLine(`读取失败：${entry.error}`, true));
+    row.append(statusLine(t("catalog.failed", { error: entry.error }), true));
     return row;
   }
   const locked = state.savingSettings.has(agent) || !state.authenticated;
@@ -1928,29 +1920,31 @@ function memberRow(group, agent) {
     },
     (next) => void saveSettings(agent, next),
   ));
-  row.append(statusLine("只影响这个群，下次发言时生效。"));
+  row.append(statusLine(t("member.settingsScope")));
   return row;
 }
 
 /** Model, reasoning effort and permission selects, plus a description of the current permission. Shared by the member settings dialog and the settings page. */
 function settingControls(catalog, settings, locked, supports, save, unavailable = false) {
   const model = catalog.models.find((item) => item.id === settings.model) ?? null;
-  const modelSelect = settingSelect("模型", settings.model, catalog.models.map((item) => ({
+  const modelUnavailable = unavailable ? t("setting.notConnected") : supports.model ? null : t("setting.unsupported");
+  const permissionUnavailable = unavailable
+    ? t("setting.notConnected")
+    : supports.permission ? null : t("setting.unsupported");
+  const modelSelect = settingSelect(t("setting.model"), settings.model, catalog.models.map((item) => ({
     value: item.id,
     label: item.label,
     title: item.description,
-  })), locked || !supports.model, unavailable ? "（未接入）" : supports.model ? "默认" : "（不支持）");
-  const effortSelect = settingSelect("思考强度", settings.effort, (model?.efforts ?? []).map((effort) => ({
+  })), locked || !supports.model, modelUnavailable);
+  const effortSelect = settingSelect(t("setting.effort"), settings.effort, (model?.efforts ?? []).map((effort) => ({
     value: effort,
     label: effort,
-  })), locked || !supports.model || !model || model.efforts.length === 0,
-  unavailable ? "（未接入）" : supports.model ? "默认" : "（不支持）");
-  const permissionSelect = settingSelect("权限", settings.permission, catalog.permissions.map((item) => ({
+  })), locked || !supports.model || !model || model.efforts.length === 0, modelUnavailable);
+  const permissionSelect = settingSelect(t("setting.permission"), settings.permission, catalog.permissions.map((item) => ({
     value: item.id,
     label: item.danger ? `${item.label} ⚠` : item.label,
     title: item.description,
-  })), locked || !supports.permission,
-  unavailable ? "（未接入）" : supports.permission ? "默认" : "（不支持）");
+  })), locked || !supports.permission, permissionUnavailable);
 
   modelSelect.select.addEventListener("change", () => {
     const nextModel = modelSelect.select.value || null;
@@ -1971,23 +1965,26 @@ function settingControls(catalog, settings, locked, supports, save, unavailable 
   return controls;
 }
 
-/** The first option shows "default" or the reason it is unavailable; when available, the current value is shown even if it isn't in the list. */
-function settingSelect(labelText, value, options, disabled, defaultLabel = "默认") {
+/**
+ * The first option shows "default", or unavailableLabel (the reason it can't be chosen) when given; when available,
+ * the current value is shown even if it isn't in the list.
+ */
+function settingSelect(labelText, value, options, disabled, unavailableLabel = null) {
   const label = document.createElement("label");
   label.className = "setting";
   const caption = document.createElement("span");
   caption.textContent = labelText;
   const select = document.createElement("select");
-  select.add(new Option(defaultLabel, ""));
+  select.add(new Option(unavailableLabel ?? t("setting.default"), ""));
   for (const option of options) {
     const element = new Option(option.label, option.value);
     if (option.title) element.title = option.title;
     select.add(element);
   }
-  if (defaultLabel === "默认" && value && !options.some((option) => option.value === value)) {
-    select.add(new Option(`${value}（不在列表里）`, value));
+  if (unavailableLabel === null && value && !options.some((option) => option.value === value)) {
+    select.add(new Option(t("setting.notInList", { value }), value));
   }
-  select.value = defaultLabel === "默认" ? value ?? "" : "";
+  select.value = unavailableLabel === null ? value ?? "" : "";
   select.disabled = disabled;
   label.append(caption, select);
   return { label, select };
@@ -2011,7 +2008,7 @@ async function saveSettings(agent, settings) {
     if (state.current === current) current.group = group;
     elements.composerStatus.textContent = "";
   } catch (error) {
-    elements.composerStatus.textContent = `${agent} 的设置没有保存：${errorMessage(error)}`;
+    elements.composerStatus.textContent = t("member.saveFailed", { agent, error: errorMessage(error) });
   } finally {
     state.savingSettings.delete(agent);
     renderAgentPanel();
@@ -2074,8 +2071,26 @@ elements.languageOptions.addEventListener("click", (event) => {
   if (button && window.lantingI18n) window.lantingI18n.set(button.dataset.languageChoice);
 });
 
+// Redraw everything scripts wrote; markup marked with data-i18n is already refilled by i18n.js.
 window.addEventListener("lanting-languagechange", () => {
   renderLanguageChoice();
+  const statusKey = elements.connectionStatus.dataset.textKey;
+  if (statusKey) elements.connectionStatus.textContent = t(statusKey);
+  selectionBar.relabel();
+  renderCreateForm();
+  renderGroupList();
+  if (state.current) {
+    const scrollTop = elements.timeline.scrollTop;
+    renderHeader();
+    renderTimeline();
+    elements.timeline.scrollTop = scrollTop;
+    renderApprovals();
+    renderCallPicks();
+    renderComposer();
+    renderDrafts();
+    renderAgentPanel();
+  }
+  if (elements.settingsDialog.open) renderSettingsDialog();
 });
 
 elements.settingsCloseButton.addEventListener("click", () => {
@@ -2091,12 +2106,12 @@ elements.usernameInput.addEventListener("input", () => {
 // The save button is icon-only: after a successful save the check mark briefly changes color and the label changes to "saved".
 function flashSaved(button) {
   button.dataset.saved = "true";
-  button.setAttribute("aria-label", "已保存");
-  button.title = "已保存";
+  button.setAttribute("aria-label", t("common.saved"));
+  button.title = t("common.saved");
   setTimeout(() => {
     delete button.dataset.saved;
-    button.setAttribute("aria-label", "保存");
-    button.title = "保存";
+    button.setAttribute("aria-label", t("common.save"));
+    button.title = t("common.save");
   }, 1_500);
 }
 
@@ -2188,7 +2203,7 @@ function renderSettingsDialog() {
   if (state.settings.agents.length === 0) {
     const hint = document.createElement("p");
     hint.className = "empty-hint settings-agents-empty";
-    hint.textContent = "还没有 AI";
+    hint.textContent = t("settings.noAgents");
     elements.settingsAgentList.replaceChildren(hint);
   } else {
     elements.settingsAgentList.replaceChildren(...state.settings.agents.map(settingsAgentRow));
@@ -2217,8 +2232,8 @@ function settingsAgentRow(agent) {
   name.maxLength = 200;
   name.autocomplete = "off";
   name.spellcheck = false;
-  name.placeholder = "名字";
-  name.setAttribute("aria-label", "AI 名字");
+  name.placeholder = t("settings.namePlaceholder");
+  name.setAttribute("aria-label", t("settings.nameLabel"));
   name.value = state.settingsNameDrafts.has(agent.id)
     ? state.settingsNameDrafts.get(agent.id)
     : agent.name;
@@ -2240,7 +2255,7 @@ function settingsAgentRow(agent) {
 
   const kind = document.createElement("select");
   kind.className = "settings-agent-kind";
-  kind.setAttribute("aria-label", "CLI 种类");
+  kind.setAttribute("aria-label", t("settings.kindLabel"));
   for (const option of kindOptions(state.agentKinds, agent.kind)) {
     const element = new Option(option.label || "CLI", option.value);
     element.disabled = option.disabled;
@@ -2260,7 +2275,7 @@ function settingsAgentRow(agent) {
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "quiet settings-agent-toggle";
-  toggle.setAttribute("aria-label", `${expanded ? "收起" : "展开"}${agent.name}的模型和权限设置`);
+  toggle.setAttribute("aria-label", t(expanded ? "settings.collapseDefaults" : "settings.expandDefaults", { name: agent.name }));
   toggle.setAttribute("aria-expanded", String(expanded));
   toggle.addEventListener("click", () => {
     const nextExpanded = !state.expandedSettingsAgents.has(agent.id);
@@ -2290,12 +2305,12 @@ function settingsAgentRow(agent) {
       () => {},
     ));
     defaultsContent.append(statusLine(agent.kind === null
-      ? "选择 CLI 后可以设置默认值。"
-      : "这个 CLI 没有在 config.json 中配置。"));
+      ? t("settings.chooseKindFirst")
+      : t("settings.kindNotConfigured")));
   } else if (!entry || entry.loading) {
-    defaultsContent.append(statusLine("正在读取可选的模型和权限……"));
+    defaultsContent.append(statusLine(t("catalog.loading")));
   } else if (entry.error) {
-    defaultsContent.append(statusLine(`读取失败：${entry.error}`, true));
+    defaultsContent.append(statusLine(t("catalog.failed", { error: entry.error }), true));
   } else {
     defaultsContent.append(...settingControls(
       entry.catalog,
@@ -2327,7 +2342,7 @@ function colorPicker(agent, locked, invalid) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "settings-color-button";
-  button.setAttribute("aria-label", "选择主色");
+  button.setAttribute("aria-label", t("settings.chooseColor"));
   button.setAttribute("aria-haspopup", "true");
   button.setAttribute("aria-expanded", String(state.openColorAgentId === agent.id));
   button.disabled = locked;
@@ -2344,7 +2359,7 @@ function colorPicker(agent, locked, invalid) {
     const panel = document.createElement("div");
     panel.className = "settings-color-panel";
     panel.setAttribute("role", "group");
-    panel.setAttribute("aria-label", "主色");
+    panel.setAttribute("aria-label", t("settings.colors"));
     colorChoices(state.palette, state.settings.agents, agent.id).forEach((choice) => {
       const swatch = document.createElement("button");
       swatch.type = "button";
@@ -2362,7 +2377,7 @@ function colorPicker(agent, locked, invalid) {
     const clear = document.createElement("button");
     clear.type = "button";
     clear.className = "settings-color-clear";
-    clear.setAttribute("aria-label", "不选择主色");
+    clear.setAttribute("aria-label", t("settings.noColor"));
     clear.setAttribute("aria-pressed", String(agent.color === null));
     clear.disabled = locked;
     clear.addEventListener("click", () => {
@@ -2582,7 +2597,7 @@ function syncSettingsRowExpansion(agentId, expanded) {
   if (!row || !agent) return;
   const toggle = row.querySelector(".settings-agent-toggle");
   const defaults = row.querySelector(".settings-agent-defaults");
-  toggle?.setAttribute("aria-label", `${expanded ? "收起" : "展开"}${agent.name}的模型和权限设置`);
+  toggle?.setAttribute("aria-label", t(expanded ? "settings.collapseDefaults" : "settings.expandDefaults", { name: agent.name }));
   toggle?.setAttribute("aria-expanded", String(expanded));
   defaults?.classList.toggle("expanded", expanded);
   defaults?.setAttribute("aria-hidden", String(!expanded));
@@ -2623,7 +2638,7 @@ elements.fileInput.addEventListener("change", () => {
   if (!current) return;
   for (const file of files) {
     if (state.drafts.length >= MAX_MESSAGE_ATTACHMENTS) {
-      elements.composerStatus.textContent = `一条消息最多 ${MAX_MESSAGE_ATTACHMENTS} 个附件。`;
+      elements.composerStatus.textContent = t("attach.tooMany", { max: MAX_MESSAGE_ATTACHMENTS });
       break;
     }
     const draft = { localId: nextDraftId++, name: file.name, status: "uploading", attachment: null, error: "" };
@@ -2637,7 +2652,7 @@ elements.fileInput.addEventListener("change", () => {
 /** First request a ticket over the WebSocket, then send the file as-is to the backend, which forwards it to ai-remote-upload. */
 async function upload(current, draft, file) {
   try {
-    if (file.size > MAX_UPLOAD_BYTES) throw new Error("单个文件不能超过 25 MiB。");
+    if (file.size > MAX_UPLOAD_BYTES) throw new Error(t("attach.tooLarge"));
     const { ticket } = await request("attachment.ticket", {
       groupId: current.group.id,
       originalName: file.name,
@@ -2651,7 +2666,7 @@ async function upload(current, draft, file) {
       cache: "no-store",
     });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error?.message ?? "上传失败。");
+    if (!response.ok) throw new Error(result.error?.message ?? t("attach.uploadFailed"));
     draft.status = "done";
     draft.attachment = result.attachment;
   } catch (error) {
@@ -2668,14 +2683,14 @@ function renderDrafts() {
   elements.attachmentList.replaceChildren(...state.drafts.map((draft) => {
     const chip = document.createElement("span");
     chip.className = `attachment-chip draft ${draft.status}`;
-    const label = { uploading: "上传中", done: "", failed: "失败" }[draft.status];
-    chip.textContent = label ? `${draft.name}（${label}）` : draft.name;
+    const labelKey = { uploading: "attach.chipUploading", failed: "attach.chipFailed" }[draft.status];
+    chip.textContent = labelKey ? t(labelKey, { name: draft.name }) : draft.name;
     if (draft.error) chip.title = draft.error;
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "chip-remove";
     remove.textContent = "×";
-    remove.setAttribute("aria-label", `移除 ${draft.name}`);
+    remove.setAttribute("aria-label", t("attach.remove", { name: draft.name }));
     remove.addEventListener("click", () => {
       state.drafts = state.drafts.filter((item) => item !== draft);
       renderDrafts();
@@ -2685,7 +2700,7 @@ function renderDrafts() {
     return chip;
   }));
   const failed = state.drafts.find((draft) => draft.status === "failed");
-  if (failed) elements.composerStatus.textContent = `${failed.name} 上传失败：${failed.error}`;
+  if (failed) elements.composerStatus.textContent = t("attach.failedStatus", { name: failed.name, error: failed.error });
 }
 
 /* ---------- Rename ---------- */
@@ -2766,9 +2781,11 @@ function showApp() {
   updateCreateButton();
 }
 
-function setConnectionStatus(stateName, text) {
+/** textKey is kept on the element so the text can be redrawn after a language switch. */
+function setConnectionStatus(stateName, textKey) {
   elements.connectionStatus.dataset.state = stateName;
-  elements.connectionStatus.textContent = text;
+  elements.connectionStatus.dataset.textKey = textKey;
+  elements.connectionStatus.textContent = t(textKey);
 }
 
 /** Status line of the login card: plain notices, progress and errors each use their own color. */

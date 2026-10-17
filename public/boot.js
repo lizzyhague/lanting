@@ -47,6 +47,7 @@
 /* Inner scrolling lists don't rely on whether the browser provides native pull-to-refresh. */
 (function () {
   if (!("ontouchstart" in window)) return;
+  var t = window.lantingI18n ? window.lantingI18n.t : function (key) { return key; };
   var start = null;
   var distance = 0;
   var threshold = 90;
@@ -88,7 +89,7 @@
     if (!event.cancelable) { reset(); return; }
     event.preventDefault();
     indicator.hidden = false;
-    indicator.textContent = distance >= threshold ? "松开刷新" : "下拉刷新";
+    indicator.textContent = t(distance >= threshold ? "boot.releaseToRefresh" : "boot.pullToRefresh");
   }, { passive: false });
 
   document.addEventListener("touchend", function () {
