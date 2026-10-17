@@ -658,7 +658,7 @@ button.icon-button svg {
 .settings-body {
   padding: 1.1rem 1.25rem 1.25rem;
   display: grid;
-  gap: 0.7rem;
+  gap: 1.25rem;
   anchor-name: --settings-body;
 }
 
@@ -674,25 +674,65 @@ button.icon-button svg {
 }
 
 .theme-setting {
-  display: grid;
-  gap: 0.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
-.theme-label {
-  font-size: 0.9rem;
+.theme-text {
+  display: grid;
+  gap: 0.2rem;
+}
+
+
+/* 三格图标条：选中的那格浮起，其余只显示图标。 */
+.theme-options {
+  display: flex;
+  flex: none;
+  width: 120px;
+  padding: 2px;
+  border: 1px solid var(--bubble-border);
+  border-radius: 999px;
+  background: var(--surface-sunken);
+}
+
+.theme-options button {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  min-height: 30px;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 999px;
+  background: transparent;
   color: var(--text-muted);
 }
 
-.theme-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+.theme-options button:hover:not(:disabled, [aria-pressed="true"]) {
+  border-color: transparent;
+  color: var(--text);
 }
 
 .theme-options button[aria-pressed="true"] {
-  border-color: var(--theme);
-  background: var(--theme);
-  color: var(--theme-ink);
+  border-color: var(--bubble-border);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+#username-save-button[data-saved="true"],
+#collaboration-save-button[data-saved="true"] {
+  color: var(--success);
+}
+
+.theme-options svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .username-form {
@@ -700,10 +740,6 @@ button.icon-button svg {
   gap: 0.4rem;
 }
 
-.username-form label {
-  font-size: 0.9rem;
-  color: var(--text-muted);
-}
 
 .username-row {
   display: flex;
@@ -713,7 +749,8 @@ button.icon-button svg {
 .username-row input {
   flex: 1;
   min-width: 0;
-  padding: 0.55rem 0.65rem;
+  min-height: 34px;
+  padding: 0 0.65rem;
   background: var(--surface-sunken);
   color: var(--text);
 }
@@ -732,9 +769,6 @@ button.icon-button svg {
 
 .collaboration-heading h3 {
   margin: 0;
-  font-size: 0.9rem;
-  font-weight: inherit;
-  color: var(--text-muted);
 }
 
 .collaboration-heading label {
@@ -818,7 +852,7 @@ button.icon-button svg {
 
 .settings-agents {
   display: grid;
-  gap: 0.6rem;
+  gap: 0.4rem;
 }
 
 .settings-agents-heading {
@@ -830,7 +864,26 @@ button.icon-button svg {
 
 .settings-agents-heading h3 {
   margin: 0;
+}
+
+/* 设置里四块平行：标题同一种样式。 */
+.theme-label,
+.username-form label,
+.collaboration-heading h3,
+.settings-agents-heading h3 {
   font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* 设置里的状态行只在有内容时占位，块与块之间的间距才一致。 */
+.settings-body .form-status {
+  min-height: 0;
+  margin: 0;
+}
+
+.settings-body .form-status:empty {
+  display: none;
 }
 
 .settings-agent-actions {
@@ -876,7 +929,7 @@ button.icon-button svg {
 .settings-agent-kind {
   width: 100%;
   min-width: 0;
-  min-height: 38px;
+  min-height: 34px;
   padding: 0 0.6rem;
   background: var(--surface-sunken);
   color: var(--text);
@@ -904,10 +957,10 @@ button.icon-button svg {
 
 .settings-agent-toggle {
   position: relative;
-  width: 38px;
-  min-width: 38px;
-  height: 38px;
-  min-height: 38px;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
   padding: 0;
 }
 
@@ -933,10 +986,10 @@ button.icon-button svg {
 }
 
 .settings-color-button {
-  width: 38px;
-  min-width: 38px;
-  height: 38px;
-  min-height: 38px;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
   padding: 5px;
   background: var(--agent);
   background-clip: content-box;

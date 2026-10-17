@@ -2049,6 +2049,18 @@ elements.usernameInput.addEventListener("input", () => {
   elements.usernameStatus.textContent = "";
 });
 
+// 保存按钮只有图标：保存成功后对勾短暂变色，提示文字同步改为“已保存”。
+function flashSaved(button) {
+  button.dataset.saved = "true";
+  button.setAttribute("aria-label", "已保存");
+  button.title = "已保存";
+  setTimeout(() => {
+    delete button.dataset.saved;
+    button.setAttribute("aria-label", "保存");
+    button.title = "保存";
+  }, 1_500);
+}
+
 elements.usernameForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   elements.usernameSaveButton.disabled = true;
@@ -2058,8 +2070,7 @@ elements.usernameForm.addEventListener("submit", async (event) => {
     const { settings } = await request("settings.username", { username: elements.usernameInput.value });
     applySettings(settings);
     elements.usernameStatus.textContent = "";
-    elements.usernameSaveButton.textContent = "已保存";
-    setTimeout(() => { elements.usernameSaveButton.textContent = "保存"; }, 1_500);
+    flashSaved(elements.usernameSaveButton);
   } catch (error) {
     if (error.details?.field === "username") elements.usernameInput.setAttribute("aria-invalid", "true");
     elements.usernameStatus.textContent = errorMessage(error);
@@ -2083,8 +2094,7 @@ elements.collaborationForm.addEventListener("submit", async (event) => {
       collaboration: elements.collaborationInput.value,
     });
     applySettings(settings);
-    elements.collaborationSaveButton.textContent = "已保存";
-    setTimeout(() => { elements.collaborationSaveButton.textContent = "保存"; }, 1_500);
+    flashSaved(elements.collaborationSaveButton);
   } catch (error) {
     elements.collaborationInput.setAttribute("aria-invalid", "true");
     elements.collaborationStatus.textContent = errorMessage(error);

@@ -149,22 +149,30 @@
       <div class="settings-body">
         <div class="settings-heading">
           <h2>设置</h2>
-          <button id="settings-close-button" class="quiet small" type="button">关闭</button>
+          <button id="settings-close-button" class="quiet small icon-button" type="button" aria-label="关闭" title="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
         </div>
         <div id="theme-setting" class="theme-setting">
-          <span id="theme-label" class="theme-label">外观</span>
-          <div id="theme-options" class="theme-options" role="group" aria-labelledby="theme-label">
-            <button class="small" type="button" data-theme-choice="system" aria-pressed="false">跟随系统</button>
-            <button class="small" type="button" data-theme-choice="light" aria-pressed="false">浅色</button>
-            <button class="small" type="button" data-theme-choice="dark" aria-pressed="false">深色</button>
+          <div class="theme-text">
+            <span id="theme-label" class="theme-label">外观</span>
+            <p class="member-note">只影响当前浏览器。</p>
           </div>
-          <p class="member-note">只影响当前浏览器。</p>
+          <div id="theme-options" class="theme-options" role="group" aria-labelledby="theme-label">
+            <button type="button" data-theme-choice="system" aria-pressed="false" aria-label="跟随系统" title="跟随系统">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg>
+            </button>
+            <button type="button" data-theme-choice="light" aria-pressed="false" aria-label="浅色" title="浅色">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.6"/><path d="M12 2.2v1.3M12 20.5v1.3M2.2 12h1.3M20.5 12h1.3M5.1 5.1l.9.9M18 18l.9.9M5.1 18.9l.9-.9M18 6l.9-.9"/></svg>
+            </button>
+            <button type="button" data-theme-choice="dark" aria-pressed="false" aria-label="深色" title="深色">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.7a10 10 0 1 0 9.5 14 8 8 0 0 1-9.5-14z"/></svg>
+            </button>
+          </div>
         </div>
         <form id="username-form" class="username-form">
           <label for="username-input">用户名</label>
           <div class="username-row">
             <input id="username-input" type="text" autocomplete="off" spellcheck="false">
-            <button id="username-save-button" type="submit">保存</button>
+            <button id="username-save-button" class="quiet small icon-button" type="submit" aria-label="保存" title="保存"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
           </div>
           <p class="member-note">只影响以后新开的群。英文字母和数字，1～16 位，不能与任一 AI 名字相同（不区分大小写）。</p>
           <p id="username-status" class="form-status" aria-live="polite"></p>
@@ -172,7 +180,7 @@
         <form id="collaboration-form" class="collaboration-form">
           <div class="collaboration-heading">
             <h3><label for="collaboration-input">群聊协作方式</label><button id="collaboration-info-button" type="button" class="field-info" popovertarget="info-collaboration" aria-label="关于群聊协作方式的说明">i</button></h3>
-            <button id="collaboration-save-button" class="small" type="submit">保存</button>
+            <button id="collaboration-save-button" class="quiet small icon-button" type="submit" aria-label="保存" title="保存"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
           </div>
           <div id="info-collaboration" class="field-info-popover" popover>
             <p>这段内容由 lanting 后端保存，所有群共用这一份。</p>
@@ -190,17 +198,17 @@
           <div class="settings-agents-heading">
             <h3 id="settings-agents-title">AI</h3>
             <div class="settings-agent-actions" role="group" aria-label="AI 列表操作">
-              <button id="settings-add-button" class="small" type="button">添加</button>
-              <button id="settings-remove-button" class="small danger" type="button">删除</button>
-              <button id="settings-up-button" class="small" type="button" aria-label="上移选中的 AI">↑</button>
-              <button id="settings-down-button" class="small" type="button" aria-label="下移选中的 AI">↓</button>
+              <button id="settings-add-button" class="quiet small icon-button" type="button" aria-label="添加 AI" title="添加"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button id="settings-remove-button" class="quiet small icon-button danger" type="button" aria-label="删除选中的 AI" title="删除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+              <button id="settings-up-button" class="quiet small icon-button" type="button" aria-label="上移选中的 AI" title="上移"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" transform="rotate(90 12 12)"/></svg></button>
+              <button id="settings-down-button" class="quiet small icon-button" type="button" aria-label="下移选中的 AI" title="下移"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" transform="rotate(-90 12 12)"/></svg></button>
             </div>
           </div>
           <div id="settings-agent-list" class="settings-agent-list"></div>
+          <p class="member-note">切换 CLI 会清空这个 AI 的默认设置。</p>
+          <p class="member-note">群里的 AI 身份（名字、CLI、颜色）在建群时确定，之后修改设置不影响已有的群。</p>
+          <p id="settings-status" class="form-status" aria-live="polite"></p>
         </section>
-        <p class="member-note">切换 CLI 会清空这个 AI 的默认设置。</p>
-        <p class="member-note">群里的 AI 身份（名字、CLI、颜色）在建群时确定，之后修改设置不影响已有的群。</p>
-        <p id="settings-status" class="form-status" aria-live="polite"></p>
       </div>
     </dialog>
 
