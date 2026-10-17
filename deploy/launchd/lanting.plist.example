@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- 通用样例，不是线上配置。部署时把 __占位符__ 换成本机实际值，
-     另存为 lanting.plist.local 或直接写进 LaunchDaemons 目录，不要提交真实值。 -->
+<!-- Generic example, not a production configuration. Replace __PLACEHOLDERS__
+     with values for the target host. Save as lanting.plist.local or install
+     directly in the LaunchDaemons directory. Never commit real values. -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
