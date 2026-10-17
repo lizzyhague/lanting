@@ -531,6 +531,15 @@ button.icon-button svg {
   font-size: 0.86rem;
 }
 
+/* 选中时和消息输入框一致：不用浏览器自带的选中框，外框换色并加到 1.5px。
+   多出的 0.5px 用内阴影画，不占位置，内容不跳。 */
+.create-form select:focus,
+.group-search input:focus {
+  outline: 0;
+  border-color: var(--divider-accent);
+  box-shadow: inset 0 0 0 0.5px var(--divider-accent);
+}
+
 .create-form .form-status:empty {
   display: none;
 }
@@ -1237,7 +1246,7 @@ button[aria-invalid="true"] {
 .group-pin-divider {
   margin: 0.4rem 0.85rem;
   border: 0;
-  border-top: 2px solid var(--divider-accent);
+  border-top: 1.5px solid var(--divider-accent);
 }
 
 /* 右边距和间距跟列表标题一致，重命名、钉住分别对齐上面的回收站、选择。 */
@@ -1754,6 +1763,7 @@ button[aria-invalid="true"] {
 
 .composer-shell:focus-within {
   border-color: var(--divider-accent);
+  box-shadow: inset 0 0 0 0.5px var(--divider-accent);
 }
 
 .composer textarea {
