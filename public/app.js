@@ -1205,16 +1205,24 @@ function syncSidebarState() {
 }
 
 function brandWordmark() {
+  const wordmark = document.createElement("span");
+  wordmark.setAttribute("class", "brand-wordmark");
+  wordmark.setAttribute("role", "img");
+  wordmark.setAttribute("aria-label", t("common.wordmark"));
+  wordmark.setAttribute("data-i18n-aria-label", "common.wordmark");
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("class", "brand-wordmark");
+  svg.setAttribute("class", "brand-wordmark-zh");
   svg.setAttribute("viewBox", "0 0 1249 874");
-  svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", t("common.wordmark"));
-  svg.setAttribute("data-i18n-aria-label", "common.wordmark");
+  svg.setAttribute("aria-hidden", "true");
   const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
   use.setAttribute("href", "#brand-wordmark");
   svg.append(use);
-  return svg;
+  const english = document.createElement("span");
+  english.setAttribute("class", "brand-wordmark-en");
+  english.setAttribute("aria-hidden", "true");
+  english.textContent = "Lanting";
+  wordmark.append(svg, english);
+  return wordmark;
 }
 
 function updateGroupTitle() {

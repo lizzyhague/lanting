@@ -37,6 +37,7 @@ async function startServer(t: test.TestContext) {
   await writeFile(path.join(webRoot, "viewer.js"), 'import "./markdown.js";\n');
   await writeFile(path.join(webRoot, "viewer.css"), ".file-viewer {}\n");
   await writeFile(path.join(webRoot, "styles.css"), "");
+  await writeFile(path.join(webRoot, "marck-script.ttf"), "font");
   await writeFile(path.join(webRoot, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
   await writeFile(path.join(webRoot, "manifest.webmanifest"), "{}");
   await writeFile(path.join(webRoot, "sw.js"), "// sw\n");
@@ -145,6 +146,13 @@ test("serves only allow-listed static files and rewrites assets to versioned pat
   assert.equal(asset.status, 200);
   assert.equal(await asset.text(), "console.log('app');\n");
   assert.match(asset.headers.get("cache-control") ?? "", /immutable/u);
+
+  const fontPath = /content="[^"]*(\/assets\/[a-f0-9]{64}\/marck-script\.ttf)/u.exec(html)?.[1];
+  assert.ok(fontPath, html);
+  const font = await fetch(`${base}${fontPath}`);
+  assert.equal(font.headers.get("content-type"), "font/ttf");
+  assert.equal(await font.text(), "font");
+  assert.match(font.headers.get("cache-control") ?? "", /immutable/u);
 
   const icon = await fetch(`${base}/icon.svg`);
   assert.equal(icon.status, 200);

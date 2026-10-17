@@ -58,6 +58,7 @@ const STATIC_FILES: Record<string, { file: string; contentType: string }> = {
   "/styles.css": { file: "styles.css", contentType: "text/css; charset=utf-8" },
   "/icon.svg": { file: "icon.svg", contentType: "image/svg+xml" },
   "/logo.svg": { file: "logo.svg", contentType: "image/svg+xml" },
+  "/marck-script.ttf": { file: "marck-script.ttf", contentType: "font/ttf" },
   "/manifest.webmanifest": {
     file: "manifest.webmanifest",
     contentType: "application/manifest+json; charset=utf-8",
@@ -96,7 +97,7 @@ export class WebServer {
     this.#webRoot = options.webRoot ?? DEFAULT_WEB_ROOT;
     this.#uploads = options.uploads;
     this.#webAssets = new WebAssets(this.#webRoot, Object.values(STATIC_FILES)
-      .map((asset) => asset.file).filter((file) => /\.(js|css)$/u.test(file) && file !== "sw.js"));
+      .map((asset) => asset.file).filter((file) => /\.(js|css|ttf)$/u.test(file) && file !== "sw.js"));
     this.#http = createServer((request, response) => {
       void this.#serveHttp(request, response).catch((error: unknown) => {
         console.error(error);

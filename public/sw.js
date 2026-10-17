@@ -4,7 +4,7 @@
  * Sessions, auth and file contents are never cached. No push or background notifications.
  */
 const CACHE_NAME = "lanting-shell-v1";
-const ASSET_PATH = /^\/assets\/[a-f0-9]{64}\/[a-zA-Z0-9_.-]+\.(?:js|css)$/;
+const ASSET_PATH = /^\/assets\/[a-f0-9]{64}\/[a-zA-Z0-9_.-]+\.(?:js|css|ttf)$/;
 const ICONS = [
   "/icon.svg",
   "/logo.svg",

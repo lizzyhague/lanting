@@ -15,6 +15,16 @@ test("the login card keeps its content aligned to the visible lanting mark", () 
   assert.match(styles, /\.login-card button\s*\{[^}]*width:\s*auto;/su);
 });
 
+test("the wordmark uses Chinese calligraphy and Marck Script in English", () => {
+  assert.equal((html.match(/class="brand-wordmark"/gu) ?? []).length, 3);
+  assert.equal((html.match(/class="brand-wordmark-en" aria-hidden="true">Lanting<\/span>/gu) ?? []).length, 3);
+  assert.match(styles, /@font-face\s*\{[^}]*font-family:\s*"Marck Script";[^}]*url\("marck-script\.ttf"\)/su);
+  assert.match(styles, /:root\[lang="en"\] \.brand-wordmark-zh\s*\{[^}]*display:\s*none;/su);
+  assert.match(styles, /:root\[lang="en"\] \.brand-wordmark-en\s*\{[^}]*display:\s*block;/su);
+  assert.match(styles, /--brand-wordmark-color:\s*#f4f4f5;/u);
+  assert.match(styles, /:root\[data-theme="light"\][^{]*\{[^}]*--brand-wordmark-color:\s*#242426;/su);
+});
+
 test("the login label is compact and browser validation does not intercept submission", () => {
   assert.match(html, /<label for="token-input"><span data-i18n="login\.tokenLabel">[^<]*<\/span><span class="login-label-hint" data-i18n="login\.tokenHint">/u);
   assert.doesNotMatch(html, /class="login-hint"/u);

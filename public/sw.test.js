@@ -7,6 +7,7 @@ const source = await readFile(new URL("./sw.js", import.meta.url), "utf8");
 const origin = "https://example.test";
 const version = "a".repeat(64);
 const asset = `/assets/${version}/app.js`;
+const fontAsset = `/assets/${version}/marck-script.ttf`;
 
 function harness(network) {
   const handlers = {};
@@ -64,6 +65,11 @@ test("first installation saves a complete offline page without an extra reload",
   await worker.install();
   offline = true;
   assert.match(await (await worker.dispatch(navigation())).text(), /installed$/u);
+});
+
+test("versioned font files use the same offline cache as scripts and styles", async () => {
+  const worker = harness(async () => new Response("font"));
+  assert.equal(await (await worker.dispatch(new Request(`${origin}${fontAsset}`))).text(), "font");
 });
 
 test("reload returns current HTML; an incomplete download preserves the complete offline page", async () => {

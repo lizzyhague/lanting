@@ -51,6 +51,7 @@
   --text: color-mix(in srgb, var(--tint) var(--mix-text), white);
   --text-mid: color-mix(in srgb, var(--tint) var(--mix-text-mid), white);
   --text-muted: color-mix(in srgb, var(--tint) var(--mix-text-muted), white);
+  --brand-wordmark-color: #f4f4f5;
   --theme-bright: color-mix(in srgb, var(--theme) var(--mix-theme-bright), var(--text));
   --theme-wash: color-mix(in srgb, var(--theme) var(--mix-theme-wash), var(--surface-2));
   --bubble-user: color-mix(in srgb, var(--tint) var(--mix-bubble-user), white);
@@ -97,6 +98,7 @@
   --theme: #46464b;
   --theme-ink: var(--neutral);
   --ink: #1c1c1e;
+  --brand-wordmark-color: #242426;
 
   --mix-tint: 0%;
   --mix-surface-sunken: 95%;
@@ -156,6 +158,14 @@
 /* Some member colors share a hue with the background, so their bubbles need extra darkening; reset on every member first to avoid inheriting the outer member's value. */
 :root[data-theme="light"] [data-agent] { --agent-bubble-mix: initial; }
 :root[data-theme="light"] [data-palette="yellow"] { --agent-bubble-mix: 20%; }
+
+@font-face {
+  font-family: "Marck Script";
+  src: url("marck-script.ttf") format("truetype");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
 
 * {
   box-sizing: border-box;
@@ -419,21 +429,57 @@ button.primary {
   border-radius: 6px;
 }
 
-/* The wordmark is a vector glyph whose color follows the text color; its height matches the adjacent icon. */
+/* Chinese uses the historical vector glyph; English uses the bundled Marck Script font. */
 .brand-wordmark {
-  display: block;
+  display: inline-flex;
+  align-items: center;
   width: auto;
   height: 24px;
+  color: var(--brand-wordmark-color);
+  line-height: 1;
+}
+
+.brand-wordmark-zh {
+  display: block;
+  width: auto;
+  height: 100%;
   aspect-ratio: 1249 / 874;
   fill: currentColor;
+}
+
+.brand-wordmark-en {
+  display: none;
+  font-family: "Marck Script", cursive;
+  padding: 0.08em 0.12em 0.18em;
+  font-size: 19px;
+  font-weight: 400;
+  line-height: 1.2;
+  -webkit-text-stroke: 0.5px currentColor;
+  white-space: nowrap;
+}
+
+:root[lang="en"] .brand-wordmark-zh {
+  display: none;
+}
+
+:root[lang="en"] .brand-wordmark-en {
+  display: block;
 }
 
 .sidebar-brand .brand-wordmark {
   height: 20px;
 }
 
+.sidebar-brand .brand-wordmark-en {
+  font-size: 16px;
+}
+
 .login-brand .brand-wordmark {
   height: 44px;
+}
+
+.login-brand .brand-wordmark-en {
+  font-size: 32px;
 }
 
 .sidebar-brand strong {
