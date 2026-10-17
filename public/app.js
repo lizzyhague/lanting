@@ -1057,7 +1057,7 @@ function closeGroup() {
   closePopovers();
   elements.groupView.hidden = true;
   elements.groupEmpty.hidden = false;
-  elements.groupTitle.textContent = "lanting";
+  elements.groupTitle.replaceChildren(brandWordmark());
   elements.groupMembers.replaceChildren();
   renderUsage();
   openMobileSidebar();
@@ -1189,11 +1189,23 @@ function syncSidebarState() {
   updateGroupTitle();
 }
 
+function brandWordmark() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "brand-wordmark");
+  svg.setAttribute("viewBox", "0 0 1249 874");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "兰亭");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", "#brand-wordmark");
+  svg.append(use);
+  return svg;
+}
+
 function updateGroupTitle() {
   const privateTitle = mobileNavigationQuery.matches || state.sidebarCollapsed;
-  elements.groupTitle.textContent = privateTitle
-    ? "lanting"
-    : (state.current?.group.title ?? "lanting");
+  const title = privateTitle ? null : state.current?.group.title;
+  if (title) elements.groupTitle.textContent = title;
+  else elements.groupTitle.replaceChildren(brandWordmark());
 }
 
 elements.openSidebarButton.addEventListener("click", openSidebar);

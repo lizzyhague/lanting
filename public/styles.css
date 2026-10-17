@@ -419,6 +419,23 @@ button.primary {
   border-radius: 6px;
 }
 
+/* 品牌字是矢量图形，颜色跟随文字色；高度按旁边的图标定。 */
+.brand-wordmark {
+  display: block;
+  width: auto;
+  height: 24px;
+  aspect-ratio: 1249 / 874;
+  fill: currentColor;
+}
+
+.sidebar-brand .brand-wordmark {
+  height: 20px;
+}
+
+.login-brand .brand-wordmark {
+  height: 44px;
+}
+
 .sidebar-brand strong {
   min-width: 0;
   overflow: hidden;
