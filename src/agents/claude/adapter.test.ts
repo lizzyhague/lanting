@@ -24,13 +24,13 @@ test("Claude usage parts follow Relayu's metrics line", () => {
     seven_day_opus: null,
   };
   assert.deepEqual(usageParts({ percentage: 12.345 }, { rate_limits_available: true, rate_limits: rateLimits }), [
-    { text: "上下文 12.3%" },
-    { text: "5 小时剩余 60.0%，{time} 重置", time: "2026-10-10T12:00:00Z" },
-    { text: "7 天剩余 未知" },
+    { kind: "context", percent: 12.345 },
+    { kind: "quota", window: { minutes: 300 }, left: 60, resetsAt: "2026-10-10T12:00:00Z" },
+    { kind: "quota", window: { minutes: 10_080 }, left: null },
   ]);
-  assert.deepEqual(usageParts({ percentage: 5 }, null), [{ text: "上下文 5.0%" }, { text: "额度查询不可用" }]);
+  assert.deepEqual(usageParts({ percentage: 5 }, null), [{ kind: "context", percent: 5 }, { kind: "unavailable" }]);
   assert.deepEqual(
     usageParts({ percentage: 5 }, { rate_limits_available: false, rate_limits: null }),
-    [{ text: "上下文 5.0%" }, { text: "额度查询不可用" }],
+    [{ kind: "context", percent: 5 }, { kind: "unavailable" }],
   );
 });

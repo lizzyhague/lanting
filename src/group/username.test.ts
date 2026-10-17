@@ -12,16 +12,16 @@ test("valid usernames pass", () => {
 });
 
 test("each rule gives its own message", () => {
-  assert.match(usernameProblem("", NAMES)!, /不能为空/u);
-  assert.match(usernameProblem("x".repeat(17), NAMES)!, /最多 16 位，现在是 17 位/u);
+  assert.deepEqual(usernameProblem("", NAMES), { key: "error.usernameEmpty" });
+  assert.deepEqual(usernameProblem("x".repeat(17), NAMES), { key: "error.usernameTooLong", params: { max: 16, length: 17 } });
   for (const name of ["my name", "名字", "a-b", "a_b", "host!"]) {
-    assert.match(usernameProblem(name, NAMES)!, /只能用英文字母和数字/u, name);
+    assert.deepEqual(usernameProblem(name, NAMES), { key: "error.usernameCharset" }, name);
   }
-  assert.match(usernameProblem("Claude", NAMES)!, /“claude”/u);
-  assert.match(usernameProblem("GROK", NAMES)!, /“grok”/u);
+  assert.deepEqual(usernameProblem("Claude", NAMES), { key: "error.usernameMatchesAgent", params: { name: "claude" } });
+  assert.deepEqual(usernameProblem("GROK", NAMES), { key: "error.usernameMatchesAgent", params: { name: "grok" } });
 });
 
 test("user-chosen AI names are compared exactly without regard to case", () => {
-  assert.match(usernameProblem("Alice", [...NAMES, "alice"])!, /“alice”/u);
+  assert.deepEqual(usernameProblem("Alice", [...NAMES, "alice"]), { key: "error.usernameMatchesAgent", params: { name: "alice" } });
   assert.equal(usernameProblem("alice2", [...NAMES, "alice"]), null);
 });

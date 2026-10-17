@@ -4,6 +4,7 @@ import path from "node:path";
 import { AGENT_KINDS, isAgentKind, type AgentKind } from "../agents/kinds.ts";
 import { isPaletteId, PALETTE, type PaletteId } from "../agents/palette.ts";
 import { DEFAULT_AGENT_SETTINGS, type AgentSettings } from "../agents/types.ts";
+import { englishText, localText, type LocalText } from "../i18n/text.ts";
 import { ensurePrivateDirectory, readJsonIfPresent, writeJsonAtomically } from "./atomic-json.ts";
 
 const STORE_VERSION = 2;
@@ -36,14 +37,17 @@ export type Settings = {
 
 export type SettingsField = "username" | "collaboration" | "name" | "kind" | "color" | "defaults";
 
+/** text is shown in the browser's language; the message is its English form for logs. */
 export class SettingsError extends Error {
   readonly code = "invalid_settings";
+  readonly text: LocalText;
   readonly field: SettingsField | undefined;
   readonly agentId: string | undefined;
 
-  constructor(message: string, field?: SettingsField, agentId?: string) {
-    super(message);
+  constructor(text: LocalText, field?: SettingsField, agentId?: string) {
+    super(englishText(text));
     this.name = "SettingsError";
+    this.text = text;
     this.field = field;
     this.agentId = agentId;
   }
@@ -131,20 +135,20 @@ function normalizeSettings(next: Settings, previous: Settings): void {
 }
 
 function validateSettings(value: unknown, previous?: Settings): asserts value is Settings {
-  if (!isObject(value)) throw new SettingsError("设置结构不对。");
-  if (typeof value.username !== "string") throw new SettingsError("用户名不对。", "username");
+  if (!isObject(value)) throw new SettingsError(localText("error.settingsMalformed"));
+  if (typeof value.username !== "string") throw new SettingsError(localText("error.usernameInvalid"), "username");
   const username = value.username;
-  if (!Array.isArray(value.agents)) throw new SettingsError("AI 列表不对。");
-  if (typeof value.initialized !== "boolean") throw new SettingsError("initialized 不对。");
+  if (!Array.isArray(value.agents)) throw new SettingsError(localText("error.settingsMalformed"));
+  if (typeof value.initialized !== "boolean") throw new SettingsError(localText("error.settingsMalformed"));
   if (value.createMembers !== null &&
       !(Array.isArray(value.createMembers) && value.createMembers.every((id) => typeof id === "string"))) {
-    throw new SettingsError("createMembers 不对。");
+    throw new SettingsError(localText("error.settingsMalformed"));
   }
-  if (typeof value.collaboration !== "string") throw new SettingsError("群聊协作方式不对。", "collaboration");
+  if (typeof value.collaboration !== "string") throw new SettingsError(localText("error.collaborationInvalid"), "collaboration");
   if (value.collaboration.length > MAX_COLLABORATION_LENGTH) {
-    throw new SettingsError(`群聊协作方式过长，上限是 ${MAX_COLLABORATION_LENGTH} 个字符。`, "collaboration");
+    throw new SettingsError(localText("error.collaborationTooLong", { max: MAX_COLLABORATION_LENGTH }), "collaboration");
   }
-  if (value.agents.length > MAX_AGENTS) throw new SettingsError(`最多只能设置 ${MAX_AGENTS} 个 AI。`);
+  if (value.agents.length > MAX_AGENTS) throw new SettingsError(localText("error.tooManyAgents", { max: MAX_AGENTS }));
 
   const previousById = new Map(previous?.agents.map((agent) => [agent.id, agent]) ?? []);
   const changedAgentId = (agent: Record<string, unknown>, field: keyof AgentRecord): string | undefined => {
@@ -160,24 +164,24 @@ function validateSettings(value: unknown, previous?: Settings): asserts value is
   const agents: Record<string, unknown>[] = [];
   const ids = new Set<string>();
   for (const item of value.agents as unknown[]) {
-    if (!isObject(item)) throw new SettingsError("AI 记录不对。");
+    if (!isObject(item)) throw new SettingsError(localText("error.settingsMalformed"));
     const agentId = existingAgentId(item);
     if (typeof item.id !== "string" || item.id.length === 0) {
-      throw new SettingsError("AI 内部 id 不对。", undefined, agentId);
+      throw new SettingsError(localText("error.settingsMalformed"), undefined, agentId);
     }
-    if (ids.has(item.id)) throw new SettingsError(`AI 内部 id 重复：${item.id}`, undefined, agentId);
+    if (ids.has(item.id)) throw new SettingsError(localText("error.duplicateAgentId", { id: item.id }), undefined, agentId);
     ids.add(item.id);
     if (typeof item.name !== "string" || (item.name !== "" && !AGENT_NAME_PATTERN.test(item.name))) {
-      throw new SettingsError("AI 名字只能用小写字母、数字、下划线和连字符，并以字母开头，最多 16 位。", "name", agentId);
+      throw new SettingsError(localText("error.agentNameRule"), "name", agentId);
     }
     if (item.kind !== null && !isAgentKind(item.kind)) {
-      throw new SettingsError("CLI 种类不受支持。", "kind", agentId);
+      throw new SettingsError(localText("error.kindUnsupported"), "kind", agentId);
     }
     if (item.color !== null && !isPaletteId(item.color)) {
-      throw new SettingsError("主色不在调色板里。", "color", agentId);
+      throw new SettingsError(localText("error.colorNotInPalette"), "color", agentId);
     }
     if (!isAgentSettings(item.defaults)) {
-      throw new SettingsError("默认模型、思考强度或权限不对。", "defaults", agentId);
+      throw new SettingsError(localText("error.defaultsInvalid"), "defaults", agentId);
     }
     agents.push(item);
   }
@@ -203,13 +207,13 @@ function validateSettings(value: unknown, previous?: Settings): asserts value is
     if (matching.length < 2) continue;
     const blamed = matching.find((agent) => changedAgentId(agent, "name") !== undefined) ??
       matching.find(isNewAgent) ?? matching.at(-1)!;
-    throw new SettingsError(`AI 名字不能重复：${name}`, "name", existingAgentId(blamed));
+    throw new SettingsError(localText("error.duplicateAgentName", { name }), "name", existingAgentId(blamed));
   }
   for (const [color, matching] of byColor) {
     if (matching.length < 2) continue;
     const blamed = matching.find((agent) => changedAgentId(agent, "color") !== undefined) ??
       matching.find(isNewAgent) ?? matching.at(-1)!;
-    throw new SettingsError(`主色不能重复：${color}`, "color", existingAgentId(blamed));
+    throw new SettingsError(localText("error.duplicateColor", { color }), "color", existingAgentId(blamed));
   }
 
   const usernameClash = agents.find((agent) =>
@@ -217,10 +221,10 @@ function validateSettings(value: unknown, previous?: Settings): asserts value is
   );
   if (usernameClash) {
     if (previous && username !== previous.username) {
-      throw new SettingsError("用户名不能和 AI 名字相同（不区分大小写）。", "username");
+      throw new SettingsError(localText("error.usernameClash"), "username");
     }
     throw new SettingsError(
-      "AI 名字不能和用户名相同（不区分大小写）。",
+      localText("error.agentNameClash"),
       "name",
       existingAgentId(usernameClash),
     );

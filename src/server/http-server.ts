@@ -9,6 +9,7 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 import type { SharedUploadClient } from "../attachments/shared-upload-client.ts";
 import { MAX_UPLOAD_BYTES, SharedUploadError } from "../attachments/types.ts";
+import { localText } from "../i18n/text.ts";
 import { CookieAuth, secretsEqual } from "./auth.ts";
 import { BrowserConnection, type BrowserConnectionServices, type BrowserSocket } from "./connection.ts";
 import { openViewableFile } from "./files.ts";
@@ -329,25 +330,25 @@ export class WebServer {
   async #receiveUpload(request: IncomingMessage, response: ServerResponse): Promise<void> {
     if (request.method !== "POST") {
       response.setHeader("allow", "POST");
-      sendUploadError(response, new SharedUploadError("method_not_allowed", "只允许 POST 上传。", 405));
+      sendUploadError(response, new SharedUploadError("method_not_allowed", "Only POST uploads are allowed.", 405));
       return;
     }
     if (!this.#uploads) {
-      sendUploadError(response, new SharedUploadError("uploads_unavailable", "附件服务没有启用。", 503));
+      sendUploadError(response, new SharedUploadError("uploads_unavailable", localText("error.uploadsUnavailable"), 503));
       return;
     }
     const ticket = request.headers["x-upload-ticket"];
     const contentLength = parseUploadLength(request.headers["content-length"]);
     if (typeof ticket !== "string" || !ticket) {
-      sendUploadError(response, new SharedUploadError("missing_ticket", "请求缺少上传票据。", 401));
+      sendUploadError(response, new SharedUploadError("missing_ticket", "The request has no upload ticket.", 401));
       return;
     }
     if (contentLength === null) {
-      sendUploadError(response, new SharedUploadError("invalid_content_length", "上传必须提供有效的 Content-Length。", 411));
+      sendUploadError(response, new SharedUploadError("invalid_content_length", "Uploads need a valid Content-Length.", 411));
       return;
     }
     if (contentLength > MAX_UPLOAD_BYTES) {
-      sendUploadError(response, new SharedUploadError("file_too_large", "单个文件不能超过 25 MiB。", 413));
+      sendUploadError(response, new SharedUploadError("file_too_large", localText("attach.tooLarge"), 413));
       return;
     }
     try {
@@ -440,10 +441,12 @@ function parseUploadLength(value: string | undefined): number | null {
 function sendUploadError(response: ServerResponse, error: unknown): void {
   const normalized = error instanceof SharedUploadError
     ? error
-    : new SharedUploadError("upload_failed", "附件上传失败。", 500);
+    : new SharedUploadError("upload_failed", localText("attach.uploadFailed"), 500);
   // When responding with an error before the upload is fully read, tell the browser to stop sending.
   response.setHeader("connection", "close");
-  sendJson(response, normalized.status, { error: { code: normalized.code, message: normalized.message } });
+  sendJson(response, normalized.status, {
+    error: { code: normalized.code, message: normalized.message, ...(normalized.text ? { text: normalized.text } : {}) },
+  });
 }
 
 function sendJson(response: ServerResponse, status: number, value: unknown): void {

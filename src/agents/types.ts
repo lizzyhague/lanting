@@ -1,5 +1,6 @@
 import type { AgentKind } from "./kinds.ts";
 import type { AgentFeatures } from "../features/index.ts";
+import { englishText, localText, type LocalText } from "../i18n/text.ts";
 
 /**
  * Shared interface for AI integrations. The group core only knows these types and doesn't care which CLI is on the other side.
@@ -31,15 +32,50 @@ export type ModelOption = {
   description: string;
   /** Reasoning efforts this model supports; an empty array means none can be chosen. */
   efforts: string[];
+  /** The CLI's default effort for this model, shown after the description. */
+  defaultEffort?: string;
 };
 
+/** label and description are English; labelText and descriptionText, when present, are lanting's own wording. */
 export type PermissionOption = {
   id: string;
   label: string;
   description: string;
+  labelText?: LocalText;
+  descriptionText?: LocalText;
   /** A more permissive level; the web page shows a warning. */
   danger?: boolean;
 };
+
+/** The name of a tool: toolKey is set when it is lanting's generic name, shown in the browser's language. */
+export type ToolName = { toolName: string; toolKey?: string };
+
+/** lanting's generic name for a tool, e.g. "command"; toolName holds the English form. */
+export function genericTool(key: string): ToolName {
+  return { toolName: englishText(localText(key)), toolKey: key };
+}
+
+/** The CLI's own tool name, clipped, or lanting's generic name when the CLI gave none. */
+export function toolNameOr(name: string, key: string): ToolName {
+  return name ? { toolName: name.slice(0, 120) } : genericTool(key);
+}
+
+/** A permission whose label or description is lanting's own text, translated in the browser. */
+export function localizedPermission(option: {
+  id: string;
+  label: string | LocalText;
+  description: string | LocalText;
+  danger?: boolean;
+}): PermissionOption {
+  const { label, description, ...rest } = option;
+  return {
+    ...rest,
+    label: typeof label === "string" ? label : englishText(label),
+    description: typeof description === "string" ? description : englishText(description),
+    ...(typeof label === "string" ? {} : { labelText: label }),
+    ...(typeof description === "string" ? {} : { descriptionText: description }),
+  };
+}
 
 /** Models and permissions selectable in the member panel, queried by each adapter from its own CLI. */
 export type AgentCatalog = {
@@ -49,6 +85,8 @@ export type AgentCatalog = {
 
 export type ApprovalAsk = {
   toolName: string;
+  /** Set when toolName is lanting's generic name for the tool; the browser shows this key's text instead. */
+  toolKey?: string;
   /** One-line summary, such as a command or file path. */
   detail: string;
 };

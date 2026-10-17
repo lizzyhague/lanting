@@ -2,6 +2,7 @@ import { request as httpRequest, type IncomingMessage } from "node:http";
 import { homedir } from "node:os";
 import path from "node:path";
 
+import { localText } from "../i18n/text.ts";
 import {
   type AttachmentBinding,
   type AttachmentLease,
@@ -136,7 +137,7 @@ async function collectResponse<Result>(response: IncomingMessage): Promise<Resul
     const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
     length += chunk.byteLength;
     if (length > MAX_RESPONSE_BYTES) {
-      throw new SharedUploadError("response_too_large", "共享上传服务返回了过大的响应。", 502);
+      throw new SharedUploadError("response_too_large", "The shared upload service returned an oversized response.", 502);
     }
     chunks.push(chunk);
   }
@@ -144,24 +145,24 @@ async function collectResponse<Result>(response: IncomingMessage): Promise<Resul
   try {
     value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
-    throw new SharedUploadError("invalid_response", "共享上传服务返回了无效响应。", 502);
+    throw new SharedUploadError("invalid_response", "The shared upload service returned an invalid response.", 502);
   }
   const object = isObject(value) ? value : null;
   if ((response.statusCode ?? 500) >= 400) {
     const error = isObject(object?.error) ? object.error : null;
     throw new SharedUploadError(
       typeof error?.code === "string" ? error.code : "upload_service_error",
-      typeof error?.message === "string" ? error.message : "共享上传服务拒绝了请求。",
+      typeof error?.message === "string" ? error.message : "The shared upload service rejected the request.",
       response.statusCode ?? 502,
     );
   }
-  if (!object) throw new SharedUploadError("invalid_response", "共享上传服务返回了无效响应。", 502);
+  if (!object) throw new SharedUploadError("invalid_response", "The shared upload service returned an invalid response.", 502);
   return object as Result;
 }
 
 function connectionError(error: Error): SharedUploadError {
   console.error(`Cannot reach the shared upload service: ${error.message}`);
-  return new SharedUploadError("upload_service_unavailable", "共享上传服务暂时不可用。", 503);
+  return new SharedUploadError("upload_service_unavailable", localText("error.uploadServiceUnavailable"), 503);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

@@ -1,7 +1,16 @@
 import type { AgentSession, ModelOption, PermissionOption } from "../agents/types.ts";
 
-/** Wherever {time} appears in a segment, the web page replaces it with time in the browser's local time. time is always an ISO string, converted by the module itself. */
-export type UsagePart = { text: string; time?: string };
+/**
+ * One segment of the usage row as data; the web page words it in its own language. resetsAt is always an ISO
+ * string, converted by the module itself, and shown in the browser's local time.
+ */
+export type UsagePart =
+  | { kind: "context"; percent: number | null; approximate?: boolean }
+  | { kind: "unavailable" }
+  | { kind: "quota"; window: UsageWindow; left: number | null; resetsAt?: string };
+
+/** A quota window: a model or limit name, a duration, or both (in parentheses when parenthesized). */
+export type UsageWindow = { name?: string; minutes?: number; parenthesized?: boolean };
 
 export type UsageRequest = {
   nativeId: string;

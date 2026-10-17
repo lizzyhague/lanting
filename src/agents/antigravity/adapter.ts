@@ -1,12 +1,16 @@
 import type { AgentFeatures } from "../../features/index.ts";
+import { localText } from "../../i18n/text.ts";
 import { EventChannel } from "../event-channel.ts";
-import type {
-  AgentAdapter,
-  AgentEvent,
-  AgentSession,
-  ApprovalAnswer,
-  PermissionOption,
-  SessionOptions,
+import {
+  type AgentAdapter,
+  type AgentEvent,
+  type AgentSession,
+  type ApprovalAnswer,
+  localizedPermission,
+  type PermissionOption,
+  type SessionOptions,
+  type ToolName,
+  toolNameOr,
 } from "../types.ts";
 import {
   AntigravityAcpClient,
@@ -29,17 +33,17 @@ const INTERRUPT_TIMEOUT_MS = 10_000;
  * `allow_always` isn't chosen, so the grant isn't written into Antigravity's session side files.
  */
 export const ANTIGRAVITY_PERMISSIONS: readonly PermissionOption[] = [
-  {
+  localizedPermission({
     id: "ask",
-    label: "逐次确认",
-    description: "Antigravity 发来的审批由群主在网页上批准。",
-  },
-  {
+    label: localText("permission.ask"),
+    description: localText("permission.antigravity.ask"),
+  }),
+  localizedPermission({
     id: "always-approve",
     label: "Always approve",
-    description: "Antigravity 发来的审批直接放行。",
+    description: localText("permission.antigravity.alwaysApprove"),
     danger: true,
-  },
+  }),
 ];
 
 const ALWAYS_APPROVE = "always-approve";
@@ -289,7 +293,7 @@ class AntigravitySession implements AgentSession {
       this.#client.respondPermission(request.rpcId, outcome);
     };
     this.#options.requestApproval({
-      toolName: tool.toolName,
+      ...(tool.toolKey ? { toolName: tool.toolName, toolKey: tool.toolKey } : { toolName: tool.toolName }),
       detail: [tool.detail, workingDirectory(request.toolCall)].filter(Boolean).join("\n"),
     }, controller.signal).then(
       (answer) => settle(permissionOutcome(request, answer)),
@@ -325,7 +329,7 @@ function isAuthRequired(error: unknown): boolean {
  * Condenses an ACP tool_call into one line of progress info. For execute, the title is the command, the tool name is always bash, and the command goes into the details;
  * for edit and read, the title is a description like "Run create_file?" and the path is in rawInput or locations.
  */
-export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool"; toolName: string; detail: string } {
+export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool"; detail: string } & ToolName {
   const toolKind = typeof toolCall.kind === "string" ? toolCall.kind : "";
   const title = typeof toolCall.title === "string" ? toolCall.title.trim() : "";
   const input = objectField(toolCall.rawInput);
@@ -339,7 +343,7 @@ export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool";
   }
   return {
     kind: "tool",
-    toolName: (title || toolKind || "工具").slice(0, 120),
+    ...toolNameOr(title || toolKind, "tool.generic"),
     detail: detail.trim() === title ? "" : detail.replaceAll(/\s+/gu, " ").trim().slice(0, 240),
   };
 }
@@ -347,7 +351,7 @@ export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool";
 /** Execute approvals carry the command's working directory. The model may fill in a directory outside the workspace; it is shown as-is, not blocked separately. */
 function workingDirectory(toolCall: Record<string, unknown>): string {
   const cwd = objectField(toolCall.rawInput).Cwd;
-  return typeof cwd === "string" && cwd.trim() ? `工作目录：${cwd.trim()}` : "";
+  return typeof cwd === "string" && cwd.trim() ? `Working directory: ${cwd.trim()}` : "";
 }
 
 function contentText(content: unknown): string {

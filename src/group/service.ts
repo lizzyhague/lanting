@@ -10,6 +10,7 @@ import { publicAttachment, type StoredAttachment } from "../attachments/prompt.t
 import { PathRedactor } from "../attachments/redact.ts";
 import type { SharedUploadClient } from "../attachments/shared-upload-client.ts";
 import { featureIds, type AgentFeatureId, type UsagePart } from "../features/index.ts";
+import { localText, type LocalText } from "../i18n/text.ts";
 import {
   ATTACHMENT_LEASE_RENEW_INTERVAL_MS,
   MAX_MESSAGE_ATTACHMENTS,
@@ -119,7 +120,7 @@ type UsageTask = {
 /** Bulk operations are processed one by one; one failure doesn't affect the others. */
 export type BatchResult = {
   done: string[];
-  failed: { groupId: string; message: string }[];
+  failed: { groupId: string; message: string; text?: LocalText }[];
 };
 
 export type PublicSettings = Omit<Settings, "agents"> & {
@@ -241,9 +242,9 @@ export class GroupService {
     this.#checkSettings(agent.name, adapter, catalog, settings, { field: "defaults", agentId });
     await this.#settings.update((next) => {
       const current = next.agents.find((item) => item.id === agentId);
-      if (!current) throw new GroupError("agent_not_found", `没有这个 AI：${agentId}`);
+      if (!current) throw new GroupError("agent_not_found", localText("error.agentNotFound", { id: agentId }));
       if (current.kind !== kind) {
-        throw new GroupError("agent_changed", `${current.name} 的 CLI 已经变化，请重试。`);
+        throw new GroupError("agent_changed", localText("error.agentChanged", { name: current.name }));
       }
       current.defaults = { ...settings };
     });
@@ -273,10 +274,10 @@ export class GroupService {
   ): Promise<PublicSettings> {
     await this.#settings.update((next) => {
       const current = next.agents.find((agent) => agent.id === agentId);
-      if (!current) throw new GroupError("agent_not_found", `没有这个 AI：${agentId}`);
+      if (!current) throw new GroupError("agent_not_found", localText("error.agentNotFound", { id: agentId }));
       if (patch.kind !== undefined && patch.kind !== current.kind &&
           patch.kind !== null && !this.#agents.has(patch.kind)) {
-        throw new SettingsError("这个 CLI 没有在 config.json 中配置。", "kind", agentId);
+        throw new SettingsError(localText("error.kindNotConfigured"), "kind", agentId);
       }
       if (patch.name !== undefined) current.name = patch.name;
       if (patch.kind !== undefined) current.kind = patch.kind as AgentKind | null;
@@ -288,7 +289,7 @@ export class GroupService {
   async removeAgent(agentId: string): Promise<PublicSettings> {
     await this.#settings.update((next) => {
       const index = next.agents.findIndex((agent) => agent.id === agentId);
-      if (index < 0) throw new GroupError("agent_not_found", `没有这个 AI：${agentId}`);
+      if (index < 0) throw new GroupError("agent_not_found", localText("error.agentNotFound", { id: agentId }));
       next.agents.splice(index, 1);
     });
     return this.#emitSettings();
@@ -299,7 +300,7 @@ export class GroupService {
       const byId = new Map(next.agents.map((agent) => [agent.id, agent]));
       if (order.length !== next.agents.length || new Set(order).size !== order.length ||
           order.some((agentId) => !byId.has(agentId))) {
-        throw new GroupError("invalid_order", "AI 顺序必须是当前列表的完整排列。");
+        throw new GroupError("invalid_order", localText("error.invalidAgentOrder"));
       }
       next.agents = order.map((agentId) => byId.get(agentId)!);
     });
@@ -318,10 +319,10 @@ export class GroupService {
 
   async create(input: { directory: string; members: string[]; title: string }): Promise<GroupSummary> {
     const cwd = await resolveDirectory(this.#projectRoot, input.directory);
-    if (!cwd) throw new GroupError("invalid_directory", "工作目录不存在，或不在项目根目录的第一层。");
-    if (input.members.length === 0) throw new GroupError("no_members", "至少要拉一个 AI 进群。");
+    if (!cwd) throw new GroupError("invalid_directory", localText("error.invalidDirectory"));
+    if (input.members.length === 0) throw new GroupError("no_members", localText("error.noMembers"));
     if (new Set(input.members).size !== input.members.length) {
-      throw new GroupError("invalid_members", "成员里有重复的 AI。");
+      throw new GroupError("invalid_members", localText("error.duplicateMembers"));
     }
     const settings = this.#settings.get();
     const requested = new Set(input.members);
@@ -329,12 +330,13 @@ export class GroupService {
     if (selected.length !== input.members.length) {
       const known = new Set(selected.map((agent) => agent.id));
       const missing = input.members.find((id) => !known.has(id));
-      throw new GroupError("invalid_members", `没有这个 AI：${missing ?? "未知"}`);
+      throw new GroupError("invalid_members", localText("error.agentNotFound", { id: missing ?? "?" }));
     }
     for (const agent of selected) {
       if (!isAgentComplete(agent, this.#agents.kinds)) {
-        const label = agent.name || "未命名的 AI";
-        throw new GroupError("invalid_members", `${label} 的设置不完整。`);
+        throw new GroupError("invalid_members", agent.name
+          ? localText("error.agentIncomplete", { name: agent.name })
+          : localText("error.unnamedAgentIncomplete"));
       }
     }
     const memberIds = selected.map((agent) => agent.id);
@@ -380,9 +382,9 @@ export class GroupService {
   /** Every call order change is saved to the backend so it carries over to other devices. */
   async setCallOrder(groupId: string, order: string[]): Promise<GroupSummary> {
     const group = this.#requireActive(groupId);
-    if (new Set(order).size !== order.length) throw new GroupError("invalid_order", "点名里有重复的 AI。");
+    if (new Set(order).size !== order.length) throw new GroupError("invalid_order", localText("error.duplicateSpeaker"));
     for (const agent of order) {
-      if (!group.members.includes(agent)) throw new GroupError("invalid_order", `${agent} 不是这个群的成员。`);
+      if (!group.members.includes(agent)) throw new GroupError("invalid_order", localText("error.notMember", { agent }));
     }
     const updated = await this.#store.update(groupId, (next) => {
       next.callOrder = [...order];
@@ -429,9 +431,9 @@ export class GroupService {
   async rename(groupId: string, title: string): Promise<GroupSummary> {
     this.#requireActive(groupId);
     const trimmed = title.trim();
-    if (!trimmed) throw new GroupError("invalid_title", "群名不能为空。");
+    if (!trimmed) throw new GroupError("invalid_title", localText("error.emptyTitle"));
     if (trimmed.length > MAX_TITLE_LENGTH) {
-      throw new GroupError("invalid_title", `群名最多 ${MAX_TITLE_LENGTH} 个字。`);
+      throw new GroupError("invalid_title", localText("error.titleTooLong", { max: MAX_TITLE_LENGTH }));
     }
     const updated = await this.#store.update(groupId, (next) => {
       next.title = trimmed;
@@ -460,7 +462,7 @@ export class GroupService {
     if (agent !== null) {
       this.#requireMember(group, agent);
       if (!this.#adapterFor(group, agent).features.usage) {
-        throw new GroupError("unsupported", `${agent} 不支持 usage。`);
+        throw new GroupError("unsupported", localText("error.usageUnsupported", { agent }));
       }
     }
     if (group.usageAgent !== agent) {
@@ -548,12 +550,12 @@ export class GroupService {
   archive(groupIds: string[]): Promise<BatchResult> {
     return this.#batch(groupIds, async (groupId) => {
       const group = this.#requireGroup(groupId);
-      if (group.trashedAt) throw new GroupError("group_trashed", "回收站里的群不能归档，请先恢复。");
-      if (group.archived) throw new GroupError("already_archived", "已经归档了。");
+      if (group.trashedAt) throw new GroupError("group_trashed", localText("error.archiveTrashed"));
+      if (group.archived) throw new GroupError("already_archived", localText("error.alreadyArchived"));
       if (this.#runtime.isBusy(groupId)) {
-        throw new GroupError("busy", "群里正在发言或压缩，请结束后再归档。");
+        throw new GroupError("busy", localText("error.busyArchive"));
       }
-      if (this.#locked.has(groupId)) throw new GroupError("busy", "这个群正在整理。");
+      if (this.#locked.has(groupId)) throw new GroupError("busy", localText("error.groupLocked"));
       this.#locked.add(groupId);
       try {
         await this.#runtime.closeSessions(groupId);
@@ -572,10 +574,10 @@ export class GroupService {
     return this.#batch(groupIds, async (groupId) => {
       const group = this.#requireGroup(groupId);
       if (group.trashedAt) {
-        throw new GroupError("group_trashed", "回收站里的群不能取消归档，请先恢复。");
+        throw new GroupError("group_trashed", localText("error.unarchiveTrashed"));
       }
-      if (!group.archived) throw new GroupError("not_archived", "这个群没有归档。");
-      if (this.#locked.has(groupId)) throw new GroupError("busy", "这个群正在整理。");
+      if (!group.archived) throw new GroupError("not_archived", localText("error.notArchived"));
+      if (this.#locked.has(groupId)) throw new GroupError("busy", localText("error.groupLocked"));
       const updated = await this.#store.update(groupId, (next) => {
         next.archived = false;
         next.updatedAt = Date.now();
@@ -588,9 +590,9 @@ export class GroupService {
   trash(groupIds: string[]): Promise<BatchResult> {
     return this.#batch(groupIds, async (groupId) => {
       const group = this.#requireGroup(groupId);
-      if (group.trashedAt) throw new GroupError("already_trashed", "已经在回收站里了。");
+      if (group.trashedAt) throw new GroupError("already_trashed", localText("error.alreadyTrashed"));
       if (this.#runtime.isBusy(groupId)) {
-        throw new GroupError("busy", "群里正在发言或压缩，请结束后再删除。");
+        throw new GroupError("busy", localText("error.busyTrash"));
       }
       this.#locked.add(groupId);
       try {
@@ -610,9 +612,9 @@ export class GroupService {
   restore(groupIds: string[]): Promise<BatchResult> {
     return this.#batch(groupIds, async (groupId) => {
       const group = this.#requireGroup(groupId);
-      if (!group.trashedAt) throw new GroupError("not_trashed", "不在回收站里。");
+      if (!group.trashedAt) throw new GroupError("not_trashed", localText("error.notTrashed"));
       if (group.deletingAt || this.#locked.has(groupId)) {
-        throw new GroupError("deleting", "正在永久删除，不能恢复。");
+        throw new GroupError("deleting", localText("error.deletingNoRestore"));
       }
       const updated = await this.#store.update(groupId, (next) => {
         next.trashedAt = null;
@@ -626,7 +628,7 @@ export class GroupService {
   purge(groupIds: string[]): Promise<BatchResult> {
     return this.#batch(groupIds, async (groupId) => {
       const group = this.#requireGroup(groupId);
-      if (!group.trashedAt) throw new GroupError("not_trashed", "只能永久删除回收站里的群。");
+      if (!group.trashedAt) throw new GroupError("not_trashed", localText("error.purgeNotTrashed"));
       await this.#purge(groupId);
     });
   }
@@ -663,7 +665,7 @@ export class GroupService {
    * and only delete lanting's own data after all are gone. On failure deletingAt is kept, and later retries delete only what's left.
    */
   async #purge(groupId: string): Promise<void> {
-    if (this.#locked.has(groupId)) throw new GroupError("busy", "这个群正在删除。");
+    if (this.#locked.has(groupId)) throw new GroupError("busy", localText("error.groupDeleting"));
     this.#locked.add(groupId);
     try {
       await this.#runtime.closeSessions(groupId);
@@ -698,11 +700,11 @@ export class GroupService {
             if (state) state.nativeSessionId = null;
           });
         } catch (error) {
-          failures.push(`${agent}：${error instanceof Error ? error.message : String(error)}`);
+          failures.push(`${agent}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
       if (failures.length > 0) {
-        throw new GroupError("delete_failed", `有原生会话没删掉，稍后会自动重试。${failures.join("；")}`);
+        throw new GroupError("delete_failed", localText("error.deleteFailed", { details: failures.join("; ") }));
       }
       await this.#store.remove(groupId);
       for (const key of this.#usage.keys()) {
@@ -728,7 +730,11 @@ export class GroupService {
         await action(groupId);
         result.done.push(groupId);
       } catch (error) {
-        result.failed.push({ groupId, message: error instanceof Error ? error.message : String(error) });
+        result.failed.push({
+          groupId,
+          message: error instanceof Error ? error.message : String(error),
+          ...(error instanceof GroupError ? { text: error.text } : {}),
+        });
       }
     }
     return result;
@@ -743,7 +749,7 @@ export class GroupService {
     const group = this.#requireActive(groupId);
     const uploads = this.#requireUploads();
     if (file.expectedSize > MAX_UPLOAD_BYTES) {
-      throw new SharedUploadError("file_too_large", "单个文件不能超过 25 MiB。", 413);
+      throw new SharedUploadError("file_too_large", localText("attach.tooLarge"), 413);
     }
     return uploads.createTicket({ ...binding(group), ...file });
   }
@@ -764,9 +770,9 @@ export class GroupService {
       return { roundId };
     }
     if (attachmentIds.length > MAX_MESSAGE_ATTACHMENTS) {
-      throw new GroupError("too_many_attachments", `一条消息最多 ${MAX_MESSAGE_ATTACHMENTS} 个附件。`);
+      throw new GroupError("too_many_attachments", localText("attach.tooMany", { max: MAX_MESSAGE_ATTACHMENTS }));
     }
-    if (this.#runtime.isBusy(groupId)) throw new GroupError("busy", "这个群还有一轮没有结束。");
+    if (this.#runtime.isBusy(groupId)) throw new GroupError("busy", localText("error.roundInProgress"));
     const uploads = this.#requireUploads();
     const ownerId = randomUUID();
     const lease = await uploads.createLease(binding(group), ownerId, [...new Set(attachmentIds)]);
@@ -844,7 +850,7 @@ export class GroupService {
 
   #requireGroup(groupId: string): Group {
     const group = this.#store.get(groupId);
-    if (!group) throw new GroupError("group_not_found", "群不存在。");
+    if (!group) throw new GroupError("group_not_found", localText("error.groupNotFound"));
     return group;
   }
 
@@ -852,16 +858,16 @@ export class GroupService {
   #requireActive(groupId: string): Group {
     const group = this.#requireGroup(groupId);
     if (group.archived) {
-      throw new GroupError("group_archived", "这个群已经归档，请先取消归档。");
+      throw new GroupError("group_archived", localText("error.groupArchived"));
     }
     if (group.trashedAt || this.#locked.has(groupId)) {
-      throw new GroupError("group_trashed", "这个群已经在回收站里了。");
+      throw new GroupError("group_trashed", localText("error.groupTrashed"));
     }
     return group;
   }
 
   #requireUploads(): UploadClient {
-    if (!this.#uploads) throw new SharedUploadError("uploads_unavailable", "附件服务没有启用。", 503);
+    if (!this.#uploads) throw new SharedUploadError("uploads_unavailable", localText("error.uploadsUnavailable"), 503);
     return this.#uploads;
   }
 
@@ -881,23 +887,23 @@ export class GroupService {
     details?: Record<string, string>,
   ): void {
     if (!adapter.features.models && (settings.model !== null || settings.effort !== null)) {
-      throw new GroupError("invalid_settings", `${agent} 使用的 CLI 不支持选择模型或思考强度。`, details);
+      throw new GroupError("invalid_settings", localText("error.modelUnsupported", { agent }), details);
     }
     if (!adapter.features.permissions && settings.permission !== null) {
-      throw new GroupError("invalid_settings", `${agent} 使用的 CLI 不支持选择权限。`, details);
+      throw new GroupError("invalid_settings", localText("error.permissionUnsupported", { agent }), details);
     }
     const model = settings.model === null ? null : catalog.models.find((item) => item.id === settings.model);
     if (model === undefined) {
-      throw new GroupError("invalid_settings", `${agent} 没有这个模型：${settings.model}`, details);
+      throw new GroupError("invalid_settings", localText("error.unknownModel", { agent, model: settings.model ?? "" }), details);
     }
     if (settings.effort !== null) {
-      if (!model) throw new GroupError("invalid_settings", "要先选模型，才能选思考强度。", details);
+      if (!model) throw new GroupError("invalid_settings", localText("error.effortNeedsModel"), details);
       if (!model.efforts.includes(settings.effort)) {
-        throw new GroupError("invalid_settings", `${model.label} 不支持思考强度 ${settings.effort}。`, details);
+        throw new GroupError("invalid_settings", localText("error.unsupportedEffort", { model: model.label, effort: settings.effort }), details);
       }
     }
     if (settings.permission !== null && !catalog.permissions.some((item) => item.id === settings.permission)) {
-      throw new GroupError("invalid_settings", `${agent} 没有这个权限选项：${settings.permission}`, details);
+      throw new GroupError("invalid_settings", localText("error.unknownPermission", { agent, permission: settings.permission }), details);
     }
   }
 
@@ -918,16 +924,16 @@ export class GroupService {
   }
 
   #requireMember(group: Group, agent: string): void {
-    if (!group.members.includes(agent)) throw new GroupError("invalid_agent", `${agent} 不是这个群的成员。`);
+    if (!group.members.includes(agent)) throw new GroupError("invalid_agent", localText("error.notMember", { agent }));
   }
 
   #adapterFor(group: Group, agent: string): AgentAdapter {
     const state = group.agents[agent];
-    if (!state) throw new GroupError("invalid_agent", `${agent} 不是这个群的成员。`);
+    if (!state) throw new GroupError("invalid_agent", localText("error.notMember", { agent }));
     if (!this.#agents.has(state.kind)) {
       throw new GroupError(
         "agent_unavailable",
-        `${agent} 使用的 ${kindDisplayName(state.kind)} 没有在 config.json 中配置。`,
+        localText("error.kindNotConfiguredFor", { agent, kind: kindDisplayName(state.kind) }),
       );
     }
     return this.#agents.get(state.kind);
@@ -935,18 +941,18 @@ export class GroupService {
 
   #settingsAgent(settings: Settings, agentId: string): AgentRecord {
     const agent = settings.agents.find((item) => item.id === agentId);
-    if (!agent) throw new GroupError("agent_not_found", `没有这个 AI：${agentId}`);
+    if (!agent) throw new GroupError("agent_not_found", localText("error.agentNotFound", { id: agentId }));
     return agent;
   }
 
   #adapterForSettings(agent: AgentRecord): AgentAdapter {
     if (agent.kind === null) {
-      throw new GroupError("agent_unavailable", `${agent.name} 还没有选择 CLI。`);
+      throw new GroupError("agent_unavailable", localText("error.agentNoKind", { name: agent.name }));
     }
     if (!this.#agents.has(agent.kind)) {
       throw new GroupError(
         "agent_unavailable",
-        `${agent.name} 选择的 ${kindDisplayName(agent.kind)} 没有在 config.json 中配置。`,
+        localText("error.kindNotConfiguredFor", { agent: agent.name, kind: kindDisplayName(agent.kind) }),
       );
     }
     return this.#agents.get(agent.kind);

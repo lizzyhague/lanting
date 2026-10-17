@@ -1,6 +1,7 @@
 import { SharedUploadError } from "../attachments/types.ts";
 import { PALETTE } from "../agents/palette.ts";
 import { GroupError } from "../group/runtime.ts";
+import { englishText, localText, type LocalText } from "../i18n/text.ts";
 import type { GroupService } from "../group/service.ts";
 import { SettingsError } from "../state/settings-store.ts";
 import type { ConnectionHub, EmittedEvent, EventSink } from "./hub.ts";
@@ -22,15 +23,17 @@ export type BrowserConnectionServices = {
   groups: GroupService;
 };
 
-/** Business errors that request handling may throw; code is returned to the browser as-is. */
+/** Business errors that request handling may throw; code and text are returned to the browser as-is. */
 export class RequestError extends Error {
   readonly code: string;
+  readonly text: LocalText;
   readonly details: Record<string, string> | undefined;
 
-  constructor(code: string, message: string, details?: Record<string, string>) {
-    super(message);
+  constructor(code: string, text: LocalText, details?: Record<string, string>) {
+    super(englishText(text));
     this.name = "RequestError";
     this.code = code;
+    this.text = text;
     this.details = details;
   }
 }
@@ -84,13 +87,14 @@ export class BrowserConnection implements EventSink {
         error instanceof SharedUploadError;
       const code = known ? error.code : "internal_error";
       if (!known) console.error(error);
-      const message = error instanceof Error ? error.message : "请求处理失败。";
+      const message = error instanceof Error ? error.message : "Request handling failed.";
+      const text = known ? error.text : undefined;
       const details = error instanceof RequestError || error instanceof GroupError
         ? error.details
         : error instanceof SettingsError
           ? settingsErrorDetails(error)
           : undefined;
-      this.#respondError(request.requestId, code, message, details);
+      this.#respondError(request.requestId, code, message, text, details);
     });
   }
 
@@ -250,7 +254,7 @@ export class BrowserConnection implements EventSink {
       }
       case "approval.respond": {
         if (!groups.respondApproval(request.approvalId, request.decision)) {
-          throw new RequestError("approval_settled", "这条审批已经处理过或已失效。");
+          throw new RequestError("approval_settled", localText("error.approvalSettled"));
         }
         this.#respondOk(request.requestId, {});
         return;
@@ -273,13 +277,14 @@ export class BrowserConnection implements EventSink {
     requestId: string,
     code: string,
     message: string,
+    text: LocalText | undefined,
     details?: Record<string, string>,
   ): void {
     this.#send({
       type: "response",
       requestId,
       ok: false,
-      error: { code, message, ...(details ? { details } : {}) },
+      error: { code, message, ...(text ? { text } : {}), ...(details ? { details } : {}) },
     });
   }
 

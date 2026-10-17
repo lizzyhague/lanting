@@ -1,3 +1,5 @@
+import { englishText, type LocalText } from "../i18n/text.ts";
+
 export const MAX_UPLOAD_BYTES = 25 * 1_048_576;
 export const MAX_MESSAGE_ATTACHMENTS = 100;
 export const ATTACHMENT_LEASE_RENEW_INTERVAL_MS = 5 * 60_000;
@@ -42,14 +44,20 @@ export type AttachmentLease = {
   attachments: ResolvedAttachment[];
 };
 
+/**
+ * text, when given, is shown in the browser's language and the message is its English form; a plain string is a
+ * technical detail (or the upload service's own message) shown as is.
+ */
 export class SharedUploadError extends Error {
   readonly code: string;
   readonly status: number;
+  readonly text: LocalText | undefined;
 
-  constructor(code: string, message: string, status = 400) {
-    super(message);
+  constructor(code: string, text: LocalText | string, status = 400) {
+    super(typeof text === "string" ? text : englishText(text));
     this.name = "SharedUploadError";
     this.code = code;
     this.status = status;
+    this.text = typeof text === "string" ? undefined : text;
   }
 }

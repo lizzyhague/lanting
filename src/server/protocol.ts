@@ -1,3 +1,4 @@
+import type { LocalText } from "../i18n/text.ts";
 import { AGENT_NAME_PATTERN, MAX_AGENTS, MAX_COLLABORATION_LENGTH } from "../state/settings-store.ts";
 
 export const MAX_BROWSER_MESSAGE_BYTES = 2_097_152;
@@ -84,7 +85,7 @@ export type BrowserMessage =
     type: "response";
     requestId: string;
     ok: false;
-    error: { code: string; message: string; details?: Record<string, string> };
+    error: { code: string; message: string; text?: LocalText; details?: Record<string, string> };
   }
   | { type: "event"; event: BrowserEvent }
   | { type: "error"; requestId: string | null; error: { code: string; message: string } };

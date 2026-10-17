@@ -4,17 +4,22 @@ import os from "node:os";
 import path from "node:path";
 
 import type { AgentFeatures } from "../../features/index.ts";
+import { localText } from "../../i18n/text.ts";
 import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
-import type {
-  AgentAdapter,
-  AgentCatalog,
-  AgentEvent,
-  AgentSession,
-  ApprovalAnswer,
-  ModelOption,
-  PermissionOption,
-  SessionOptions,
+import {
+  type AgentAdapter,
+  type AgentCatalog,
+  type AgentEvent,
+  type AgentSession,
+  type ApprovalAnswer,
+  genericTool,
+  localizedPermission,
+  type ModelOption,
+  type PermissionOption,
+  type SessionOptions,
+  type ToolName,
+  toolNameOr,
 } from "../types.ts";
 import { AcpClient, type AcpPermissionRequest, type AcpUpdate } from "./acp-client.ts";
 
@@ -36,13 +41,13 @@ const HUMAN_TOOL_NAMES = new Set(["ask_user_question", "ask_user", "request_user
  * and approvals that still reach lanting (except direct questions) are allowed automatically.
  */
 export const GROK_PERMISSIONS: readonly PermissionOption[] = [
-  { id: "ask", label: "逐次确认", description: "需要确认的工具调用都由群主在网页上批准。" },
-  {
+  localizedPermission({ id: "ask", label: localText("permission.ask"), description: localText("permission.grok.ask") }),
+  localizedPermission({
     id: "always-approve",
     label: "Always approve",
-    description: "工具调用不再逐次确认，直接放行。",
+    description: localText("permission.grok.alwaysApprove"),
     danger: true,
-  },
+  }),
 ];
 
 const ALWAYS_APPROVE = "always-approve";
@@ -282,7 +287,7 @@ class GrokSession implements AgentSession {
       this.#client.respondPermission(request.rpcId, { outcome: "cancelled" });
       this.#turn.channel.push({
         type: "activity",
-        activity: { kind: "denied", toolName: "提问", message: "群聊里不直接向群主提问，问题请写在回复里。" },
+        activity: { kind: "denied", ...genericTool("tool.question"), message: "群聊里不直接向群主提问，问题请写在回复里。" },
       });
       return;
     }
@@ -294,7 +299,8 @@ class GrokSession implements AgentSession {
     this.#approvals.add(controller);
     const tool = toolActivity(request.toolCall);
     void this.#options.requestApproval({
-      toolName: tool?.toolName ?? "操作",
+      ...(tool ? (tool.toolKey ? { toolName: tool.toolName, toolKey: tool.toolKey } : { toolName: tool.toolName })
+        : genericTool("tool.action")),
       detail: [tool?.detail, permissionReason(request.toolCall)].filter(Boolean).join("\n"),
     }, controller.signal).then((answer) => {
       this.#approvals.delete(controller);
@@ -372,7 +378,7 @@ const DETAIL_KEYS = [
 ];
 
 /** Condenses an ACP tool_call into one line of progress info. */
-export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool"; toolName: string; detail: string } | null {
+export function toolActivity(toolCall: Record<string, unknown>): ({ kind: "tool"; detail: string } & ToolName) | null {
   const toolKind = typeof toolCall.kind === "string" ? toolCall.kind : "";
   if (toolKind === "think") return null;
   const title = typeof toolCall.title === "string" && toolCall.title.trim() ? toolCall.title.trim() : "";
@@ -382,7 +388,7 @@ export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool";
     .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? "";
   return {
     kind: "tool",
-    toolName: (title || toolKind || "工具").slice(0, 120),
+    ...toolNameOr(title || toolKind, "tool.generic"),
     detail: detail === title ? "" : detail.replaceAll(/\s+/gu, " ").trim().slice(0, 240),
   };
 }

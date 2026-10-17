@@ -124,7 +124,7 @@ test("a corrupt version 2 file stops the store from opening", async (t) => {
       createMembers: null,
     },
   }));
-  await assert.rejects(SettingsStore.open(directory, ["claude"]), /Settings file is corrupt: 主色不在调色板里/u);
+  await assert.rejects(SettingsStore.open(directory, ["claude"]), /Settings file is corrupt: The color isn't in the palette/u);
 });
 
 test("settings survive reopening and callers only receive copies", async (t) => {

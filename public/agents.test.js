@@ -125,8 +125,22 @@ test("usage text fills local times, shows only 未启动 before a session, and e
   assert.match(local, /^\d{2}-\d{2} \d{2}:\d{2}$/u);
   assert.deepEqual(usageTexts({ status: "not_started" }, time), ["未启动"]);
   assert.deepEqual(
-    usageTexts({ status: "ok", parts: [{ text: "上下文 1.0%" }, { text: "5 小时剩余 9.0%，{time} 重置", time }] }, time),
+    usageTexts({ status: "ok", parts: [
+      { kind: "context", percent: 1 },
+      { kind: "quota", window: { minutes: 300 }, left: 9, resetsAt: time },
+    ] }, time),
     ["上下文 1.0%", `5 小时剩余 9.0%，${local} 重置`, `最后回复时间 ${local}`],
+  );
+  assert.deepEqual(
+    usageTexts({ status: "ok", parts: [
+      { kind: "context", percent: null, approximate: true },
+      { kind: "context", percent: 25, approximate: true },
+      { kind: "quota", window: { name: "Opus", minutes: 10_080 }, left: null },
+      { kind: "quota", window: { name: "gpt-mini", minutes: 90, parenthesized: true }, left: 50 },
+      { kind: "quota", window: { name: "plan" }, left: 12.34 },
+      { kind: "unavailable" },
+    ] }, null),
+    ["上下文等待更新", "上下文约 25.0%", "Opus 7 天剩余 未知", "gpt-mini（90 分钟）剩余 50.0%", "plan剩余 12.3%", "额度查询不可用", "最后回复时间不可用"],
   );
   assert.deepEqual(usageTexts({ status: "unavailable" }, null), ["额度查询不可用", "最后回复时间不可用"]);
   assert.deepEqual(usageTexts(null, null), ["额度查询不可用", "最后回复时间不可用"]);

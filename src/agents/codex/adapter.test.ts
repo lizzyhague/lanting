@@ -160,9 +160,9 @@ test("a Codex turn streams text, records tool activity, asks for approval, and e
   const events = await collect(session.send("hello"));
   assert.deepEqual(events.filter((event) => event.type === "activity").map((event) => event.activity), [
     { kind: "note", text: "Let me check" },
-    { kind: "tool", toolName: "命令", detail: "ls -la" },
+    { kind: "tool", toolName: "Command", toolKey: "tool.command", detail: "ls -la" },
   ]);
-  assert.deepEqual(asks, [{ toolName: "命令", detail: "ls -la" }]);
+  assert.deepEqual(asks, [{ toolName: "Command", toolKey: "tool.command", detail: "ls -la" }]);
   assert.deepEqual(events.at(-1), { type: "end", outcome: "completed", text: "accept|group rules" });
 });
 
@@ -191,10 +191,10 @@ test("the Codex catalog lists visible models and the allowed permission profiles
   assert.deepEqual(catalog.models.map((model) => [model.id, model.label, model.efforts]), [
     ["gpt-a", "GPT A", ["low", "medium"]],
   ]);
-  assert.deepEqual(catalog.permissions.map((item) => [item.id, item.label, item.danger ?? false]), [
-    [":read-only", "只读", false],
-    [":workspace", "自动（可修改项目）", false],
-    [":danger-full-access", "完全访问", true],
+  assert.deepEqual(catalog.permissions.map((item) => [item.id, item.label, item.labelText?.key, item.danger ?? false]), [
+    [":read-only", "Read only", "permission.codex.readOnly", false],
+    [":workspace", "Auto (can edit the project)", "permission.codex.workspace", false],
+    [":danger-full-access", "Full access", "permission.codex.fullAccess", true],
   ]);
   assert.equal((await readFile(starts, "utf8")).length, 1, "模型和权限共用同一个常驻进程");
 });
@@ -248,10 +248,10 @@ test("Codex usage reads quota from the resident server and context from the turn
   const usage = adapter.features.usage!;
   const request = { nativeId: "thread-1", cwd: options.cwd, reason: "view" as const, session: async () => null };
   const quota = [
-    { text: "5 小时剩余 75.0%，{time} 重置", time: new Date(1700000000 * 1000).toISOString() },
-    { text: "7 天剩余 未知" },
+    { kind: "quota", window: { minutes: 300 }, left: 75, resetsAt: new Date(1700000000 * 1000).toISOString() },
+    { kind: "quota", window: { minutes: 10_080 }, left: null },
   ];
-  assert.deepEqual(await usage(request), [{ text: "上下文等待更新" }, ...quota]);
+  assert.deepEqual(await usage(request), [{ kind: "context", percent: null, approximate: true }, ...quota]);
 
   const session = await adapter.startSession(options);
   await collect(session.send("usage"));
@@ -259,10 +259,10 @@ test("Codex usage reads quota from the resident server and context from the turn
   // Context survives after the process closes; two simultaneous queries share one request.
   const before = (await readFile(quotaReads, "utf8")).length;
   const [first, second] = await Promise.all([usage(request), usage(request)]);
-  assert.deepEqual(first, [{ text: "上下文约 25.0%" }, ...quota]);
+  assert.deepEqual(first, [{ kind: "context", percent: 25, approximate: true }, ...quota]);
   assert.deepEqual(second, first);
   assert.equal((await readFile(quotaReads, "utf8")).length, before + 1);
 
   await writeFile(quotaFails, "");
-  assert.deepEqual(await usage(request), [{ text: "上下文约 25.0%" }, { text: "额度查询不可用" }]);
+  assert.deepEqual(await usage(request), [{ kind: "context", percent: 25, approximate: true }, { kind: "unavailable" }]);
 });

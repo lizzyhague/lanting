@@ -8,17 +8,19 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { randomUUID } from "node:crypto";
 
-import type { AgentFeatures, UsagePart } from "../../features/index.ts";
+import type { AgentFeatures, UsagePart, UsageWindow } from "../../features/index.ts";
+import { localText } from "../../i18n/text.ts";
 import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
-import type {
-  AgentAdapter,
-  AgentCatalog,
-  AgentEvent,
-  AgentSession,
-  ModelOption,
-  PermissionOption,
-  SessionOptions,
+import {
+  type AgentAdapter,
+  type AgentCatalog,
+  type AgentEvent,
+  type AgentSession,
+  localizedPermission,
+  type ModelOption,
+  type PermissionOption,
+  type SessionOptions,
 } from "../types.ts";
 import { ClaudeRuntime, type RuntimeEvent } from "./runtime.ts";
 
@@ -28,18 +30,18 @@ export type ClaudeAdapterOptions = {
 
 /** Follows Relayu's permission menu. */
 export const CLAUDE_PERMISSIONS: readonly (PermissionOption & { id: PermissionMode })[] = [
-  { id: "default", label: "Default", description: "按 lanting 规则逐次确认可写或有副作用的工具。" },
-  { id: "acceptEdits", label: "Accept Edits", description: "自动接受文件编辑，其他调用仍逐次确认。" },
-  { id: "plan", label: "Plan Mode", description: "只规划，不执行会改变项目的工具调用。" },
-  { id: "dontAsk", label: "Don't Ask", description: "不弹审批；没有预先允许的调用直接拒绝。" },
-  { id: "auto", label: "Auto", description: "由 Claude Code 的模型分类器判断要不要确认。" },
+  { id: "default", label: "Default", description: localText("permission.claude.default") },
+  { id: "acceptEdits", label: "Accept Edits", description: localText("permission.claude.acceptEdits") },
+  { id: "plan", label: "Plan Mode", description: localText("permission.claude.plan") },
+  { id: "dontAsk", label: "Don't Ask", description: localText("permission.claude.dontAsk") },
+  { id: "auto", label: "Auto", description: localText("permission.claude.auto") },
   {
     id: "bypassPermissions",
     label: "Bypass Permissions",
-    description: "普通调用不再逐次确认，读取秘密文件等硬拒绝仍然保留。",
+    description: localText("permission.claude.bypassPermissions"),
     danger: true,
   },
-];
+].map((option) => localizedPermission(option) as PermissionOption & { id: PermissionMode });
 
 /** When the SDK has no reasoning effort metadata for a model, fall back to the full set, as Relayu does. */
 const ALL_EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high", "xhigh", "max"];
@@ -281,25 +283,23 @@ export function usageParts(
   context: Pick<SDKControlGetContextUsageResponse, "percentage">,
   usage: Pick<SDKControlGetUsageResponse, "rate_limits_available" | "rate_limits"> | null,
 ): UsagePart[] {
-  const parts: UsagePart[] = [{ text: `上下文 ${Number(context.percentage || 0).toFixed(1)}%` }];
+  const parts: UsagePart[] = [{ kind: "context", percent: Number(context.percentage || 0) }];
   const rateLimits = usage?.rate_limits;
   if (usage?.rate_limits_available !== true || !rateLimits) {
-    parts.push({ text: "额度查询不可用" });
+    parts.push({ kind: "unavailable" });
     return parts;
   }
-  const windows: Array<[string, RateWindow]> = [
-    ["5 小时", rateLimits.five_hour],
-    ["7 天", rateLimits.seven_day],
-    ["Opus 7 天", rateLimits.seven_day_opus],
-    ["Sonnet 7 天", rateLimits.seven_day_sonnet],
-    ["OAuth Apps 7 天", rateLimits.seven_day_oauth_apps],
+  const windows: Array<[UsageWindow, RateWindow]> = [
+    [{ minutes: 300 }, rateLimits.five_hour],
+    [{ minutes: 10_080 }, rateLimits.seven_day],
+    [{ name: "Opus", minutes: 10_080 }, rateLimits.seven_day_opus],
+    [{ name: "Sonnet", minutes: 10_080 }, rateLimits.seven_day_sonnet],
+    [{ name: "OAuth Apps", minutes: 10_080 }, rateLimits.seven_day_oauth_apps],
   ];
   for (const [label, window] of windows) {
     if (!window) continue;
-    const left = window.utilization === null ? "未知" : `${Math.max(0, 100 - window.utilization).toFixed(1)}%`;
-    parts.push(window.resets_at
-      ? { text: `${label}剩余 ${left}，{time} 重置`, time: window.resets_at }
-      : { text: `${label}剩余 ${left}` });
+    const left = window.utilization === null ? null : Math.max(0, 100 - window.utilization);
+    parts.push({ kind: "quota", window: label, left, ...(window.resets_at ? { resetsAt: window.resets_at } : {}) });
   }
   return parts;
 }

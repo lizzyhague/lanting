@@ -1,14 +1,19 @@
-import type { AgentFeatures, UsagePart } from "../../features/index.ts";
+import type { AgentFeatures, UsagePart, UsageWindow } from "../../features/index.ts";
+import { localText, type LocalText } from "../../i18n/text.ts";
 import { EventChannel } from "../event-channel.ts";
-import type {
-  AgentAdapter,
-  AgentEvent,
-  AgentSession,
-  ApprovalAnswer,
-  ApprovalAsk,
-  ModelOption,
-  PermissionOption,
-  SessionOptions,
+import {
+  type AgentAdapter,
+  type AgentEvent,
+  type AgentSession,
+  type ApprovalAnswer,
+  type ApprovalAsk,
+  genericTool,
+  localizedPermission,
+  type ModelOption,
+  type PermissionOption,
+  type SessionOptions,
+  type ToolName,
+  toolNameOr,
 } from "../types.ts";
 import { AppServerClient, AppServerRpcError, type JsonObject, type RequestId } from "./client.ts";
 import { ResidentAppServer } from "./resident.ts";
@@ -106,7 +111,7 @@ export class CodexAdapter implements AgentAdapter {
   }
 }
 
-export type QuotaWindow = { label: string; remainingPercent: number | null; resetsAt: number | null };
+export type QuotaWindow = { label: UsageWindow; remainingPercent: number | null; resetsAt: number | null };
 
 /** Follows Codex Remote's #refreshQuota. Returns an empty array on failure rather than passing off the last quota as current. */
 async function readQuota(client: Pick<ResidentAppServer, "request">): Promise<QuotaWindow[]> {
@@ -123,11 +128,13 @@ async function readQuota(client: Pick<ResidentAppServer, "request">): Promise<Qu
         const window = asObject(value);
         if (!window) return [];
         const minutes = finiteNumber(window.windowDurationMins);
-        const duration = minutes === null ? "" : minutes % 1440 === 0
-          ? `${minutes / 1440} 天` : minutes % 60 === 0 ? `${minutes / 60} 小时` : `${minutes} 分钟`;
         const used = finiteNumber(window.usedPercent);
+        // A window named just "codex" is shown by its duration alone, as Codex Remote does.
+        const label: UsageWindow = minutes === null
+          ? { name }
+          : name.toLowerCase() === "codex" ? { minutes } : { name, minutes, parenthesized: true };
         return [{
-          label: `${name}${duration ? `（${duration}）` : ""}`,
+          label,
           remainingPercent: used === null ? null : Math.max(0, Math.min(100, 100 - used)),
           resetsAt: finiteNumber(window.resetsAt),
         }];
@@ -141,17 +148,18 @@ async function readQuota(client: Pick<ResidentAppServer, "request">): Promise<Qu
 
 /** Text follows Codex Remote's renderSessionMetrics. resetsAt is unix seconds, converted to an ISO string before handing it over. */
 export function usageParts(context: number | null, windows: readonly QuotaWindow[]): UsagePart[] {
-  const parts: UsagePart[] = [{ text: context === null ? "上下文等待更新" : `上下文约 ${context.toFixed(1)}%` }];
+  const parts: UsagePart[] = [{ kind: "context", percent: context, approximate: true }];
   if (windows.length === 0) {
-    parts.push({ text: "额度查询不可用" });
+    parts.push({ kind: "unavailable" });
     return parts;
   }
   for (const quota of windows) {
-    const left = typeof quota.remainingPercent === "number" ? `${quota.remainingPercent.toFixed(1)}%` : "未知";
-    const label = quota.label.replace(/^codex（(.+)）$/iu, "$1");
-    parts.push(quota.resetsAt === null
-      ? { text: `${label}剩余 ${left}` }
-      : { text: `${label}剩余 ${left}，{time} 重置`, time: new Date(quota.resetsAt * 1000).toISOString() });
+    parts.push({
+      kind: "quota",
+      window: quota.label,
+      left: quota.remainingPercent,
+      ...(quota.resetsAt === null ? {} : { resetsAt: new Date(quota.resetsAt * 1000).toISOString() }),
+    });
   }
   return parts;
 }
@@ -463,11 +471,9 @@ async function listModels(client: Pick<AppServerClient, "request">): Promise<Mod
       models.push({
         id: model.id,
         label: typeof model.displayName === "string" && model.displayName ? model.displayName : model.id,
-        description: [
-          typeof model.description === "string" ? model.description : "",
-          defaultEffort ? `默认思考强度：${defaultEffort}` : "",
-        ].filter(Boolean).join(" · "),
+        description: typeof model.description === "string" ? model.description : "",
         efforts,
+        ...(defaultEffort ? { defaultEffort } : {}),
       });
     }
     const next: unknown = response.nextCursor;
@@ -477,7 +483,7 @@ async function listModels(client: Pick<AppServerClient, "request">): Promise<Mod
   return models;
 }
 
-/** Permission profiles only have an id and description; as in Codex Remote, Chinese labels are given by name. Unselectable profiles aren't listed. */
+/** Permission profiles only have an id and description; as in Codex Remote, labels are given by name. Unselectable profiles aren't listed. */
 async function listPermissions(client: Pick<AppServerClient, "request">, cwd: string): Promise<PermissionOption[]> {
   const response = asObject(await client.request("permissionProfile/list", { cursor: null, limit: 100, cwd }));
   if (!response || !Array.isArray(response.data)) throw new Error("Codex returned an unrecognized permission list.");
@@ -486,33 +492,33 @@ async function listPermissions(client: Pick<AppServerClient, "request">, cwd: st
     if (!profile || typeof profile.id !== "string" || profile.allowed !== true) return [];
     const id = profile.id;
     const danger = isFullAccessProfile(id);
-    return [{
+    return [localizedPermission({
       id,
       label: permissionLabel(id),
       description: typeof profile.description === "string" && profile.description
         ? profile.description
         : permissionDescription(id),
       ...(danger ? { danger } : {}),
-    }];
+    })];
   });
 }
 
-function permissionLabel(id: string): string {
-  if (isFullAccessProfile(id)) return "完全访问";
+function permissionLabel(id: string): string | LocalText {
+  if (isFullAccessProfile(id)) return localText("permission.codex.fullAccess");
   const normalized = id.toLowerCase();
-  if (normalized.includes("read")) return "只读";
-  if (normalized.includes("workspace") || normalized.includes("auto")) return "自动（可修改项目）";
+  if (normalized.includes("read")) return localText("permission.codex.readOnly");
+  if (normalized.includes("workspace") || normalized.includes("auto")) return localText("permission.codex.workspace");
   return id;
 }
 
-function permissionDescription(id: string): string {
-  if (isFullAccessProfile(id)) return "可以不受沙箱限制地操作主机；请谨慎选择。";
+function permissionDescription(id: string): LocalText {
+  if (isFullAccessProfile(id)) return localText("permission.codex.fullAccessDescription");
   const normalized = id.toLowerCase();
-  if (normalized.includes("read")) return "可以阅读和分析；修改文件或执行高权限操作前会受限。";
+  if (normalized.includes("read")) return localText("permission.codex.readOnlyDescription");
   if (normalized.includes("workspace") || normalized.includes("auto")) {
-    return "可在项目目录内工作，超出范围或敏感操作仍会询问。";
+    return localText("permission.codex.workspaceDescription");
   }
-  return "由当前 Codex 配置提供的权限方案。";
+  return localText("permission.codex.otherDescription");
 }
 
 function isFullAccessProfile(id: string): boolean {
@@ -531,19 +537,22 @@ function readApproval(method: string, params: JsonObject): ParsedApproval | null
   if (method === "item/commandExecution/requestApproval") {
     const command = typeof params.command === "string" ? params.command : "";
     const network = asObject(params.networkApprovalContext);
-    const target = network && typeof network.host === "string" ? `网络：${String(network.protocol ?? "")} ${network.host}` : "";
+    const target = network && typeof network.host === "string" ? `Network: ${String(network.protocol ?? "")} ${network.host}` : "";
     return {
-      ask: { toolName: "命令", detail: [command, target, reason].filter(Boolean).join("\n") },
+      ask: { ...genericTool("tool.command"), detail: [command, target, reason].filter(Boolean).join("\n") },
       respond: decision,
     };
   }
   if (method === "item/fileChange/requestApproval") {
-    return { ask: { toolName: "修改文件", detail: reason }, respond: decision };
+    return { ask: { ...genericTool("tool.editFiles"), detail: reason }, respond: decision };
   }
   if (method === "item/permissions/requestApproval") {
     const permissions = asObject(params.permissions) ?? {};
     return {
-      ask: { toolName: "扩大权限", detail: [reason, JSON.stringify(permissions).slice(0, 600)].filter(Boolean).join("\n") },
+      ask: {
+        ...genericTool("tool.extendPermissions"),
+        detail: [reason, JSON.stringify(permissions).slice(0, 600)].filter(Boolean).join("\n"),
+      },
       respond: (answer) => {
         if (answer.decision !== "allow") return { permissions: {}, scope: "turn" };
         const granted: JsonObject = {};
@@ -557,29 +566,29 @@ function readApproval(method: string, params: JsonObject): ParsedApproval | null
 }
 
 /** Condenses a Codex tool ThreadItem into one line of progress info; returns null for non-tools. */
-export function toolActivity(item: JsonObject | null): { kind: "tool"; toolName: string; detail: string } | null {
+export function toolActivity(item: JsonObject | null): ({ kind: "tool"; detail: string } & ToolName) | null {
   if (!item || typeof item.type !== "string") return null;
   const clip = (value: unknown) =>
     typeof value === "string" ? value.replaceAll(/\s+/gu, " ").trim().slice(0, 240) : "";
   switch (item.type) {
     case "commandExecution":
-      return { kind: "tool", toolName: "命令", detail: clip(item.command) };
+      return { kind: "tool", ...genericTool("tool.command"), detail: clip(item.command) };
     case "fileChange": {
       const paths = Array.isArray(item.changes)
         ? item.changes.map((change) => asObject(change)?.path).filter((value) => typeof value === "string")
         : [];
-      return { kind: "tool", toolName: "修改文件", detail: clip(paths.join(", ")) };
+      return { kind: "tool", ...genericTool("tool.editFiles"), detail: clip(paths.join(", ")) };
     }
     case "webSearch": {
       const action = asObject(item.action);
-      return { kind: "tool", toolName: "网页", detail: clip(item.query ?? action?.query ?? action?.url) };
+      return { kind: "tool", ...genericTool("tool.web"), detail: clip(item.query ?? action?.query ?? action?.url) };
     }
     case "mcpToolCall":
       return { kind: "tool", toolName: [item.server, item.tool].filter(Boolean).join(" · ") || "MCP", detail: "" };
     case "dynamicToolCall":
-      return { kind: "tool", toolName: [item.namespace, item.tool].filter(Boolean).join(" · ") || "工具", detail: "" };
+      return { kind: "tool", ...toolNameOr([item.namespace, item.tool].filter(Boolean).join(" · "), "tool.generic"), detail: "" };
     case "imageView":
-      return { kind: "tool", toolName: "查看图片", detail: clip(item.path) };
+      return { kind: "tool", ...genericTool("tool.viewImage"), detail: clip(item.path) };
     default:
       return null;
   }

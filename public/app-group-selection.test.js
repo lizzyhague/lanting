@@ -117,6 +117,7 @@ function harness({ view = "groups", groups = [] } = {}) {
     },
   });
   vm.runInContext([
+    section("function localText(", "const RECONNECT_DELAY_MS"),
     section("function visibleGroups()", "function groupRenameIcon("),
     section("function setListView(view)", "function agentDot("),
   ].join("\n"), context);

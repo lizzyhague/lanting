@@ -12,6 +12,7 @@ import { ApprovalRegistry } from "../approvals/registry.ts";
 import type { StoredAttachment } from "../attachments/prompt.ts";
 import { PathRedactor } from "../attachments/redact.ts";
 import type { UsagePart } from "../features/index.ts";
+import { englishText, localText, type LocalText } from "../i18n/text.ts";
 import type { GroupStore } from "../state/group-store.ts";
 import { assembleMessage } from "./assemble.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
@@ -59,14 +60,17 @@ export type RoundSnapshot = {
   activities: Activity[];
 };
 
+/** text is shown in the browser's language; the message is its English form for logs. */
 export class GroupError extends Error {
   readonly code: string;
+  readonly text: LocalText;
   readonly details: Record<string, string> | undefined;
 
-  constructor(code: string, message: string, details?: Record<string, string>) {
-    super(message);
+  constructor(code: string, text: LocalText, details?: Record<string, string>) {
+    super(englishText(text));
     this.name = "GroupError";
     this.code = code;
+    this.text = text;
     this.details = details;
   }
 }
@@ -177,17 +181,17 @@ export class GroupRuntime {
     done: Promise<RoundOutcome>;
   } {
     const group = this.#store.get(groupId);
-    if (!group) throw new GroupError("group_not_found", "群不存在。");
-    if (!text.trim() && attachments.length === 0) throw new GroupError("empty_message", "消息不能为空。");
-    if (order.length === 0) throw new GroupError("no_speaker", "至少要点名一个 AI。");
-    if (new Set(order).size !== order.length) throw new GroupError("invalid_order", "点名里有重复的 AI。");
+    if (!group) throw new GroupError("group_not_found", localText("error.groupNotFound"));
+    if (!text.trim() && attachments.length === 0) throw new GroupError("empty_message", localText("error.emptyMessage"));
+    if (order.length === 0) throw new GroupError("no_speaker", localText("error.noSpeaker"));
+    if (new Set(order).size !== order.length) throw new GroupError("invalid_order", localText("error.duplicateSpeaker"));
     for (const agent of order) {
       if (!group.members.includes(agent)) {
-        throw new GroupError("invalid_order", `${agent} 不是这个群的成员。`);
+        throw new GroupError("invalid_order", localText("error.notMember", { agent }));
       }
     }
-    if (this.#rounds.has(groupId)) throw new GroupError("busy", "这个群还有一轮没有结束。");
-    if (this.#compactions.has(groupId)) throw new GroupError("busy", "这个群正在压缩上下文，请等压缩结束。");
+    if (this.#rounds.has(groupId)) throw new GroupError("busy", localText("error.roundInProgress"));
+    if (this.#compactions.has(groupId)) throw new GroupError("busy", localText("error.compacting"));
 
     const round: ActiveRound = {
       id: randomUUID(),
@@ -210,12 +214,12 @@ export class GroupRuntime {
    */
   compact(groupId: string, agents: readonly string[]): { done: Promise<void> } {
     const group = this.#requireGroup(groupId);
-    if (agents.length === 0) throw new GroupError("no_agent", "至少要选一个 AI。");
-    if (new Set(agents).size !== agents.length) throw new GroupError("invalid_agents", "有重复的 AI。");
+    if (agents.length === 0) throw new GroupError("no_agent", localText("error.noAgentChosen"));
+    if (new Set(agents).size !== agents.length) throw new GroupError("invalid_agents", localText("error.duplicateAgents"));
     for (const agent of agents) {
-      if (!group.members.includes(agent)) throw new GroupError("invalid_agents", `${agent} 不是这个群的成员。`);
+      if (!group.members.includes(agent)) throw new GroupError("invalid_agents", localText("error.notMember", { agent }));
     }
-    if (this.isBusy(groupId)) throw new GroupError("busy", "这个群正忙，请等这一轮或这次压缩结束。");
+    if (this.isBusy(groupId)) throw new GroupError("busy", localText("error.groupBusy"));
     const compaction: CompactionSnapshot = { agents: [...agents], current: null };
     this.#compactions.set(groupId, compaction);
     this.#emit({ type: "compact.started", groupId, agents: [...agents] });
@@ -234,7 +238,7 @@ export class GroupRuntime {
 
   /** Closes all native sessions cached for this group and waits for the processes to actually exit. The group must be idle. */
   async closeSessions(groupId: string): Promise<void> {
-    if (this.isBusy(groupId)) throw new GroupError("busy", "这个群正忙，请等这一轮或这次压缩结束。");
+    if (this.isBusy(groupId)) throw new GroupError("busy", localText("error.groupBusy"));
     this.#closing.add(groupId);
     try {
       // First wait for sessions being opened (e.g. started by usage) to finish, then close them all together.
@@ -259,11 +263,11 @@ export class GroupRuntime {
   async readUsage(groupId: string, agent: string, reason: "view" | "turn" | "visible"): Promise<UsageResult> {
     const group = this.#requireGroup(groupId);
     const state = group.agents[agent];
-    if (!state) throw new GroupError("invalid_agent", `${agent} 不是这个群的成员。`);
+    if (!state) throw new GroupError("invalid_agent", localText("error.notMember", { agent }));
     const nativeId = state.nativeSessionId;
     if (!nativeId) return { status: "not_started" };
     const usage = this.#adapter(group, agent).features.usage;
-    if (!usage) throw new GroupError("unsupported", `${agent} 不支持 usage。`);
+    if (!usage) throw new GroupError("unsupported", localText("error.usageUnsupported", { agent }));
     const key = sessionKey(groupId, agent);
     let opened = false;
     const session = async (open: boolean): Promise<AgentSession | null> => {
@@ -525,7 +529,7 @@ export class GroupRuntime {
   async #openOnce(group: Group, agent: string): Promise<AgentSession> {
     const key = sessionKey(group.id, agent);
     const state = group.agents[agent];
-    if (!state) throw new GroupError("invalid_agent", `${agent} 不是这个群的成员。`);
+    if (!state) throw new GroupError("invalid_agent", localText("error.notMember", { agent }));
     const settings = state.settings;
     const cached = this.#sessions.get(key);
     // If settings changed, close and reopen, resuming with the new settings: every CLI applies settings when opening a session, so there is only one path.
@@ -594,11 +598,11 @@ export class GroupRuntime {
 
   #adapter(group: Group, agent: string): AgentAdapter {
     const state = group.agents[agent];
-    if (!state) throw new GroupError("invalid_agent", `${agent} 不是这个群的成员。`);
+    if (!state) throw new GroupError("invalid_agent", localText("error.notMember", { agent }));
     if (!this.#agents.has(state.kind)) {
       throw new GroupError(
         "agent_unavailable",
-        `${agent} 使用的 ${kindDisplayName(state.kind)} 没有在 config.json 中配置。`,
+        localText("error.kindNotConfiguredFor", { agent, kind: kindDisplayName(state.kind) }),
       );
     }
     return this.#agents.get(state.kind);
@@ -606,7 +610,7 @@ export class GroupRuntime {
 
   #requireGroup(groupId: string): Group {
     const group = this.#store.get(groupId);
-    if (!group) throw new GroupError("group_not_found", "群不存在。");
+    if (!group) throw new GroupError("group_not_found", localText("error.groupNotFound"));
     return group;
   }
 

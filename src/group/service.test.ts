@@ -125,24 +125,24 @@ test("missing catalog features return empty lists and require null settings", as
   await service.setAgentSettings(groupId, "claude", { model: null, effort: null, permission: null });
   await assert.rejects(
     service.setAgentSettings(groupId, "claude", { model: "large", effort: null, permission: null }),
-    /不支持选择模型或思考强度/u,
+    /doesn't support choosing a model or reasoning effort/u,
   );
   await assert.rejects(
     service.setAgentSettings(groupId, "claude", { model: null, effort: "high", permission: null }),
-    /不支持选择模型或思考强度/u,
+    /doesn't support choosing a model or reasoning effort/u,
   );
   await assert.rejects(
     service.setAgentSettings(groupId, "claude", { model: null, effort: null, permission: "yolo" }),
-    /不支持选择权限/u,
+    /doesn't support choosing a permission/u,
   );
   await service.setDefaultSettings(agentIds.claude, { model: null, effort: null, permission: null });
   await assert.rejects(
     service.setDefaultSettings(agentIds.claude, { model: "large", effort: null, permission: null }),
-    /不支持选择模型或思考强度/u,
+    /doesn't support choosing a model or reasoning effort/u,
   );
   await assert.rejects(
     service.setDefaultSettings(agentIds.claude, { model: null, effort: null, permission: "yolo" }),
-    /不支持选择权限/u,
+    /doesn't support choosing a permission/u,
   );
 });
 
@@ -163,12 +163,12 @@ test("invalid agent settings are rejected with a clear reason", async (t) => {
   const { service, groupId } = await setup(t);
   const reject = (settings: { model: string | null; effort: string | null; permission: string | null }, pattern: RegExp) =>
     assert.rejects(service.setAgentSettings(groupId, "claude", settings), pattern);
-  await reject({ model: "huge", effort: null, permission: null }, /没有这个模型/u);
-  await reject({ model: null, effort: "high", permission: null }, /要先选模型/u);
-  await reject({ model: "small", effort: "high", permission: null }, /不支持思考强度/u);
-  await reject({ model: null, effort: null, permission: "root" }, /没有这个权限/u);
-  await assert.rejects(service.setAgentSettings(groupId, "codex", { model: null, effort: null, permission: null }), /不是这个群的成员/u);
-  await assert.rejects(service.catalog(groupId, "codex"), /不是这个群的成员/u);
+  await reject({ model: "huge", effort: null, permission: null }, /has no model/u);
+  await reject({ model: null, effort: "high", permission: null }, /Choose a model before/u);
+  await reject({ model: "small", effort: "high", permission: null }, /doesn't support reasoning effort/u);
+  await reject({ model: null, effort: null, permission: "root" }, /has no permission option/u);
+  await assert.rejects(service.setAgentSettings(groupId, "codex", { model: null, effort: null, permission: null }), /isn't a member of this group/u);
+  await assert.rejects(service.catalog(groupId, "codex"), /isn't a member of this group/u);
 });
 
 test("the settings AI list keeps its order and incomplete records cannot join a group", async (t) => {
@@ -186,7 +186,7 @@ test("the settings AI list keeps its order and incomplete records cannot join a 
 
   await assert.rejects(
     service.create({ directory: "demo", members: ["missing"], title: "" }),
-    /没有这个 AI/u,
+    /No such AI/u,
   );
   await settings.update((next) => {
     next.agents.find((agent) => agent.id === agentIds.codex)!.color = null;
@@ -194,7 +194,7 @@ test("the settings AI list keeps its order and incomplete records cannot join a 
   assert.equal(service.settings().agents[1]?.complete, false);
   await assert.rejects(
     service.create({ directory: "demo", members: [agentIds.codex], title: "" }),
-    /设置不完整/u,
+    /isn't fully set up/u,
   );
 });
 
@@ -212,7 +212,7 @@ test("settings AI records can be added, updated, reordered and removed", async (
   });
   await assert.rejects(
     service.create({ directory: "demo", members: [added.agentId], title: "" }),
-    /未命名的 AI 的设置不完整/u,
+    /An unnamed AI isn't fully set up/u,
   );
 
   const configured = await service.updateAgent(
@@ -301,7 +301,7 @@ test("default settings are not saved if the AI kind changes while its catalog is
   });
   resolveModels(structuredClone(codexAdapter.catalogValue.models));
 
-  await assert.rejects(saving, /CLI 已经变化/u);
+  await assert.rejects(saving, /CLI of .* has changed/u);
   assert.deepEqual(
     settings.get().agents.find((agent) => agent.id === agentIds.codex)?.defaults,
     DEFAULT_AGENT_SETTINGS,
@@ -347,8 +347,8 @@ test("renaming changes only the lanting title and rejects empty names", async (t
   const summary = await service.rename(groupId, "  design review  ");
   assert.equal(summary.title, "design review");
   assert.equal(store.get(groupId)?.title, "design review");
-  await assert.rejects(service.rename(groupId, "   "), /不能为空/u);
-  await assert.rejects(service.rename(groupId, "x".repeat(101)), /最多 100/u);
+  await assert.rejects(service.rename(groupId, "   "), /is empty/u);
+  await assert.rejects(service.rename(groupId, "x".repeat(101)), /at most 100/u);
 });
 
 test("pinning persists without changing recency and survives trash restore", async (t) => {
@@ -364,7 +364,7 @@ test("pinning persists without changing recency and survives trash restore", asy
   ));
 
   await service.trash([groupId]);
-  await assert.rejects(service.setPinned(groupId, false), /回收站/u);
+  await assert.rejects(service.setPinned(groupId, false), /trash/u);
   await service.restore([groupId]);
   assert.equal(service.groups().find((group) => group.id === groupId)?.pinned, true);
 });
@@ -425,10 +425,10 @@ test("trashed groups keep their data, can be restored, and refuse other operatio
   assert.ok(summary.trashedAt);
   assert.equal(Date.parse(summary.purgeAt!) - Date.parse(summary.trashedAt!), 30 * 24 * 60 * 60_000);
 
-  assert.throws(() => service.snapshot(groupId), /回收站/u);
-  await assert.rejects(service.startRound(groupId, "q", ["claude"]), /回收站/u);
-  await assert.rejects(service.rename(groupId, "new"), /回收站/u);
-  assert.equal((await service.trash([groupId])).failed[0]?.message, "已经在回收站里了。");
+  assert.throws(() => service.snapshot(groupId), /trash/u);
+  await assert.rejects(service.startRound(groupId, "q", ["claude"]), /trash/u);
+  await assert.rejects(service.rename(groupId, "new"), /trash/u);
+  assert.equal((await service.trash([groupId])).failed[0]?.message, "Already in trash.");
 
   assert.deepEqual(await service.restore([groupId]), { done: [groupId], failed: [] });
   assert.equal(store.get(groupId)?.trashedAt, null);
@@ -441,20 +441,20 @@ test("archived groups stay archived through trash and restore until explicitly u
   assert.deepEqual(await service.archive([groupId]), { done: [groupId], failed: [] });
   assert.equal(service.groups()[0]?.archived, true);
   assert.equal(store.get(groupId)?.archived, true);
-  assert.throws(() => service.snapshot(groupId), /归档/u);
-  await assert.rejects(service.startRound(groupId, "q", ["claude"]), /归档/u);
-  await assert.rejects(service.rename(groupId, "new"), /归档/u);
-  assert.equal((await service.archive([groupId])).failed[0]?.message, "已经归档了。");
+  assert.throws(() => service.snapshot(groupId), /archived/u);
+  await assert.rejects(service.startRound(groupId, "q", ["claude"]), /archived/u);
+  await assert.rejects(service.rename(groupId, "new"), /archived/u);
+  assert.equal((await service.archive([groupId])).failed[0]?.message, "Already archived.");
 
   assert.deepEqual(await service.trash([groupId]), { done: [groupId], failed: [] });
   assert.equal(store.get(groupId)?.archived, true);
   assert.ok(store.get(groupId)?.trashedAt);
-  assert.match((await service.unarchive([groupId])).failed[0]?.message ?? "", /请先恢复/u);
+  assert.match((await service.unarchive([groupId])).failed[0]?.message ?? "", /restore them first/u);
 
   assert.deepEqual(await service.restore([groupId]), { done: [groupId], failed: [] });
   assert.equal(store.get(groupId)?.archived, true);
   assert.equal(store.get(groupId)?.trashedAt, null);
-  assert.throws(() => service.snapshot(groupId), /归档/u);
+  assert.throws(() => service.snapshot(groupId), /archived/u);
 
   assert.deepEqual(await service.unarchive([groupId]), { done: [groupId], failed: [] });
   assert.equal(store.get(groupId)?.archived, false);
@@ -466,9 +466,9 @@ test("a busy group cannot be archived or moved to the trash", async (t) => {
   adapter.script = () => "hang";
   await service.startRound(groupId, "q", ["claude"]);
   const archived = await service.archive([groupId]);
-  assert.match(archived.failed[0]?.message ?? "", /正在发言或压缩/u);
+  assert.match(archived.failed[0]?.message ?? "", /replying or compacting/u);
   const result = await service.trash([groupId]);
-  assert.match(result.failed[0]?.message ?? "", /正在发言或压缩/u);
+  assert.match(result.failed[0]?.message ?? "", /replying or compacting/u);
   await service.interrupt(groupId);
   await idle(service, groupId);
 });
@@ -478,7 +478,7 @@ test("purging deletes each agent's native session before the group's own data", 
   await withSession(service, groupId);
   const nativeId = store.get(groupId)!.agents.claude!.nativeSessionId!;
 
-  assert.match((await service.purge([groupId])).failed[0]?.message ?? "", /只能永久删除回收站里的群/u);
+  assert.match((await service.purge([groupId])).failed[0]?.message ?? "", /Only groups in trash can be permanently deleted/u);
   await service.trash([groupId]);
   assert.equal(adapter.sessions[0]!.closed, true);
   assert.deepEqual(await service.purge([groupId]), { done: [groupId], failed: [] });
@@ -536,7 +536,7 @@ test("a failed purge stays in the trash as deleting and is finished by the next 
   assert.match((await service.purge([groupId])).failed[0]?.message ?? "", /disk busy/u);
   assert.ok(store.get(groupId)?.deletingAt);
   assert.equal(service.groups()[0]?.deleting, true);
-  assert.match((await service.restore([groupId])).failed[0]?.message ?? "", /不能恢复/u);
+  assert.match((await service.restore([groupId])).failed[0]?.message ?? "", /can't be restored/u);
 
   adapter.deleteError = null;
   await service.sweepTrash();
@@ -570,15 +570,15 @@ test("the username is validated, and a new group copies the username, default se
   assert.equal((await service.setUsername("MyClaude")).username, "MyClaude");
   await assert.rejects(service.setUsername("Claude"), (error: unknown) => {
     assert.ok(error instanceof GroupError);
-    assert.match(error.message, /“claude”/u);
+    assert.match(error.message, /"claude"/u);
     assert.deepEqual(error.details, { field: "username" });
     return true;
   });
-  await assert.rejects(service.setUsername(""), /不能为空/u);
+  await assert.rejects(service.setUsername(""), /is empty/u);
   assert.equal((await service.setUsername("lizzy")).username, "lizzy");
   await assert.rejects(
     service.setDefaultSettings(agentIds.codex, { model: null, effort: "high", permission: null }),
-    /要先选模型/u,
+    /Choose a model before/u,
   );
   await service.setDefaultSettings(agentIds.codex, { model: "large", effort: "high", permission: "yolo" });
   assert.ok(events.some((event) => event.scope === "global" && event.payload.type === "settings.updated"));
@@ -681,7 +681,7 @@ function tick() {
 test("choosing the usage member is validated, kept on the group, and does not change recency", async (t) => {
   const { service, store, events, groupId } = await setup(t);
   const before = store.get(groupId)!.updatedAt;
-  await assert.rejects(service.setUsageAgent(groupId, "codex"), /不是这个群的成员/u);
+  await assert.rejects(service.setUsageAgent(groupId, "codex"), /isn't a member of this group/u);
   const summary = await service.setUsageAgent(groupId, "claude");
   assert.equal(summary.usageAgent, "claude");
   assert.equal(summary.updatedAt, before);
@@ -692,12 +692,12 @@ test("choosing the usage member is validated, kept on the group, and does not ch
   assert.equal((await service.setUsageAgent(groupId, null)).usageAgent, null);
 
   await service.trash([groupId]);
-  await assert.rejects(service.setUsageAgent(groupId, "claude"), /回收站/u);
+  await assert.rejects(service.setUsageAgent(groupId, "claude"), /trash/u);
 });
 
 test("a member whose CLI has no usage cannot be chosen", async (t) => {
   const { service, groupId } = await setup(t, ["usage"]);
-  await assert.rejects(service.setUsageAgent(groupId, "claude"), /不支持 usage/u);
+  await assert.rejects(service.setUsageAgent(groupId, "claude"), /doesn't support usage/u);
 });
 
 test("usage results are cached per member and reach the snapshot", async (t) => {
@@ -710,13 +710,13 @@ test("usage results are cached per member and reach the snapshot", async (t) => 
 
   await withSession(service, groupId);
   await service.refreshUsage(groupId, "visible");
-  assert.deepEqual(service.snapshot(groupId).usage, { status: "ok", parts: [{ text: "claude usage" }] });
+  assert.deepEqual(service.snapshot(groupId).usage, { status: "ok", parts: [{ kind: "quota", window: { name: "claude" }, left: 50 }] });
 
   adapter.usageScript = () => Promise.resolve(null);
   const count = usageEvents(events).length;
   await service.refreshUsage(groupId, "visible");
   assert.equal(usageEvents(events).length, count);
-  assert.deepEqual(service.snapshot(groupId).usage, { status: "ok", parts: [{ text: "claude usage" }] });
+  assert.deepEqual(service.snapshot(groupId).usage, { status: "ok", parts: [{ kind: "quota", window: { name: "claude" }, left: 50 }] });
 
   adapter.usageScript = () => Promise.reject(new Error("boom"));
   await service.refreshUsage(groupId, "visible");
@@ -802,7 +802,7 @@ test("a late usage result is dropped once the group is in the trash", async (t) 
   const release = gate();
   adapter.usageScript = async () => {
     await release.promise;
-    return [{ text: "late" }];
+    return [{ kind: "quota", window: { name: "late" }, left: 50 }];
   };
   const count = usageEvents(events).length;
   const read = service.refreshUsage(groupId, "visible");
@@ -811,5 +811,5 @@ test("a late usage result is dropped once the group is in the trash", async (t) 
   await read;
   assert.equal(usageEvents(events).length, count);
   await service.restore([groupId]);
-  assert.notDeepEqual(service.snapshot(groupId).usage, { status: "ok", parts: [{ text: "late" }] });
+  assert.notDeepEqual(service.snapshot(groupId).usage, { status: "ok", parts: [{ kind: "quota", window: { name: "late" }, left: 50 }] });
 });

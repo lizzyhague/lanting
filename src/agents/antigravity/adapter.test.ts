@@ -297,7 +297,7 @@ test("shows the command and its working directory on the approval card", async (
   t.after(() => session.close());
   const turn = drain(session, "tool");
   await waitFor(() => approvals.length > 0);
-  assert.deepEqual(approvals[0]!.ask, { toolName: "bash", detail: `touch x.txt\n工作目录：${cwd}` });
+  assert.deepEqual(approvals[0]!.ask, { toolName: "bash", detail: `touch x.txt\nWorking directory: ${cwd}` });
   approvals[0]!.resolve({ decision: "allow", message: "" });
   await turn;
   await session.close();
@@ -325,10 +325,10 @@ test("handles two approvals for the same command in one turn", async (t) => {
   t.after(() => session.close());
   const turn = drain(session, "retry");
   await waitFor(() => approvals.length > 0);
-  assert.equal(approvals[0]!.ask.detail, "touch x.txt\n工作目录：/nonexistent/skills");
+  assert.equal(approvals[0]!.ask.detail, "touch x.txt\nWorking directory: /nonexistent/skills");
   approvals.shift()!.resolve({ decision: "allow", message: "" });
   await waitFor(() => approvals.length > 0);
-  assert.equal(approvals[0]!.ask.detail, `touch x.txt\n工作目录：${cwd}`);
+  assert.equal(approvals[0]!.ask.detail, `touch x.txt\nWorking directory: ${cwd}`);
   approvals.shift()!.resolve({ decision: "allow", message: "" });
   assert.equal(endOf(await turn).text, "done:allow,allow");
   await session.close();
@@ -467,5 +467,5 @@ test("toolActivity labels commands as bash and shows the command or the file pat
     toolName: "Running edit_file",
     detail: "/w/b.txt",
   });
-  assert.deepEqual(toolActivity({}), { kind: "tool", toolName: "工具", detail: "" });
+  assert.deepEqual(toolActivity({}), { kind: "tool", toolName: "Tool", toolKey: "tool.generic", detail: "" });
 });

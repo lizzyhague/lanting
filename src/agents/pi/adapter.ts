@@ -1,14 +1,18 @@
 import type { AgentFeatures } from "../../features/index.ts";
+import { localText } from "../../i18n/text.ts";
 import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
-import type {
-  AgentAdapter,
-  AgentCatalog,
-  AgentEvent,
-  AgentSession,
-  ModelOption,
-  PermissionOption,
-  SessionOptions,
+import {
+  type AgentAdapter,
+  type AgentCatalog,
+  type AgentEvent,
+  type AgentSession,
+  localizedPermission,
+  type ModelOption,
+  type PermissionOption,
+  type SessionOptions,
+  type ToolName,
+  toolNameOr,
 } from "../types.ts";
 import { PiRpcClient, type PiEvent, type PiUiRequest } from "./rpc-client.ts";
 
@@ -25,17 +29,17 @@ const INTERRUPT_TIMEOUT_MS = 10_000;
  * answers "allow" on behalf of the group owner, so deny rules still apply.
  */
 export const PI_PERMISSIONS: readonly PermissionOption[] = [
-  {
+  localizedPermission({
     id: "ask",
-    label: "逐次确认",
-    description: "read、edit、write、bash 按 Pi 权限扩展的规则执行，需要确认的由群主在网页上批准。",
-  },
-  {
+    label: localText("permission.ask"),
+    description: localText("permission.pi.ask"),
+  }),
+  localizedPermission({
     id: "always-approve",
     label: "Always approve",
-    description: "需要确认的 read、edit、write、bash 直接放行；Pi 权限规则里的 deny 仍然生效。",
+    description: localText("permission.pi.alwaysApprove"),
     danger: true,
-  },
+  }),
 ];
 
 const ALWAYS_APPROVE = "always-approve";
@@ -416,14 +420,14 @@ function supportedThinkingLevels(model: Record<string, unknown>): string[] {
   });
 }
 
-function toolActivity(event: PiEvent): { kind: "tool"; toolName: string; detail: string } {
+function toolActivity(event: PiEvent): { kind: "tool"; detail: string } & ToolName {
   const args = objectField(event.args);
   const detail = ["command", "path", "file_path", "pattern", "query", "url"]
     .map((key) => args[key])
     .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? "";
   return {
     kind: "tool",
-    toolName: (stringField(event.toolName) || "工具").slice(0, 120),
+    ...toolNameOr(stringField(event.toolName), "tool.generic"),
     detail: detail.replaceAll(/\s+/gu, " ").trim().slice(0, 240),
   };
 }

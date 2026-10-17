@@ -337,8 +337,8 @@ test("compaction runs agents in order, skips agents without a session, and only 
   const compaction = runtime.compact(groupId, ["codex", "grok", "claude"]);
   assert.equal(runtime.isBusy(groupId), true);
   assert.deepEqual(runtime.compaction(groupId)?.agents, ["codex", "grok", "claude"]);
-  assert.throws(() => runtime.startRound(groupId, "q", ["claude"]), /正在压缩/u);
-  assert.throws(() => runtime.compact(groupId, ["claude"]), /正忙/u);
+  assert.throws(() => runtime.startRound(groupId, "q", ["claude"]), /compacting context/u);
+  assert.throws(() => runtime.compact(groupId, ["claude"]), /busy/u);
   await compaction.done;
 
   assert.equal(runtime.isBusy(groupId), false);
@@ -379,8 +379,8 @@ test("a failed compaction is reported and the session is reopened next time", as
 
 test("compaction rejects agents outside the group", async (t) => {
   const { runtime, groupId } = await setup(t, ["claude"]);
-  assert.throws(() => runtime.compact(groupId, []), /至少要选一个/u);
-  assert.throws(() => runtime.compact(groupId, ["codex"]), /不是这个群的成员/u);
+  assert.throws(() => runtime.compact(groupId, []), /Choose at least one AI/u);
+  assert.throws(() => runtime.compact(groupId, ["codex"]), /isn't a member of this group/u);
 });
 
 test("two members sharing one CLI keep distinct native sessions across resumes", async (t) => {
@@ -467,7 +467,7 @@ test("an unavailable frozen kind fails when its turn arrives", async (t) => {
   const failed = store.transcript(groupId).at(-1)!;
   assert.deepEqual(failed.from, { role: "agent", agent: "alice" });
   assert.equal(failed.status, "failed");
-  assert.equal(failed.error, "alice 使用的 Codex CLI 没有在 config.json 中配置。");
+  assert.equal(failed.error, "The Codex CLI used by alice isn't configured in config.json.");
 });
 
 test("compaction records an unavailable kind and continues with later members", async (t) => {
@@ -526,7 +526,7 @@ test("usage passes the native id and maps null to none", async (t) => {
   await runtime.startRound(groupId, "hi", ["claude"]).done;
   assert.deepEqual(await runtime.readUsage(groupId, "claude", "turn"), {
     status: "ok",
-    parts: [{ text: "claude usage" }],
+    parts: [{ kind: "quota", window: { name: "claude" }, left: 50 }],
   });
   const request = adapters.claude!.usageRequests[0]!;
   assert.equal(request.nativeId, "claude-session-1");

@@ -40,9 +40,9 @@ export class FakeAdapter implements AgentAdapter {
   /** Session id of each compaction; compaction fails when compactError isn't null. */
   readonly compacted: string[] = [];
   compactError: Error | null = null;
-  /** Script for usage; by default it doesn't touch the session and returns a fixed text. */
+  /** Script for usage; by default it doesn't touch the session and returns a fixed segment named after the kind. */
   usageScript: (request: UsageRequest) => Promise<UsagePart[] | null> = () =>
-    Promise.resolve([{ text: `${this.kind} usage` }]);
+    Promise.resolve([{ kind: "quota", window: { name: this.kind }, left: 50 }]);
   readonly usageRequests: UsageRequest[] = [];
   #nextSession = 1;
 

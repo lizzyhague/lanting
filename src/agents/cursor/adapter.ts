@@ -1,12 +1,17 @@
 import type { AgentFeatures } from "../../features/index.ts";
+import { localText } from "../../i18n/text.ts";
 import { EventChannel } from "../event-channel.ts";
-import type {
-  AgentAdapter,
-  AgentEvent,
-  AgentSession,
-  ApprovalAnswer,
-  PermissionOption,
-  SessionOptions,
+import {
+  type AgentAdapter,
+  type AgentEvent,
+  type AgentSession,
+  type ApprovalAnswer,
+  genericTool,
+  localizedPermission,
+  type PermissionOption,
+  type SessionOptions,
+  type ToolName,
+  toolNameOr,
 } from "../types.ts";
 import {
   CursorAcpClient,
@@ -28,17 +33,17 @@ const INTERRUPT_TIMEOUT_MS = 10_000;
  * so deny rules in Cursor's config still apply; operations Cursor allows itself never show an approval.
  */
 export const CURSOR_PERMISSIONS: readonly PermissionOption[] = [
-  {
+  localizedPermission({
     id: "ask",
-    label: "逐次确认",
-    description: "Cursor 发来的审批由群主在网页上批准。",
-  },
-  {
+    label: localText("permission.ask"),
+    description: localText("permission.cursor.ask"),
+  }),
+  localizedPermission({
     id: "always-approve",
     label: "Always approve",
-    description: "Cursor 发来的审批直接放行；Cursor 配置里的 deny 仍然生效。",
+    description: localText("permission.cursor.alwaysApprove"),
     danger: true,
-  },
+  }),
 ];
 
 const ALWAYS_APPROVE = "always-approve";
@@ -265,7 +270,7 @@ class CursorSession implements AgentSession {
       this.#client.respondPermission(request.rpcId, outcome);
     };
     this.#options.requestApproval({
-      toolName: tool.toolName,
+      ...(tool.toolKey ? { toolName: tool.toolName, toolKey: tool.toolKey } : { toolName: tool.toolName }),
       detail: [tool.detail, permissionReason(request.toolCall)].filter(Boolean).join("\n"),
     }, controller.signal).then(
       (answer) => settle(permissionOutcome(request, answer)),
@@ -277,10 +282,10 @@ class CursorSession implements AgentSession {
   #onBlocking(request: CursorBlockingRequest): void {
     const turn = this.#turn;
     if (!turn) return;
-    const toolName = request.method === "cursor/create_plan" ? "确认方案" : "提问";
+    const tool = genericTool(request.method === "cursor/create_plan" ? "tool.confirmPlan" : "tool.question");
     turn.channel.push({
       type: "activity",
-      activity: { kind: "denied", toolName, message: "群聊里不直接向群主提问或请求确认，问题请写在回复里。" },
+      activity: { kind: "denied", ...tool, message: "群聊里不直接向群主提问或请求确认，问题请写在回复里。" },
     });
   }
 
@@ -302,7 +307,7 @@ function permissionOutcome(request: CursorPermissionRequest, answer: ApprovalAns
 }
 
 /** Condenses an ACP tool_call into one line of progress info. Cursor's titles are often a command wrapped in backticks. */
-export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool"; toolName: string; detail: string } {
+export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool"; detail: string } & ToolName {
   const toolKind = typeof toolCall.kind === "string" ? toolCall.kind : "";
   const rawTitle = typeof toolCall.title === "string" ? toolCall.title.trim() : "";
   const title = /^`[^`]+`$/u.test(rawTitle) ? rawTitle.slice(1, -1).trim() : rawTitle;
@@ -312,7 +317,7 @@ export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool";
     .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? "";
   return {
     kind: "tool",
-    toolName: (title || toolKind || "工具").slice(0, 120),
+    ...toolNameOr(title || toolKind, "tool.generic"),
     detail: detail.trim() === title ? "" : detail.replaceAll(/\s+/gu, " ").trim().slice(0, 240),
   };
 }

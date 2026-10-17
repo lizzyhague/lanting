@@ -300,11 +300,11 @@ test("question and plan requests are cancelled without blocking the turn", async
   const session = await adapter.startSession(sessionOptions(cwd));
   t.after(() => session.close());
   await drain(session, "warm up");
-  for (const [command, toolName] of [["question", "提问"], ["plan", "确认方案"]] as const) {
+  for (const [command, toolKey] of [["question", "tool.question"], ["plan", "tool.confirmPlan"]] as const) {
     const events = await drain(session, command);
     assert.deepEqual(endOf(events), { type: "end", outcome: "completed", text: `after:{"outcome":"cancelled"}` });
     const denied = events.find((event) => event.type === "activity" && event.activity.kind === "denied");
-    assert.equal(denied?.type === "activity" && denied.activity.toolName, toolName);
+    assert.equal(denied?.type === "activity" && denied.activity.toolKey, toolKey);
   }
   await session.close();
 });
@@ -345,5 +345,5 @@ test("toolActivity strips Cursor's backticked titles", () => {
     toolName: "Read file",
     detail: "/a/b.ts",
   });
-  assert.deepEqual(toolActivity({}), { kind: "tool", toolName: "工具", detail: "" });
+  assert.deepEqual(toolActivity({}), { kind: "tool", toolName: "Tool", toolKey: "tool.generic", detail: "" });
 });

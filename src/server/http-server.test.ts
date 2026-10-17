@@ -454,7 +454,7 @@ test("a browser can create a group, run a round, and answer an approval over the
     failed: [],
   });
   assert.equal(latestGroupUpdate().group.archived, true);
-  assert.match((await callError("group.subscribe", { groupId: group.id })).message, /归档/u);
+  assert.match((await callError("group.subscribe", { groupId: group.id })).message, /archived/u);
 
   assert.deepEqual(await call("groups.trash", { groupIds: [group.id] }), {
     done: [group.id],

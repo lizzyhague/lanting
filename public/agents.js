@@ -103,9 +103,33 @@ export function formatLocalTime(timestamp) {
  */
 export function usageTexts(usage, lastReply) {
   if (usage?.status === "not_started") return [t("usage.notStarted")];
-  const texts = usage?.status === "ok"
-    ? usage.parts.map((part) => part.text.replaceAll("{time}", formatLocalTime(part.time)))
-    : [t("usage.unavailable")];
+  const texts = usage?.status === "ok" ? usage.parts.map(usagePartText) : [t("usage.unavailable")];
   texts.push(lastReply ? t("usage.lastReply", { time: formatLocalTime(lastReply) }) : t("usage.lastReplyUnavailable"));
   return texts;
+}
+
+/** Words one usage segment the backend sent as data. */
+function usagePartText(part) {
+  if (part.kind === "context") {
+    if (part.percent === null) return t("usage.contextPending");
+    return t(part.approximate ? "usage.contextApprox" : "usage.context", { percent: part.percent.toFixed(1) });
+  }
+  if (part.kind !== "quota") return t("usage.unavailable");
+  const params = {
+    window: usageWindowText(part.window),
+    left: part.left === null ? t("usage.unknown") : `${part.left.toFixed(1)}%`,
+  };
+  return part.resetsAt
+    ? t("usage.quotaReset", { ...params, time: formatLocalTime(part.resetsAt) })
+    : t("usage.quota", params);
+}
+
+function usageWindowText(window) {
+  const minutes = window.minutes;
+  const duration = minutes === undefined ? "" : minutes % 1440 === 0
+    ? t("usage.days", { count: minutes / 1440 })
+    : minutes % 60 === 0 ? t("usage.hours", { count: minutes / 60 }) : t("usage.minutes", { count: minutes });
+  if (!window.name) return duration;
+  if (!duration) return window.name;
+  return t(window.parenthesized ? "usage.windowParenthesized" : "usage.windowNamed", { name: window.name, duration });
 }

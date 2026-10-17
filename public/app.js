@@ -26,6 +26,13 @@ import { createSelectionBar, trashRemainingText } from "./selection-bar.js";
  */
 const t = window.lantingI18n ? window.lantingI18n.t : (key) => key;
 
+/** Text the backend sent as { key, params }; fallback (its own message) when there is none or the key is unknown. */
+function localText(text, fallback) {
+  if (!text?.key) return fallback;
+  const translated = t(text.key, text.params);
+  return translated === text.key ? fallback : translated;
+}
+
 const RECONNECT_DELAY_MS = 3_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const DIRECTORY_KEY = "lanting.directory";
@@ -461,7 +468,7 @@ function handleSocketMessage(data) {
     if (message.ok) {
       entry.resolve(message.data);
     } else {
-      const error = new Error(message.error?.message ?? t("request.failed"));
+      const error = new Error(localText(message.error?.text, message.error?.message ?? t("request.failed")));
       error.code = message.error?.code;
       error.details = message.error?.details;
       entry.reject(error);
@@ -965,7 +972,7 @@ async function executeGroupSelectionAction(action, groupIds) {
     succeeded: result.done,
     failed: result.failed.map((failure) => ({
       id: failure.groupId,
-      reason: failure.message,
+      reason: localText(failure.text, failure.message),
     })),
   };
 }
@@ -1333,11 +1340,11 @@ function activityItem(activity) {
   item.dataset.kind = activity.kind;
   if (activity.kind === "tool") {
     const name = document.createElement("strong");
-    name.textContent = String(activity.toolName ?? t("activity.tool"));
+    name.textContent = String(activity.toolName === undefined ? t("activity.tool") : toolLabel(activity));
     item.append(name);
     if (activity.detail) item.append(document.createTextNode(` ${activity.detail}`));
   } else if (activity.kind === "denied") {
-    item.textContent = t("activity.denied", { tool: activity.toolName ?? "", message: activity.message ?? "" });
+    item.textContent = t("activity.denied", { tool: activity.toolName === undefined ? "" : toolLabel(activity), message: activity.message ?? "" });
   } else if (activity.kind === "note") {
     item.textContent = String(activity.text ?? "");
   } else {
@@ -1428,7 +1435,7 @@ function renderApprovals() {
     paintAgent(card, memberColor(state.current?.group, approval.agent));
     const title = document.createElement("p");
     title.className = "permission-card-title";
-    title.append(agentDot(approval.agent), document.createTextNode(t("approval.title", { agent: approval.agent, tool: approval.toolName })));
+    title.append(agentDot(approval.agent), document.createTextNode(t("approval.title", { agent: approval.agent, tool: toolLabel(approval) })));
     card.append(title);
     const body = document.createElement("div");
     body.className = "permission-card-body";
@@ -1934,7 +1941,8 @@ function settingControls(catalog, settings, locked, supports, save, unavailable 
   const modelSelect = settingSelect(t("setting.model"), settings.model, catalog.models.map((item) => ({
     value: item.id,
     label: item.label,
-    title: item.description,
+    title: [item.description, item.defaultEffort ? t("setting.defaultEffort", { effort: item.defaultEffort }) : ""]
+      .filter(Boolean).join(" · "),
   })), locked || !supports.model, modelUnavailable);
   const effortSelect = settingSelect(t("setting.effort"), settings.effort, (model?.efforts ?? []).map((effort) => ({
     value: effort,
@@ -1942,8 +1950,8 @@ function settingControls(catalog, settings, locked, supports, save, unavailable 
   })), locked || !supports.model || !model || model.efforts.length === 0, modelUnavailable);
   const permissionSelect = settingSelect(t("setting.permission"), settings.permission, catalog.permissions.map((item) => ({
     value: item.id,
-    label: item.danger ? `${item.label} ⚠` : item.label,
-    title: item.description,
+    label: item.danger ? `${permissionLabel(item)} ⚠` : permissionLabel(item),
+    title: localText(item.descriptionText, item.description),
   })), locked || !supports.permission, permissionUnavailable);
 
   modelSelect.select.addEventListener("change", () => {
@@ -1960,9 +1968,19 @@ function settingControls(catalog, settings, locked, supports, save, unavailable 
     save({ ...settings, permission: permissionSelect.select.value || null });
   });
   const controls = [modelSelect.label, effortSelect.label, permissionSelect.label];
-  const description = catalog.permissions.find((item) => item.id === settings.permission)?.description;
+  const permission = catalog.permissions.find((item) => item.id === settings.permission);
+  const description = permission ? localText(permission.descriptionText, permission.description) : "";
   if (description) controls.push(statusLine(description));
   return controls;
+}
+
+function permissionLabel(item) {
+  return localText(item.labelText, item.label);
+}
+
+/** A tool name the backend sent; toolKey marks lanting's own generic name for it. */
+function toolLabel(source) {
+  return source.toolKey ? localText({ key: source.toolKey }, source.toolName) : source.toolName;
 }
 
 /**
@@ -2365,7 +2383,7 @@ function colorPicker(agent, locked, invalid) {
       swatch.type = "button";
       swatch.className = "settings-color-choice";
       paintAgent(swatch, choice.id);
-      swatch.setAttribute("aria-label", choice.label);
+      swatch.setAttribute("aria-label", localText({ key: `color.${choice.id}` }, choice.label));
       swatch.setAttribute("aria-pressed", String(agent.color === choice.id));
       swatch.disabled = locked || choice.disabled;
       swatch.addEventListener("click", () => {
@@ -2666,7 +2684,7 @@ async function upload(current, draft, file) {
       cache: "no-store",
     });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error?.message ?? t("attach.uploadFailed"));
+    if (!response.ok) throw new Error(localText(result.error?.text, result.error?.message ?? t("attach.uploadFailed")));
     draft.status = "done";
     draft.attachment = result.attachment;
   } catch (error) {

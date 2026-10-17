@@ -65,7 +65,9 @@ test("approvals use the Relayu three-part card without losing the agent color", 
     stopCountdown() {},
   });
   vm.runInContext(
-    source.slice(source.indexOf("function renderApprovals("), source.indexOf("function startCountdown(")),
+    source.slice(source.indexOf("function renderApprovals("), source.indexOf("function startCountdown(")) +
+      source.slice(source.indexOf("function localText("), source.indexOf("const RECONNECT_DELAY_MS")) +
+      source.slice(source.indexOf("/** A tool name the backend sent"), source.indexOf("/**\n * The first option shows")),
     context,
   );
   context.renderApprovals();
