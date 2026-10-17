@@ -185,6 +185,21 @@
             <button type="button" data-language-choice="en" lang="en" aria-pressed="false" aria-label="English" title="English">EN</button>
           </div>
         </div>
+        <div id="timezone-setting" class="theme-setting">
+          <div class="theme-text">
+            <label id="timezone-label" class="theme-label" for="timezone-select" data-i18n="settings.timezone">显示时区</label>
+            <p class="member-note" data-i18n="settings.browserOnly">只影响当前浏览器。</p>
+          </div>
+          <select id="timezone-select" class="timezone-select" aria-labelledby="timezone-label">
+            <option value="device" data-i18n="settings.timezoneDevice">跟随设备</option>
+            <option value="Asia/Shanghai" data-i18n="settings.timezoneShanghai">上海</option>
+            <option value="Asia/Tokyo" data-i18n="settings.timezoneTokyo">东京</option>
+            <option value="Europe/London" data-i18n="settings.timezoneLondon">伦敦</option>
+            <option value="Europe/Paris" data-i18n="settings.timezoneParis">巴黎</option>
+            <option value="America/New_York" data-i18n="settings.timezoneNewYork">纽约</option>
+            <option value="America/Los_Angeles" data-i18n="settings.timezoneLosAngeles">洛杉矶</option>
+          </select>
+        </div>
         <form id="username-form" class="username-form">
           <label for="username-input" data-i18n="settings.username">用户名</label>
           <div class="username-row">

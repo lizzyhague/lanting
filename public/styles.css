@@ -803,6 +803,11 @@ button.icon-button svg {
   line-height: 1;
 }
 
+.timezone-select {
+  flex: none;
+  width: 154px;
+}
+
 .theme-options svg {
   width: 18px;
   height: 18px;

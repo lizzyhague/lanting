@@ -4,12 +4,16 @@ import {
   createCandidates,
   effectiveCreateMembers,
   kindSupports,
+  DISPLAY_TIMEZONE_KEY,
   kindOptions,
   lastReplyAt,
+  loadDisplayTimezone,
   memberSupports,
   moveAgent,
   paletteColor,
+  reloadDisplayTimezone,
   selectionAfterRemove,
+  saveDisplayTimezone,
   settingsCatalogKey,
   usageCandidates,
   usageTexts,
@@ -141,6 +145,7 @@ const elements = {
   themeOptions: byId("theme-options"),
   languageSetting: byId("language-setting"),
   languageOptions: byId("language-options"),
+  timezoneSelect: byId("timezone-select"),
   usernameForm: byId("username-form"),
   usernameInput: byId("username-input"),
   usernameSaveButton: byId("username-save-button"),
@@ -2066,6 +2071,7 @@ elements.settingsButton.addEventListener("click", () => {
   elements.settingsStatus.textContent = "";
   renderThemeChoice();
   renderLanguageChoice();
+  renderTimezoneChoice();
   elements.settingsDialog.showModal();
   renderSettingsDialog();
   loadAvailableSettingsCatalogs();
@@ -2105,9 +2111,28 @@ elements.languageOptions.addEventListener("click", (event) => {
   if (button && window.lantingI18n) window.lantingI18n.set(button.dataset.languageChoice);
 });
 
+// Display time zone is local to this browser and immediately redraws the usage row.
+function renderTimezoneChoice() {
+  elements.timezoneSelect.value = loadDisplayTimezone();
+}
+
+elements.timezoneSelect.addEventListener("change", () => {
+  saveDisplayTimezone(elements.timezoneSelect.value);
+  renderTimezoneChoice();
+  renderUsage();
+});
+
+window.addEventListener("storage", (event) => {
+  if (event.key !== DISPLAY_TIMEZONE_KEY && event.key !== null) return;
+  reloadDisplayTimezone();
+  renderTimezoneChoice();
+  renderUsage();
+});
+
 // Redraw everything scripts wrote; markup marked with data-i18n is already refilled by i18n.js.
 window.addEventListener("lanting-languagechange", () => {
   renderLanguageChoice();
+  renderTimezoneChoice();
   const statusKey = elements.connectionStatus.dataset.textKey;
   if (statusKey) elements.connectionStatus.textContent = t(statusKey);
   selectionBar.relabel();

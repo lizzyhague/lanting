@@ -1,6 +1,56 @@
 /** Interface text from i18n.js; looked up on each call so a language switch applies to the next render. */
 const t = (key, params) => globalThis.lantingI18n ? globalThis.lantingI18n.t(key, params) : key;
 
+export const DISPLAY_TIMEZONE_KEY = "lanting.display-timezone";
+export const DEFAULT_DISPLAY_TIMEZONE = "Asia/Shanghai";
+export const DISPLAY_TIMEZONES = Object.freeze([
+  "device",
+  "Asia/Shanghai",
+  "Asia/Tokyo",
+  "Europe/London",
+  "Europe/Paris",
+  "America/New_York",
+  "America/Los_Angeles",
+]);
+let activeDisplayTimezone = null;
+
+function timezoneStorage(storage) {
+  if (storage) return storage;
+  try { return globalThis.localStorage ?? null; }
+  catch { return null; }
+}
+
+export function normalizeDisplayTimezone(value) {
+  return DISPLAY_TIMEZONES.includes(value) ? value : DEFAULT_DISPLAY_TIMEZONE;
+}
+
+export function loadDisplayTimezone(storage) {
+  if (!storage && activeDisplayTimezone !== null) return activeDisplayTimezone;
+  const store = timezoneStorage(storage);
+  let next = DEFAULT_DISPLAY_TIMEZONE;
+  if (store) {
+    try { next = normalizeDisplayTimezone(store.getItem(DISPLAY_TIMEZONE_KEY)); }
+    catch { /* Use the default when storage is unavailable. */ }
+  }
+  if (!storage) activeDisplayTimezone = next;
+  return next;
+}
+
+export function saveDisplayTimezone(value, storage) {
+  const next = normalizeDisplayTimezone(value);
+  if (!storage) activeDisplayTimezone = next;
+  const store = timezoneStorage(storage);
+  if (!store) return next;
+  try { store.setItem(DISPLAY_TIMEZONE_KEY, next); }
+  catch { /* The current page can still use the selected value. */ }
+  return next;
+}
+
+export function reloadDisplayTimezone() {
+  activeDisplayTimezone = null;
+  return loadDisplayTimezone();
+}
+
 export function createCandidates(settings) {
   return settings.agents.filter((agent) => agent.complete);
 }
@@ -88,13 +138,22 @@ export function lastReplyAt(transcript, agent) {
   return null;
 }
 
-/** Output format follows Relayu's formatTime (MM-DD HH:mm), in the browser's local time zone. */
-export function formatLocalTime(timestamp) {
+/** Output format follows Relayu's formatTime (MM-DD HH:mm), in the selected display time zone. */
+export function formatLocalTime(timestamp, timeZone = loadDisplayTimezone()) {
   if (!timestamp) return "";
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return "";
-  const pad = (value) => String(value).padStart(2, "0");
-  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const options = {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  };
+  if (normalizeDisplayTimezone(timeZone) !== "device") options.timeZone = normalizeDisplayTimezone(timeZone);
+  const parts = new Intl.DateTimeFormat("en-CA", options).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.month}-${values.day} ${values.hour}:${values.minute}`;
 }
 
 /**

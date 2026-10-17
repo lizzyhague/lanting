@@ -5,15 +5,19 @@ import "./i18n.test-support.js";
 import {
   colorChoices,
   createCandidates,
+  DEFAULT_DISPLAY_TIMEZONE,
+  DISPLAY_TIMEZONE_KEY,
   effectiveCreateMembers,
   kindSupports,
   formatLocalTime,
   kindOptions,
   lastReplyAt,
+  loadDisplayTimezone,
   memberSupports,
   moveAgent,
   paletteColor,
   selectionAfterRemove,
+  saveDisplayTimezone,
   settingsCatalogKey,
   usageCandidates,
   usageTexts,
@@ -144,4 +148,30 @@ test("usage text fills local times, shows only 未启动 before a session, and e
   );
   assert.deepEqual(usageTexts({ status: "unavailable" }, null), ["额度查询不可用", "最后回复时间不可用"]);
   assert.deepEqual(usageTexts(null, null), ["额度查询不可用", "最后回复时间不可用"]);
+});
+
+test("display time zone defaults to Shanghai, persists valid choices, and rejects unknown zones", () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+  assert.equal(loadDisplayTimezone(storage), DEFAULT_DISPLAY_TIMEZONE);
+  assert.equal(saveDisplayTimezone("device", storage), "device");
+  assert.equal(values.get(DISPLAY_TIMEZONE_KEY), "device");
+  assert.equal(loadDisplayTimezone(storage), "device");
+  assert.equal(saveDisplayTimezone("Etc/Unknown", storage), DEFAULT_DISPLAY_TIMEZONE);
+});
+
+test("a display time zone choice stays active when browser storage is blocked", () => {
+  const blocked = { setItem: () => { throw new Error("blocked"); } };
+  assert.equal(saveDisplayTimezone("Europe/Paris", blocked), "Europe/Paris");
+});
+
+test("display time formatting uses the chosen city and handles daylight saving time", () => {
+  const winter = "2026-01-10T12:34:00Z";
+  const summer = "2026-07-10T12:34:00Z";
+  assert.equal(formatLocalTime(winter, "Asia/Shanghai"), "01-10 20:34");
+  assert.equal(formatLocalTime(winter, "America/New_York"), "01-10 07:34");
+  assert.equal(formatLocalTime(summer, "America/New_York"), "07-10 08:34");
 });
