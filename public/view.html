@@ -7,6 +7,8 @@
     <meta name="color-scheme" content="dark light">
     <title>文件查看 · lanting</title>
     <script src="/theme.js"></script>
+    <script src="/strings.js"></script>
+    <script src="/i18n.js"></script>
     <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="/viewer.css">
     <script type="module" src="/viewer.js"></script>
@@ -18,7 +20,7 @@
         <h1 id="file-name">文件查看</h1>
       </header>
       <p id="viewer-status" role="status">正在读取文件……</p>
-      <a id="viewer-login" hidden>登录后查看</a>
+      <a id="viewer-login" hidden data-i18n="viewer.loginLink">登录后查看</a>
       <article id="file-content"></article>
     </main>
   </body>

@@ -26,7 +26,7 @@
       <form id="token-form" class="login-card">
         <div class="login-brand">
           <img class="login-icon" src="/logo.svg" alt="">
-          <h1><svg class="brand-wordmark" viewBox="0 0 1249 874" role="img" aria-label="兰亭"><use href="#brand-wordmark"/></svg></h1>
+          <h1><svg class="brand-wordmark" viewBox="0 0 1249 874" role="img" aria-label="兰亭" data-i18n-aria-label="common.wordmark"><use href="#brand-wordmark"/></svg></h1>
         </div>
         <label for="token-input"><span data-i18n="login.tokenLabel">访问令牌</span><span class="login-label-hint" data-i18n="login.tokenHint">（登录状态存于浏览器）</span></label>
         <input id="token-input" type="password" autocomplete="current-password">
@@ -36,20 +36,20 @@
     </section>
 
     <div id="app-view" class="app-view" data-sidebar-collapsed="false" data-mobile-sidebar-open="false" hidden>
-      <aside id="group-sidebar" class="group-sidebar" aria-label="群列表">
+      <aside id="group-sidebar" class="group-sidebar" aria-label="群列表" data-i18n-aria-label="sidebar.label">
         <div class="sidebar-heading">
           <span class="sidebar-brand">
             <img class="sidebar-brand-icon" src="/logo.svg" alt="">
-            <strong><svg class="brand-wordmark" viewBox="0 0 1249 874" role="img" aria-label="兰亭"><use href="#brand-wordmark"/></svg></strong>
+            <strong><svg class="brand-wordmark" viewBox="0 0 1249 874" role="img" aria-label="兰亭" data-i18n-aria-label="common.wordmark"><use href="#brand-wordmark"/></svg></strong>
           </span>
           <div class="sidebar-heading-actions">
-            <button id="settings-button" class="quiet small icon-button" type="button" aria-label="设置" title="设置" aria-haspopup="dialog" aria-controls="settings-dialog">
+            <button id="settings-button" class="quiet small icon-button" type="button" aria-label="设置" title="设置" data-i18n-aria-label="common.settings" data-i18n-title="common.settings" aria-haspopup="dialog" aria-controls="settings-dialog">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
                 <circle cx="12" cy="12" r="3"/>
               </svg>
             </button>
-            <button id="collapse-sidebar-button" class="quiet small icon-button" type="button" aria-label="收起群列表" title="收起群列表">
+            <button id="collapse-sidebar-button" class="quiet small icon-button" type="button" aria-label="收起群列表" title="收起群列表" data-i18n-aria-label="sidebar.collapse" data-i18n-title="sidebar.collapse">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
             </button>
           </div>
@@ -57,53 +57,53 @@
         <form id="create-form" class="create-form">
           <div class="create-row">
             <label>
-              <span class="visually-hidden">工作目录</span>
-              <select id="directory-select" aria-label="工作目录" required>
-                <option value="">选择工作目录</option>
+              <span class="visually-hidden" data-i18n="create.directory">工作目录</span>
+              <select id="directory-select" aria-label="工作目录" data-i18n-aria-label="create.directory" required>
+                <option value="" data-i18n="create.chooseDirectory">选择工作目录</option>
               </select>
               <svg class="directory-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" transform="rotate(-90 12 12)"/></svg>
             </label>
-            <button id="create-button" class="quiet small icon-button" type="submit" aria-label="新建群" title="新建群" disabled>
+            <button id="create-button" class="quiet small icon-button" type="submit" aria-label="新建群" title="新建群" data-i18n-aria-label="create.newGroup" data-i18n-title="create.newGroup" disabled>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 17.5A3.5 3.5 0 0 1 3 14V7a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3v3"/><path d="m5 17.5-1 3.5 4-2h3m7-5v6m-3-3h6"/></svg>
             </button>
           </div>
-          <div id="member-picks" class="member-picks" role="group" aria-label="拉哪些 AI 进群"></div>
+          <div id="member-picks" class="member-picks" role="group" aria-label="拉哪些 AI 进群" data-i18n-aria-label="create.members"></div>
           <p id="create-status" class="form-status" aria-live="polite"></p>
         </form>
         <label class="group-search">
-          <span class="visually-hidden">搜索群会话</span>
-          <input id="group-search-input" type="search" maxlength="256" placeholder="搜索群会话">
+          <span class="visually-hidden" data-i18n="sidebar.search">搜索群会话</span>
+          <input id="group-search-input" type="search" maxlength="256" placeholder="搜索群会话" data-i18n-placeholder="sidebar.search">
         </label>
         <div id="list-heading" class="list-heading">
-          <button id="list-view-back-button" class="quiet small icon-button" type="button" aria-label="返回最近群会话" title="返回最近群会话" hidden>
+          <button id="list-view-back-button" class="quiet small icon-button" type="button" aria-label="返回最近群会话" title="返回最近群会话" data-i18n-aria-label="list.backToRecent" data-i18n-title="list.backToRecent" hidden>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
           </button>
           <strong id="list-title">最近群会话</strong>
-          <button id="archived-view-button" class="quiet small icon-button" type="button" aria-label="已归档" title="已归档">
+          <button id="archived-view-button" class="quiet small icon-button" type="button" aria-label="已归档" title="已归档" data-i18n-aria-label="list.archived" data-i18n-title="list.archived">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
           </button>
-          <button id="trash-view-button" class="quiet small icon-button" type="button" aria-label="回收站" title="回收站">
+          <button id="trash-view-button" class="quiet small icon-button" type="button" aria-label="回收站" title="回收站" data-i18n-aria-label="list.trash" data-i18n-title="list.trash">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
           </button>
-          <button id="select-button" class="quiet small icon-button" type="button" aria-label="选择" title="选择">
+          <button id="select-button" class="quiet small icon-button" type="button" aria-label="选择" title="选择" data-i18n-aria-label="list.select" data-i18n-title="list.select">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="m9 12 2 2 4-4"/></svg>
           </button>
         </div>
         <div id="selection-heading" class="selection-heading" hidden></div>
         <div id="group-list" class="group-list" role="list" aria-live="polite">
-          <p class="empty-hint">还没有群</p>
+          <p class="empty-hint" data-i18n="list.empty">还没有群</p>
         </div>
         <p id="list-status" class="form-status list-status" aria-live="polite"></p>
       </aside>
 
-      <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭群列表" tabindex="-1"></button>
+      <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="关闭群列表" data-i18n-aria-label="sidebar.close" tabindex="-1"></button>
 
       <main id="group-pane" class="group-pane">
         <header class="group-header">
-          <button id="open-sidebar-button" class="quiet sidebar-open-button" type="button" aria-label="打开群列表" aria-expanded="false">☰</button>
+          <button id="open-sidebar-button" class="quiet sidebar-open-button" type="button" aria-label="打开群列表" data-i18n-aria-label="sidebar.open" aria-expanded="false">☰</button>
           <div class="group-heading">
             <div class="group-title-row">
-              <strong id="group-title"><svg class="brand-wordmark" viewBox="0 0 1249 874" role="img" aria-label="兰亭"><use href="#brand-wordmark"/></svg></strong>
+              <strong id="group-title"><svg class="brand-wordmark" viewBox="0 0 1249 874" role="img" aria-label="兰亭" data-i18n-aria-label="common.wordmark"><use href="#brand-wordmark"/></svg></strong>
               <span id="group-members" class="group-members"></span>
               <span id="connection-status" class="connection-status" data-state="connecting">正在连接</span>
             </div>
@@ -114,11 +114,11 @@
           <span id="notice-text"></span>
           <span class="notice-actions">
             <button id="notice-action-button" class="quiet small" type="button" hidden></button>
-            <button id="notice-close-button" class="quiet small" type="button" aria-label="关闭提示">关闭</button>
+            <button id="notice-close-button" class="quiet small" type="button" aria-label="关闭提示" data-i18n-aria-label="notice.dismiss" data-i18n="common.close">关闭</button>
           </span>
         </div>
         <div id="group-empty" class="pane-empty">
-          <p class="empty-hint">从左侧选择一个群</p>
+          <p class="empty-hint" data-i18n="group.emptyHint">从左侧选择一个群</p>
         </div>
         <section id="group-view" class="group-view" hidden>
           <div id="timeline" class="timeline" aria-live="polite"></div>
@@ -128,16 +128,16 @@
             <div id="attachment-list" class="attachment-list" hidden></div>
             <input id="file-input" type="file" multiple hidden>
             <div class="composer-shell">
-              <textarea id="message-input" rows="1" placeholder="发给群里的消息" aria-label="消息"></textarea>
+              <textarea id="message-input" rows="1" placeholder="发给群里的消息" aria-label="消息" data-i18n-placeholder="composer.placeholder" data-i18n-aria-label="composer.label"></textarea>
               <div class="composer-row">
                 <div class="menu-anchor">
-                  <button id="plus-button" class="small plus-button" type="button" aria-haspopup="true" aria-expanded="false" aria-label="更多操作">+</button>
+                  <button id="plus-button" class="small plus-button" type="button" aria-haspopup="true" aria-expanded="false" aria-label="更多操作" data-i18n-aria-label="composer.more">+</button>
                   <div id="plus-menu" class="popover plus-menu" hidden></div>
                   <div id="plus-submenu" class="popover plus-menu plus-submenu" hidden></div>
                 </div>
-                <div id="call-picks" class="call-picks" role="group" aria-label="点名"></div>
+                <div id="call-picks" class="call-picks" role="group" aria-label="点名" data-i18n-aria-label="composer.callPicks"></div>
                 <div id="agent-panel" class="popover agent-panel" hidden></div>
-                <span class="send-hint" aria-hidden="true">电脑可按 Ctrl / ⌘ + Enter 发送</span>
+                <span class="send-hint" aria-hidden="true" data-i18n="composer.sendHint">电脑可按 Ctrl / ⌘ + Enter 发送</span>
                 <button id="task-button" class="primary task-button" type="submit" data-action="send" aria-label="发送" title="发送">
                   <svg class="task-send-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3M8 3 4 7M8 3l4 4"/></svg>
                   <span class="task-stop-icon" aria-hidden="true"></span>
@@ -152,22 +152,22 @@
     <dialog id="settings-dialog" class="settings-dialog">
       <div class="settings-body">
         <div class="settings-heading">
-          <h2>设置</h2>
-          <button id="settings-close-button" class="quiet small icon-button" type="button" aria-label="关闭" title="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          <h2 data-i18n="common.settings">设置</h2>
+          <button id="settings-close-button" class="quiet small icon-button" type="button" aria-label="关闭" title="关闭" data-i18n-aria-label="common.close" data-i18n-title="common.close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
         </div>
         <div id="theme-setting" class="theme-setting">
           <div class="theme-text">
-            <span id="theme-label" class="theme-label">外观</span>
-            <p class="member-note">只影响当前浏览器。</p>
+            <span id="theme-label" class="theme-label" data-i18n="settings.appearance">外观</span>
+            <p class="member-note" data-i18n="settings.browserOnly">只影响当前浏览器。</p>
           </div>
           <div id="theme-options" class="theme-options" role="group" aria-labelledby="theme-label">
-            <button type="button" data-theme-choice="system" aria-pressed="false" aria-label="跟随系统" title="跟随系统">
+            <button type="button" data-theme-choice="system" aria-pressed="false" aria-label="跟随系统" title="跟随系统" data-i18n-aria-label="settings.themeSystem" data-i18n-title="settings.themeSystem">
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg>
             </button>
-            <button type="button" data-theme-choice="light" aria-pressed="false" aria-label="浅色" title="浅色">
+            <button type="button" data-theme-choice="light" aria-pressed="false" aria-label="浅色" title="浅色" data-i18n-aria-label="settings.themeLight" data-i18n-title="settings.themeLight">
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.6"/><path d="M12 2.2v1.3M12 20.5v1.3M2.2 12h1.3M20.5 12h1.3M5.1 5.1l.9.9M18 18l.9.9M5.1 18.9l.9-.9M18 6l.9-.9"/></svg>
             </button>
-            <button type="button" data-theme-choice="dark" aria-pressed="false" aria-label="深色" title="深色">
+            <button type="button" data-theme-choice="dark" aria-pressed="false" aria-label="深色" title="深色" data-i18n-aria-label="settings.themeDark" data-i18n-title="settings.themeDark">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.7a10 10 0 1 0 9.5 14 8 8 0 0 1-9.5-14z"/></svg>
             </button>
           </div>
@@ -186,44 +186,44 @@
           </div>
         </div>
         <form id="username-form" class="username-form">
-          <label for="username-input">用户名</label>
+          <label for="username-input" data-i18n="settings.username">用户名</label>
           <div class="username-row">
             <input id="username-input" type="text" autocomplete="off" spellcheck="false">
-            <button id="username-save-button" class="quiet small icon-button" type="submit" aria-label="保存" title="保存"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
+            <button id="username-save-button" class="quiet small icon-button" type="submit" aria-label="保存" title="保存" data-i18n-aria-label="common.save" data-i18n-title="common.save"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
           </div>
-          <p class="member-note">只影响以后新开的群。英文字母和数字，1～16 位，不能与任一 AI 名字相同（不区分大小写）。</p>
+          <p class="member-note" data-i18n="settings.usernameNote">只影响以后新开的群。英文字母和数字，1～16 位，不能与任一 AI 名字相同（不区分大小写）。</p>
           <p id="username-status" class="form-status" aria-live="polite"></p>
         </form>
         <form id="collaboration-form" class="collaboration-form">
           <div class="collaboration-heading">
-            <h3><label for="collaboration-input">群聊协作方式</label><button id="collaboration-info-button" type="button" class="field-info" popovertarget="info-collaboration" aria-label="关于群聊协作方式的说明">i</button></h3>
-            <button id="collaboration-save-button" class="quiet small icon-button" type="submit" aria-label="保存" title="保存"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
+            <h3><label for="collaboration-input" data-i18n="settings.collaboration">群聊协作方式</label><button id="collaboration-info-button" type="button" class="field-info" popovertarget="info-collaboration" aria-label="关于群聊协作方式的说明" data-i18n-aria-label="settings.collaborationInfo">i</button></h3>
+            <button id="collaboration-save-button" class="quiet small icon-button" type="submit" aria-label="保存" title="保存" data-i18n-aria-label="common.save" data-i18n-title="common.save"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
           </div>
           <div id="info-collaboration" class="field-info-popover" popover>
-            <p>这段内容由 lanting 后端保存，所有群共用这一份。</p>
-            <p>设置窗口打开时读取一次后端内容；要查看其他设备后来保存的内容，请关闭后重新打开。</p>
-            <p>每个 AI 打开会话时，这段内容会接在 lanting 自带的群聊规则后面，作为系统提示词的一部分。</p>
-            <p>lanting 会先加一个一级标题“User's collaboration rules”，再把内容原样放在下面，只去掉首尾空白。写普通文字就可以；要用 Markdown 分节时从 ## 开始。用 # 的话，这一节会和 lanting 自带规则的几节平级，AI 不一定能看出它也是你写的。</p>
-            <p>已经开着的会话不受影响。之后什么时候带上新内容，分两种：Claude、Codex、Pi 在会话关闭后再次打开时带上；Grok、Cursor、Antigravity 只在新建会话时带上，已有群里的继续用旧内容。</p>
-            <p>留空时只使用 lanting 自带的规则。</p>
+            <p data-i18n="settings.collaborationInfo1">这段内容由 lanting 后端保存，所有群共用这一份。</p>
+            <p data-i18n="settings.collaborationInfo2">设置窗口打开时读取一次后端内容；要查看其他设备后来保存的内容，请关闭后重新打开。</p>
+            <p data-i18n="settings.collaborationInfo3">每个 AI 打开会话时，这段内容会接在 lanting 自带的群聊规则后面，作为系统提示词的一部分。</p>
+            <p data-i18n="settings.collaborationInfo4">lanting 会先加一个一级标题“User's collaboration rules”，再把内容原样放在下面，只去掉首尾空白。写普通文字就可以；要用 Markdown 分节时从 ## 开始。用 # 的话，这一节会和 lanting 自带规则的几节平级，AI 不一定能看出它也是你写的。</p>
+            <p data-i18n="settings.collaborationInfo5">已经开着的会话不受影响。之后什么时候带上新内容，分两种：Claude、Codex、Pi 在会话关闭后再次打开时带上；Grok、Cursor、Antigravity 只在新建会话时带上，已有群里的继续用旧内容。</p>
+            <p data-i18n="settings.collaborationInfo6">留空时只使用 lanting 自带的规则。</p>
           </div>
-          <textarea id="collaboration-input" rows="6" maxlength="131072" spellcheck="false" placeholder="输入希望群里的 AI 始终遵循的协作方式……"></textarea>
-          <p class="member-note">所有群共用；在 AI 下次打开会话时生效。</p>
+          <textarea id="collaboration-input" rows="6" maxlength="131072" spellcheck="false" placeholder="输入希望群里的 AI 始终遵循的协作方式……" data-i18n-placeholder="settings.collaborationPlaceholder"></textarea>
+          <p class="member-note" data-i18n="settings.collaborationNote">所有群共用；在 AI 下次打开会话时生效。</p>
           <p id="collaboration-status" class="form-status" aria-live="polite"></p>
         </form>
         <section class="settings-agents" aria-labelledby="settings-agents-title">
           <div class="settings-agents-heading">
-            <h3 id="settings-agents-title">AI 成员</h3>
-            <div class="settings-agent-actions" role="group" aria-label="AI 列表操作">
-              <button id="settings-add-button" class="quiet small icon-button" type="button" aria-label="添加 AI" title="添加"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
-              <button id="settings-remove-button" class="quiet small icon-button danger" type="button" aria-label="删除选中的 AI" title="删除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
-              <button id="settings-up-button" class="quiet small icon-button" type="button" aria-label="上移选中的 AI" title="上移"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" transform="rotate(90 12 12)"/></svg></button>
-              <button id="settings-down-button" class="quiet small icon-button" type="button" aria-label="下移选中的 AI" title="下移"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" transform="rotate(-90 12 12)"/></svg></button>
+            <h3 id="settings-agents-title" data-i18n="settings.agents">AI 成员</h3>
+            <div class="settings-agent-actions" role="group" aria-label="AI 列表操作" data-i18n-aria-label="settings.agentActions">
+              <button id="settings-add-button" class="quiet small icon-button" type="button" aria-label="添加 AI" title="添加" data-i18n-aria-label="settings.addAgent" data-i18n-title="common.add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button id="settings-remove-button" class="quiet small icon-button danger" type="button" aria-label="删除选中的 AI" title="删除" data-i18n-aria-label="settings.removeAgent" data-i18n-title="common.delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+              <button id="settings-up-button" class="quiet small icon-button" type="button" aria-label="上移选中的 AI" title="上移" data-i18n-aria-label="settings.moveAgentUp" data-i18n-title="common.moveUp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" transform="rotate(90 12 12)"/></svg></button>
+              <button id="settings-down-button" class="quiet small icon-button" type="button" aria-label="下移选中的 AI" title="下移" data-i18n-aria-label="settings.moveAgentDown" data-i18n-title="common.moveDown"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" transform="rotate(-90 12 12)"/></svg></button>
             </div>
           </div>
           <div id="settings-agent-list" class="settings-agent-list"></div>
-          <p class="member-note">切换 CLI 会清空这个 AI 的默认设置。</p>
-          <p class="member-note">群里的 AI 身份（名字、CLI、颜色）在建群时确定，之后修改设置不影响已有的群。</p>
+          <p class="member-note" data-i18n="settings.kindNote">切换 CLI 会清空这个 AI 的默认设置。</p>
+          <p class="member-note" data-i18n="settings.identityNote">群里的 AI 身份（名字、CLI、颜色）在建群时确定，之后修改设置不影响已有的群。</p>
           <p id="settings-status" class="form-status" aria-live="polite"></p>
         </section>
       </div>
@@ -239,7 +239,7 @@
         <h2 id="confirm-dialog-title">确认</h2>
         <div id="confirm-dialog-message" class="confirm-dialog-copy"></div>
         <div class="alert-actions">
-          <button id="confirm-dialog-cancel-button" class="quiet" type="button">取消</button>
+          <button id="confirm-dialog-cancel-button" class="quiet" type="button" data-i18n="common.cancel">取消</button>
           <button id="confirm-dialog-accept-button" class="primary" type="submit" value="confirm">
             确定
           </button>
@@ -249,12 +249,12 @@
 
     <dialog id="rename-dialog" class="rename-dialog">
       <form id="rename-form" method="dialog">
-        <h2>重命名</h2>
-        <input id="rename-input" type="text" maxlength="100" aria-label="群名" required>
+        <h2 data-i18n="rename.title">重命名</h2>
+        <input id="rename-input" type="text" maxlength="100" aria-label="群名" data-i18n-aria-label="rename.label" required>
         <p id="rename-status" class="form-status" aria-live="polite"></p>
         <div class="dialog-actions">
-          <button id="rename-cancel-button" type="button">取消</button>
-          <button id="rename-save-button" class="primary" type="submit">保存</button>
+          <button id="rename-cancel-button" type="button" data-i18n="common.cancel">取消</button>
+          <button id="rename-save-button" class="primary" type="submit" data-i18n="common.save">保存</button>
         </div>
       </form>
     </dialog>

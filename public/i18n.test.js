@@ -3,10 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-const [stringsSource, source, html, app, boot] = await Promise.all([
+const [stringsSource, source, html, viewHtml, app, boot] = await Promise.all([
   readFile(new URL("./strings.js", import.meta.url), "utf8"),
   readFile(new URL("./i18n.js", import.meta.url), "utf8"),
   readFile(new URL("./index.html", import.meta.url), "utf8"),
+  readFile(new URL("./view.html", import.meta.url), "utf8"),
   readFile(new URL("./app.js", import.meta.url), "utf8"),
   readFile(new URL("./boot.js", import.meta.url), "utf8"),
 ]);
@@ -149,12 +150,18 @@ test("every string has both languages and the same placeholders in each", () => 
 
 test("markup keeps the Chinese text as its default, and every key used exists", () => {
   const strings = loadStrings();
-  for (const match of html.matchAll(/data-i18n="([^"]+)">([^<]*)</gu)) {
+  const markup = `${html}\n${viewHtml}`;
+  for (const match of markup.matchAll(/data-i18n="([^"]+)">([^<]*)</gu)) {
     assert.ok(strings[match[1]], match[1]);
     assert.equal(match[2], strings[match[1]].zh, match[1]);
   }
-  for (const match of html.matchAll(/data-i18n-(?:aria-label|title|placeholder)="([^"]+)"/gu)) {
-    assert.ok(strings[match[1]], match[1]);
+  // Attributes marked for translation keep the Chinese text as their default too.
+  for (const tag of markup.matchAll(/<[a-z][^>]*data-i18n-[^>]*>/gu)) {
+    for (const match of tag[0].matchAll(/data-i18n-(aria-label|title|placeholder)="([^"]+)"/gu)) {
+      assert.ok(strings[match[2]], match[2]);
+      const value = new RegExp(`\\s${match[1]}="([^"]*)"`, "u").exec(tag[0]);
+      assert.equal(value?.[1], strings[match[2]].zh, `${match[1]} of ${match[2]}`);
+    }
   }
   for (const match of `${app}\n${boot}`.matchAll(/\bt\("([^"]+)"/gu)) {
     assert.ok(strings[match[1]], match[1]);
@@ -162,7 +169,10 @@ test("markup keeps the Chinese text as its default, and every key used exists", 
 });
 
 test("the language scripts load in <head> before the page scripts", () => {
-  const head = html.slice(0, html.indexOf("</head>"));
-  assert.ok(head.indexOf('<script src="/strings.js"></script>') < head.indexOf('<script src="/i18n.js"></script>'));
-  assert.ok(head.includes('<script src="/i18n.js"></script>'));
+  for (const page of [html, viewHtml]) {
+    const head = page.slice(0, page.indexOf("</head>"));
+    assert.ok(head.includes('<script src="/i18n.js"></script>'));
+    assert.ok(head.indexOf('<script src="/strings.js"></script>') < head.indexOf('<script src="/i18n.js"></script>'));
+  }
+  assert.ok(viewHtml.indexOf('<script src="/i18n.js"></script>') < viewHtml.indexOf('src="/viewer.js"'));
 });
