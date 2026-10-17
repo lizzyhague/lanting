@@ -751,6 +751,12 @@ button.icon-button svg {
   color: var(--success);
 }
 
+.language-options button {
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
 .theme-options svg {
   width: 18px;
   height: 18px;
@@ -892,7 +898,7 @@ button.icon-button svg {
   margin: 0;
 }
 
-/* The four parallel blocks in settings share one heading style. */
+/* The parallel blocks in settings share one heading style. */
 .theme-label,
 .username-form label,
 .collaboration-heading h3,

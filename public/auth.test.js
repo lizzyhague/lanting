@@ -13,6 +13,7 @@ function harness(fetch, search = "") {
   const sockets = [];
   const actions = [];
   const context = vm.createContext({
+    t: (key) => key,
     fetch,
     URL,
     URLSearchParams,

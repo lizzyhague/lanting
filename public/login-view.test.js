@@ -16,7 +16,7 @@ test("the login card keeps its content aligned to the visible lanting mark", () 
 });
 
 test("the login label is compact and browser validation does not intercept submission", () => {
-  assert.match(html, /访问令牌<span class="login-label-hint">（登录状态存于浏览器）<\/span>/u);
+  assert.match(html, /<label for="token-input"><span data-i18n="login\.tokenLabel">[^<]*<\/span><span class="login-label-hint" data-i18n="login\.tokenHint">/u);
   assert.doesNotMatch(html, /class="login-hint"/u);
   assert.doesNotMatch(html, /id="token-input"[^>]*\srequired(?:\s|>)/u);
 });
@@ -24,10 +24,10 @@ test("the login label is compact and browser validation does not intercept submi
 test("login progress is yellow while login errors are red", () => {
   assert.match(styles, /#login-status:not\(\[data-tone="error"\]\):not\(\[data-tone="progress"\]\)/u);
   assert.match(styles, /#login-status\[data-tone="progress"\]\s*\{[^}]*color:\s*var\(--warning\) !important;/su);
-  assert.match(app, /setLoginStatus\("请输入访问令牌。", "error"\)/u);
-  assert.match(app, /setLoginStatus\("访问令牌有误，请重新输入。", "error"\)/u);
-  assert.match(app, /setLoginStatus\("正在连接主机……", "progress"\)/u);
-  assert.match(boot, /status\.dataset\.tone = "progress";[\s\S]*页面正在启动/u);
-  assert.match(boot, /页面仍在启动，请稍候/u);
+  assert.match(app, /setLoginStatus\(t\("login\.tokenMissing"\), "error"\)/u);
+  assert.match(app, /setLoginStatus\(t\("login\.tokenInvalid"\), "error"\)/u);
+  assert.match(app, /setLoginStatus\(t\("login\.connecting"\), "progress"\)/u);
+  assert.match(boot, /status\.dataset\.tone = "progress";[\s\S]*t\("boot\.starting"\)/u);
+  assert.match(boot, /t\("boot\.stillStarting"\)/u);
   assert.match(boot, /delete status\.dataset\.tone/u);
 });

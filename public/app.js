@@ -20,6 +20,12 @@ import { createConfirmDialog } from "./confirm-dialog.js";
 import { createNoticeController } from "./notice.js";
 import { createSelectionBar, trashRemainingText } from "./selection-bar.js";
 
+/**
+ * Interface text from i18n.js, which loads in <head> before this module. Without it (e.g. a page served by a
+ * backend that doesn't list i18n.js yet) the page still works and shows the keys.
+ */
+const t = window.lantingI18n ? window.lantingI18n.t : (key) => key;
+
 const RECONNECT_DELAY_MS = 3_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const DIRECTORY_KEY = "lanting.directory";
@@ -122,6 +128,8 @@ const elements = {
   settingsCloseButton: byId("settings-close-button"),
   themeSetting: byId("theme-setting"),
   themeOptions: byId("theme-options"),
+  languageSetting: byId("language-setting"),
+  languageOptions: byId("language-options"),
   usernameForm: byId("username-form"),
   usernameInput: byId("username-input"),
   usernameSaveButton: byId("username-save-button"),
@@ -281,11 +289,11 @@ elements.tokenForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const token = elements.tokenInput.value.trim();
   if (!token) {
-    setLoginStatus("请输入访问令牌。", "error");
+    setLoginStatus(t("login.tokenMissing"), "error");
     return;
   }
   if (token.length < 32) {
-    setLoginStatus("访问令牌有误，请重新输入。", "error");
+    setLoginStatus(t("login.tokenInvalid"), "error");
     return;
   }
   state.reconnectAllowed = true;
@@ -315,7 +323,7 @@ async function connect(token) {
 
   state.authenticated = false;
   elements.connectButton.disabled = true;
-  setLoginStatus("正在连接主机……", "progress");
+  setLoginStatus(t("login.connecting"), "progress");
   setConnectionStatus("connecting", "正在连接");
 
   try {
@@ -330,19 +338,17 @@ async function connect(token) {
         })
         : await fetch("/auth/session", { cache: "no-store" });
     } catch {
-      throw new Error(
-        "没有收到服务器响应。请求可能未到达服务器，或者连接在服务器响应前中断。请检查网络或代理设置后重试。",
-      );
+      throw new Error(t("login.noResponse"));
     }
     if (generation !== state.generation) return;
     if (response.status === 401) {
       state.reconnectAllowed = false;
       elements.connectButton.disabled = false;
       showLogin();
-      setLoginStatus(token ? "访问令牌有误，请重新输入。" : "请登录。", token ? "error" : null);
+      setLoginStatus(token ? t("login.tokenInvalid") : t("login.required"), token ? "error" : null);
       return;
     }
-    if (!response.ok) throw new Error("登录服务暂时不可用。");
+    if (!response.ok) throw new Error(t("login.unavailable"));
     elements.tokenInput.value = "";
     const returnTo = new URLSearchParams(location.search).get("returnTo");
     if (returnTo?.startsWith("/view?")) {
@@ -2028,6 +2034,7 @@ elements.settingsButton.addEventListener("click", () => {
   elements.collaborationStatus.textContent = "";
   elements.settingsStatus.textContent = "";
   renderThemeChoice();
+  renderLanguageChoice();
   elements.settingsDialog.showModal();
   renderSettingsDialog();
   loadAvailableSettingsCatalogs();
@@ -2049,6 +2056,26 @@ elements.themeOptions.addEventListener("click", (event) => {
   if (!button || !window.lantingTheme) return;
   window.lantingTheme.set(button.dataset.themeChoice);
   renderThemeChoice();
+});
+
+// Language is stored only in the current browser; i18n.js reads, writes and applies it. This item is hidden when it isn't loaded.
+function renderLanguageChoice() {
+  const i18n = window.lantingI18n;
+  elements.languageSetting.hidden = !i18n;
+  if (!i18n) return;
+  const current = i18n.get();
+  for (const button of elements.languageOptions.querySelectorAll("[data-language-choice]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.languageChoice === current));
+  }
+}
+
+elements.languageOptions.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-language-choice]");
+  if (button && window.lantingI18n) window.lantingI18n.set(button.dataset.languageChoice);
+});
+
+window.addEventListener("lanting-languagechange", () => {
+  renderLanguageChoice();
 });
 
 elements.settingsCloseButton.addEventListener("click", () => {

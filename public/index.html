@@ -14,6 +14,8 @@
     <link rel="apple-touch-icon" href="/icon-192.png">
     <link rel="manifest" href="/manifest.webmanifest">
     <script src="/theme.js"></script>
+    <script src="/strings.js"></script>
+    <script src="/i18n.js"></script>
     <link rel="stylesheet" href="/styles.css">
     <title>lanting</title>
   </head>
@@ -26,9 +28,9 @@
           <img class="login-icon" src="/logo.svg" alt="">
           <h1><svg class="brand-wordmark" viewBox="0 0 1249 874" role="img" aria-label="兰亭"><use href="#brand-wordmark"/></svg></h1>
         </div>
-        <label for="token-input">访问令牌<span class="login-label-hint">（登录状态存于浏览器）</span></label>
+        <label for="token-input"><span data-i18n="login.tokenLabel">访问令牌</span><span class="login-label-hint" data-i18n="login.tokenHint">（登录状态存于浏览器）</span></label>
         <input id="token-input" type="password" autocomplete="current-password">
-        <button id="connect-button" class="primary" type="submit">连接</button>
+        <button id="connect-button" class="primary" type="submit" data-i18n="login.connect">连接</button>
         <p id="login-status" class="form-status" aria-live="polite"></p>
       </form>
     </section>
@@ -168,6 +170,19 @@
             <button type="button" data-theme-choice="dark" aria-pressed="false" aria-label="深色" title="深色">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.7a10 10 0 1 0 9.5 14 8 8 0 0 1-9.5-14z"/></svg>
             </button>
+          </div>
+        </div>
+        <div id="language-setting" class="theme-setting">
+          <div class="theme-text">
+            <span id="language-label" class="theme-label" data-i18n="settings.language">语言</span>
+            <p class="member-note" data-i18n="settings.browserOnly">只影响当前浏览器。</p>
+          </div>
+          <div id="language-options" class="theme-options language-options" role="group" aria-labelledby="language-label">
+            <button type="button" data-language-choice="system" aria-pressed="false" aria-label="跟随浏览器" title="跟随浏览器" data-i18n-aria-label="settings.languageSystem" data-i18n-title="settings.languageSystem">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13.5 13.5 0 0 1 0 18 13.5 13.5 0 0 1 0-18z"/></svg>
+            </button>
+            <button type="button" data-language-choice="zh" lang="zh-CN" aria-pressed="false" aria-label="中文" title="中文">中</button>
+            <button type="button" data-language-choice="en" lang="en" aria-pressed="false" aria-label="English" title="English">EN</button>
           </div>
         </div>
         <form id="username-form" class="username-form">

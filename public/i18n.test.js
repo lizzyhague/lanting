@@ -1,0 +1,168 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+import vm from "node:vm";
+
+const [stringsSource, source, html, app, boot] = await Promise.all([
+  readFile(new URL("./strings.js", import.meta.url), "utf8"),
+  readFile(new URL("./i18n.js", import.meta.url), "utf8"),
+  readFile(new URL("./index.html", import.meta.url), "utf8"),
+  readFile(new URL("./app.js", import.meta.url), "utf8"),
+  readFile(new URL("./boot.js", import.meta.url), "utf8"),
+]);
+
+function loadStrings() {
+  const window = {};
+  vm.runInNewContext(stringsSource, { window });
+  return window.lantingStrings;
+}
+
+class FakeNode {
+  constructor(attributes, textContent = "") {
+    this.attributes = { ...attributes };
+    this.textContent = textContent;
+  }
+
+  getAttribute(name) {
+    return this.attributes[name] ?? null;
+  }
+
+  setAttribute(name, value) {
+    this.attributes[name] = value;
+  }
+}
+
+function run({ stored = null, languages = ["zh-CN"], storage = true, nodes = [] } = {}) {
+  const store = new Map(stored === null ? [] : [["lanting.language", stored]]);
+  const rootAttributes = {};
+  const listeners = {};
+  const events = [];
+  const localStorage = storage ? {
+    getItem: (key) => store.get(key) ?? null,
+    setItem: (key, value) => store.set(key, value),
+    removeItem: (key) => store.delete(key),
+  } : {
+    getItem: () => { throw new Error("blocked"); },
+    setItem: () => { throw new Error("blocked"); },
+    removeItem: () => { throw new Error("blocked"); },
+  };
+  const navigator = { languages, language: languages[0] };
+  const window = {
+    lantingStrings: {
+      "greeting": { zh: "你好，{name}", en: "Hello, {name}" },
+      "only.zh": { zh: "只有中文" },
+    },
+    addEventListener: (type, listener) => { listeners[type] = listener; },
+    dispatchEvent: (event) => events.push(event.type),
+  };
+  const document = {
+    readyState: "complete",
+    documentElement: { setAttribute: (name, value) => { rootAttributes[name] = value; } },
+    querySelectorAll: () => nodes,
+    addEventListener() {},
+  };
+  vm.runInNewContext(source, { window, document, navigator, localStorage, Event: class { constructor(type) { this.type = type; } } });
+  return {
+    api: window.lantingI18n,
+    lang: () => rootAttributes.lang,
+    store,
+    events,
+    setBrowser(next) {
+      navigator.languages = next;
+      listeners.languagechange();
+    },
+    storageEvent(value) {
+      if (value === null) store.delete("lanting.language");
+      else store.set("lanting.language", value);
+      listeners.storage({ key: "lanting.language" });
+    },
+  };
+}
+
+test("without a saved choice the page follows the first supported browser language", () => {
+  assert.equal(run({ languages: ["zh-TW", "en-US"] }).api.language(), "zh");
+  assert.equal(run({ languages: ["fr-FR", "en-GB", "zh-CN"] }).api.language(), "en");
+  assert.equal(run({ languages: ["ja-JP"] }).api.language(), "en");
+  const page = run({ languages: ["en-US"] });
+  assert.equal(page.api.get(), "system");
+  assert.equal(page.lang(), "en");
+  page.setBrowser(["zh-CN"]);
+  assert.equal(page.api.language(), "zh");
+  assert.equal(page.lang(), "zh-CN");
+});
+
+test("a saved choice overrides the browser and following the browser again stores nothing", () => {
+  const page = run({ stored: "en", languages: ["zh-CN"] });
+  assert.equal(page.api.get(), "en");
+  assert.equal(page.api.language(), "en");
+  page.setBrowser(["zh-HK"]);
+  assert.equal(page.api.language(), "en");
+  page.api.set("system");
+  assert.equal(page.store.has("lanting.language"), false);
+  assert.equal(page.api.language(), "zh");
+  page.api.set("en");
+  assert.equal(page.store.get("lanting.language"), "en");
+});
+
+test("unknown saved values and blocked storage fall back to following the browser", () => {
+  assert.equal(run({ stored: "fr", languages: ["en"] }).api.get(), "system");
+  const page = run({ storage: false, languages: ["en"] });
+  page.api.set("zh");
+  assert.equal(page.api.language(), "zh");
+});
+
+test("changes from other tabs apply, and every change is announced", () => {
+  const page = run({ languages: ["zh-CN"] });
+  page.storageEvent("en");
+  assert.equal(page.api.language(), "en");
+  page.api.set("zh");
+  page.api.set("system");
+  assert.deepEqual(page.events, ["lanting-languagechange", "lanting-languagechange", "lanting-languagechange"]);
+});
+
+test("t fills placeholders, falls back to Chinese, and shows unknown keys as is", () => {
+  const page = run({ languages: ["en"] });
+  assert.equal(page.api.t("greeting", { name: "lizzy" }), "Hello, lizzy");
+  assert.equal(page.api.t("greeting"), "Hello, {name}");
+  assert.equal(page.api.t("only.zh"), "只有中文");
+  assert.equal(page.api.t("missing.key"), "missing.key");
+});
+
+test("marked text and attributes are filled in and refilled on switching", () => {
+  const text = new FakeNode({ "data-i18n": "greeting" });
+  const button = new FakeNode({ "data-i18n-aria-label": "greeting", "data-i18n-title": "greeting" });
+  const page = run({ languages: ["zh-CN"], nodes: [text, button] });
+  assert.equal(text.textContent, "你好，{name}");
+  assert.equal(button.attributes["aria-label"], "你好，{name}");
+  page.api.set("en");
+  assert.equal(text.textContent, "Hello, {name}");
+  assert.equal(button.attributes.title, "Hello, {name}");
+});
+
+test("every string has both languages and the same placeholders in each", () => {
+  for (const [key, entry] of Object.entries(loadStrings())) {
+    assert.deepEqual(Object.keys(entry).sort(), ["en", "zh"], key);
+    const names = (text) => [...text.matchAll(/\{(\w+)\}/gu)].map((match) => match[1]).sort();
+    assert.deepEqual(names(entry.en), names(entry.zh), key);
+  }
+});
+
+test("markup keeps the Chinese text as its default, and every key used exists", () => {
+  const strings = loadStrings();
+  for (const match of html.matchAll(/data-i18n="([^"]+)">([^<]*)</gu)) {
+    assert.ok(strings[match[1]], match[1]);
+    assert.equal(match[2], strings[match[1]].zh, match[1]);
+  }
+  for (const match of html.matchAll(/data-i18n-(?:aria-label|title|placeholder)="([^"]+)"/gu)) {
+    assert.ok(strings[match[1]], match[1]);
+  }
+  for (const match of `${app}\n${boot}`.matchAll(/\bt\("([^"]+)"/gu)) {
+    assert.ok(strings[match[1]], match[1]);
+  }
+});
+
+test("the language scripts load in <head> before the page scripts", () => {
+  const head = html.slice(0, html.indexOf("</head>"));
+  assert.ok(head.indexOf('<script src="/strings.js"></script>') < head.indexOf('<script src="/i18n.js"></script>'));
+  assert.ok(head.includes('<script src="/i18n.js"></script>'));
+});
