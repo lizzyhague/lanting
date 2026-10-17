@@ -7,7 +7,7 @@ import test from "node:test";
 import { groupExists } from "../../platform/process-group.ts";
 import { PiRpcClient, type PiEvent, type PiUiRequest } from "./rpc-client.ts";
 
-/** 假的 `pi --mode rpc`：按 LF 读命令，行为由命令类型决定。 */
+/** Fake `pi --mode rpc`: reads commands by LF; behavior depends on the command type. */
 const FAKE_PI = `#!/usr/bin/env node
 import { spawn } from "node:child_process";
 const out = (record) => process.stdout.write(JSON.stringify(record) + "\\n");
@@ -33,7 +33,7 @@ if (process.env.FAKE_IGNORE_EOF === "1") {
 function handle(command) {
   switch (command.type) {
     case "split": {
-      // 一条记录分三次写出，正文里带 U+2028、U+2029 和 CRLF 结尾。
+      // One record written in three pieces, with U+2028, U+2029 in the text and a CRLF ending.
       const text = JSON.stringify({ type: "message_update", text: "a\\u2028b\\u2029c" });
       process.stdout.write(text.slice(0, 10));
       setTimeout(() => process.stdout.write(text.slice(10, 20)), 20);
@@ -47,7 +47,7 @@ function handle(command) {
       held = command.id;
       return;
     case "fast":
-      // 先发一条没有 id 的 session event，再先回后到的命令，最后回先到的。
+      // First send a session event without an id, then answer the later command first and the earlier one last.
       out({ type: "agent_start" });
       out({ id: command.id, type: "response", command: "fast", success: true, data: { order: "fast" } });
       out({ id: held, type: "response", command: "slow", success: true, data: { order: "slow" } });
@@ -142,7 +142,7 @@ test("reports non-JSON stdout, stderr and failed commands", async (t) => {
   await client.request("ping");
   assert.ok(diagnostics.some((text) => text.includes("Pi stdout 不是 JSON：not json")));
   assert.ok(diagnostics.some((text) => text.includes("Pi 响应对不上命令") && text.includes("parse")));
-  // stderr 和 stdout 是两条管道，到达顺序不保证。
+  // stderr and stdout are two pipes; arrival order isn't guaranteed.
   while (!diagnostics.some((text) => text.includes("something on stderr"))) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }

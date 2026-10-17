@@ -37,10 +37,10 @@ type Pending = {
 };
 
 /**
- * ACP JSON-RPC 客户端，搬自 Grok Remote `src/worker/acp-client.ts`，去掉了 rewind 等
- * 本项目不用的调用。不向 Grok 声明 fs / terminal 能力。
+ * ACP JSON-RPC client, ported from Grok Remote `src/worker/acp-client.ts`, minus rewind and other
+ * calls this project doesn't use. Doesn't declare fs / terminal capabilities to Grok.
  *
- * 不用 node:readline 拆行：它把 U+2028、U+2029 也当换行，而它们在 JSON 字符串里是合法字符。
+ * Doesn't split lines with node:readline: it also treats U+2028 and U+2029 as line breaks, which are valid in JSON strings.
  */
 export class AcpClient extends EventEmitter {
   readonly #proc: ChildProcessWithoutNullStreams;
@@ -83,8 +83,8 @@ export class AcpClient extends EventEmitter {
   }
 
   /**
-   * rules 追加到系统提示，只在 session/new 发送；session/resume 不再带，
-   * 以免恢复会话时重复追加。
+   * rules are appended to the system prompt and sent only with session/new; session/resume doesn't carry them again,
+   * so resuming doesn't append them twice.
    */
   async sessionNew(cwd: string, yoloMode: boolean, rules: string): Promise<string> {
     const result = await this.request("session/new", {
@@ -144,7 +144,7 @@ export class AcpClient extends EventEmitter {
     }) as { stopReason?: string };
   }
 
-  /** 请求返回时压缩已经完成。 */
+  /** Compaction is complete when the request returns. */
   async sessionCompact(sessionId: string): Promise<void> {
     await this.request("_x.ai/compact_conversation", { sessionId });
   }
@@ -157,7 +157,7 @@ export class AcpClient extends EventEmitter {
     try {
       await this.request("session/close", { sessionId });
     } catch {
-      // close 能力因版本而异；失败时由进程组清理兜底。
+      // close support varies by version; on failure process group cleanup is the fallback.
     }
   }
 

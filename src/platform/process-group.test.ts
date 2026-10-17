@@ -6,7 +6,7 @@ import type { SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
 
 import { ProcessGroup, groupExists } from "./process-group.ts";
 
-/** SDK 传给 `spawnClaudeCodeProcess` 的那一份参数；测试里用 Node 自己当被测进程。 */
+/** The argument the SDK passes to `spawnClaudeCodeProcess`; tests use Node itself as the process under test. */
 function spawnOptions(script: string, controller = new AbortController()): SpawnOptions {
   return {
     command: process.execPath,
@@ -16,7 +16,7 @@ function spawnOptions(script: string, controller = new AbortController()): Spawn
   };
 }
 
-/** 起一个自己还会 spawn 孙进程的组长；孙进程 pid 从 stdout 第一行读回来。 */
+/** Starts a group leader that spawns its own grandchild; the grandchild pid is read back from the first line of stdout. */
 const LEADER_WITH_GRANDCHILD = [
   "const { spawn } = require('node:child_process');",
   "const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });",
@@ -24,7 +24,7 @@ const LEADER_WITH_GRANDCHILD = [
   "setTimeout(() => {}, 60000);",
 ].join("");
 
-/** 同上，但组长打印完就自己退出，把孙进程留在同一个进程组里。 */
+/** Same as above, but the leader exits right after printing, leaving the grandchild in the same process group. */
 const LEADER_EXITS_FIRST = [
   "const { spawn } = require('node:child_process');",
   "const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });",
@@ -44,7 +44,7 @@ function firstLine(stream: NodeJS.ReadableStream): Promise<string> {
     lines.once("line", (line) => {
       resolve(line);
       lines.close();
-      // readline 关掉之后没人读 stdout 了；保持流动，免得管道写满把子进程卡住。
+      // Nobody reads stdout once readline is closed; keep it flowing so a full pipe doesn't stall the child.
       stream.resume();
     });
     lines.once("close", () => reject(new Error("子进程没有输出任何一行。")));
@@ -69,7 +69,7 @@ async function waitUntil(predicate: () => boolean, budgetMs = 3_000): Promise<bo
   return predicate();
 }
 
-test("terminate 带走组长和它 spawn 的孙进程", async () => {
+test("terminate takes down the group leader and the grandchild it spawned", async () => {
   const group = new ProcessGroup();
   const spawned = group.spawn(spawnOptions(LEADER_WITH_GRANDCHILD));
   const grandchildPid = Number(await firstLine(spawned.stdout));
@@ -83,7 +83,7 @@ test("terminate 带走组长和它 spawn 的孙进程", async () => {
   assert.equal(isAlive(grandchildPid), false, "孙进程不应当留下来");
 });
 
-test("组长先自己退出，剩下的孙进程仍能被整组清掉", async () => {
+test("after the leader exits on its own, the remaining grandchild can still be cleared with the group", async () => {
   const group = new ProcessGroup();
   const spawned = group.spawn(spawnOptions(LEADER_EXITS_FIRST));
   const grandchildPid = Number(await firstLine(spawned.stdout));
@@ -91,7 +91,7 @@ test("组长先自己退出，剩下的孙进程仍能被整组清掉", async ()
 
   assert.ok(leaderPid !== null);
   await waitUntil(() => !isAlive(leaderPid));
-  // 组长走了，孙进程被 init 收养，但它仍留在原来的进程组里——这正是负 pid 管得到的。
+  // The leader is gone and the grandchild is adopted by init, but it stays in the original process group, which is exactly what a negative pid reaches.
   assert.equal(isAlive(grandchildPid), true, "孙进程还活着");
   assert.equal(groupExists(leaderPid), true, "进程组还在");
 
@@ -99,7 +99,7 @@ test("组长先自己退出，剩下的孙进程仍能被整组清掉", async ()
   assert.equal(isAlive(grandchildPid), false);
 });
 
-test("SIGTERM 不退出时升级到 SIGKILL", async () => {
+test("escalates to SIGKILL when SIGTERM doesn't stop it", async () => {
   const group = new ProcessGroup();
   const spawned = group.spawn(spawnOptions(IGNORES_SIGTERM));
   assert.equal(await firstLine(spawned.stdout), "ready");
@@ -110,7 +110,7 @@ test("SIGTERM 不退出时升级到 SIGKILL", async () => {
   assert.equal(isAlive(leaderPid), false);
 });
 
-test("terminate 可以重复调用，整组已退出时仍返回成功", async () => {
+test("terminate can be called repeatedly and still succeeds once the group has exited", async () => {
   const group = new ProcessGroup();
   group.spawn(spawnOptions("setTimeout(() => {}, 60000);"));
 
@@ -118,12 +118,12 @@ test("terminate 可以重复调用，整组已退出时仍返回成功", async (
   assert.equal(await group.terminate(), true);
 });
 
-test("spawn 在取得 pid 之前失败时不报残留", async () => {
+test("reports no leftovers when spawn fails before getting a pid", async () => {
   const group = new ProcessGroup();
   const spawned = group.spawn(
     spawnOptions("setTimeout(() => {}, 60000);"),
   );
-  // 命令不存在：Node 返回 ChildProcess 但没有 pid，error 事件异步到达。
+  // Nonexistent command: Node returns a ChildProcess with no pid, and the error event arrives asynchronously.
   const missing = new ProcessGroup();
   const failed = missing.spawn({
     command: "lanting-no-such-command",
@@ -140,7 +140,7 @@ test("spawn 在取得 pid 之前失败时不报残留", async () => {
   await group.terminate();
 });
 
-test("SDK 调用的 kill() 作用到整个进程组", async () => {
+test("kill() called by the SDK applies to the whole process group", async () => {
   const group = new ProcessGroup();
   const spawned = group.spawn(spawnOptions(LEADER_WITH_GRANDCHILD));
   const grandchildPid = Number(await firstLine(spawned.stdout));
@@ -150,7 +150,7 @@ test("SDK 调用的 kill() 作用到整个进程组", async () => {
   await group.terminate();
 });
 
-test("SDK 转发的 AbortSignal 作用到整个进程组", async () => {
+test("the AbortSignal forwarded by the SDK applies to the whole process group", async () => {
   const controller = new AbortController();
   const group = new ProcessGroup();
   const spawned = group.spawn(spawnOptions(LEADER_WITH_GRANDCHILD, controller));
@@ -161,7 +161,7 @@ test("SDK 转发的 AbortSignal 作用到整个进程组", async () => {
   await group.terminate();
 });
 
-test("stderr 被持续读走，并保留有上限的尾部", async () => {
+test("stderr is drained continuously and a bounded tail is kept", async () => {
   const group = new ProcessGroup();
   const spawned = group.spawn(spawnOptions(
     "process.stderr.write('boom\\n'); process.stdout.write('done\\n'); setTimeout(() => {}, 60000);",
@@ -172,7 +172,7 @@ test("stderr 被持续读走，并保留有上限的尾部", async () => {
   await group.terminate();
 });
 
-test("groupExists 挡住 0、1 和负数，绝不把信号发给全系统或自己这一组", () => {
+test("groupExists rejects 0, 1 and negative numbers, never signaling the whole system or its own group", () => {
   assert.equal(groupExists(null), false);
   assert.equal(groupExists(0), false);
   assert.equal(groupExists(1), false);

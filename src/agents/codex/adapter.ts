@@ -22,12 +22,12 @@ const INITIALIZE_PARAMS = {
   capabilities: { experimentalApi: true, requestAttestation: false },
 };
 
-/** `turn/interrupt` 等这么久没有回执，就直接关掉 app-server。 */
+/** If `turn/interrupt` gets no acknowledgement for this long, the app-server is closed outright. */
 const INTERRUPT_TIMEOUT_MS = 10_000;
 
 export class CodexAdapter implements AgentAdapter {
   readonly kind = "codex";
-  /** 照 Codex Remote：每轮结束就关掉 app-server。 */
+  /** As in Codex Remote: the app-server is closed after every round. */
   readonly closeAfterTurn = true;
   readonly features: AgentFeatures = {
     compact: (session) => asOwnSession(session).compact(),
@@ -39,11 +39,11 @@ export class CodexAdapter implements AgentAdapter {
   readonly #options: CodexAdapterOptions;
   readonly #resident: ResidentAppServer;
   /**
-   * 照 Codex Remote：上下文只在发言时从 thread/tokenUsage/updated 记下，不为读上下文去恢复会话。
-   * 只放内存，进程关掉后仍保留；lanting 重启后要等这个成员再发言。
+   * As in Codex Remote: context is only recorded from thread/tokenUsage/updated during replies; sessions aren't resumed just to read context.
+   * Kept only in memory and survives the process closing; after lanting restarts it waits for this member to reply again.
    */
   readonly #contexts = new Map<string, number>();
-  /** 同一时间只有一个额度查询在途，并发调用共用它。 */
+  /** Only one quota query is in flight at a time; concurrent calls share it. */
   #quota: Promise<QuotaWindow[]> | null = null;
 
   constructor(options: CodexAdapterOptions) {
@@ -62,7 +62,7 @@ export class CodexAdapter implements AgentAdapter {
     return this.#resident.close();
   }
 
-  /** 照 Codex Remote：临时起一个 app-server 调 thread/delete；已经不存在也算删掉了。 */
+  /** As in Codex Remote: start a temporary app-server to call thread/delete; one that no longer exists counts as deleted. */
   async #deleteSession(nativeId: string, cwd: string): Promise<void> {
     const client = new AppServerClient({
       codexBinary: this.#options.executable,
@@ -87,7 +87,7 @@ export class CodexAdapter implements AgentAdapter {
     return CodexSession.open(nativeId, options, this.#options, this.#onTokenUsage);
   }
 
-  /** 照 Codex Remote：按最近一次调用的 token 用量估算上下文。 */
+  /** As in Codex Remote: estimates context from the most recent call's token usage. */
   readonly #onTokenUsage: TokenUsageListener = (threadId, tokenUsage) => {
     const usage = asObject(tokenUsage);
     const used = finiteNumber(asObject(usage?.last)?.totalTokens);
@@ -108,7 +108,7 @@ export class CodexAdapter implements AgentAdapter {
 
 export type QuotaWindow = { label: string; remainingPercent: number | null; resetsAt: number | null };
 
-/** 照 Codex Remote 的 #refreshQuota。查询失败时返回空数组，不把上次的额度冒充为当前值。 */
+/** Follows Codex Remote's #refreshQuota. Returns an empty array on failure rather than passing off the last quota as current. */
 async function readQuota(client: Pick<ResidentAppServer, "request">): Promise<QuotaWindow[]> {
   try {
     const response = asObject(await client.request("account/rateLimits/read", undefined));
@@ -139,7 +139,7 @@ async function readQuota(client: Pick<ResidentAppServer, "request">): Promise<Qu
   }
 }
 
-/** 文字照 Codex Remote 的 renderSessionMetrics。resetsAt 是 unix 秒，交出前换成 ISO 字符串。 */
+/** Text follows Codex Remote's renderSessionMetrics. resetsAt is unix seconds, converted to an ISO string before handing it over. */
 export function usageParts(context: number | null, windows: readonly QuotaWindow[]): UsagePart[] {
   const parts: UsagePart[] = [{ text: context === null ? "上下文等待更新" : `上下文约 ${context.toFixed(1)}%` }];
   if (windows.length === 0) {
@@ -166,17 +166,17 @@ type TokenUsageListener = (threadId: string, tokenUsage: unknown) => void;
 type Turn = {
   channel: EventChannel<AgentEvent>;
   id: string | null;
-  /** 最近一条已完成的 agentMessage；下一个工具调用出现时转成过程信息。 */
+  /** The latest completed agentMessage; becomes progress info when the next tool call appears. */
   pending: string;
   lastError: string | null;
   interruptRequested: boolean;
 };
 
 /**
- * 每个原生会话一个独立的 codex app-server 子进程（独立进程组），
- * 关闭时连同它启动的工具进程一起结束。
+ * One separate codex app-server subprocess (in its own process group) per native session,
+ * ended together with the tool processes it started on close.
  *
- * 明文回复以这一轮最后一条 agentMessage 为准，之前的过渡文字转成过程信息。
+ * The plain reply is the round's last agentMessage; earlier interim text becomes progress info.
  */
 class CodexSession implements AgentSession {
   readonly #client: AppServerClient;
@@ -245,7 +245,7 @@ class CodexSession implements AgentSession {
     return !this.#exited && !this.#client.closed;
   }
 
-  /** 照 Codex Remote：压缩也是一轮，等它的 turn/completed。 */
+  /** As in Codex Remote: compaction is also a round; wait for its turn/completed. */
   async compact(): Promise<void> {
     for await (const event of this.#run(() =>
       this.#client.request("thread/compact/start", { threadId: this.#threadId }).then(() => null)
@@ -262,7 +262,7 @@ class CodexSession implements AgentSession {
     })));
   }
 
-  /** start 发出这一轮的请求，返回 turn id；不在响应里给 id 的返回 null，等 turn/started。 */
+  /** start sends the round's request and returns the turn id; returns null when the response has no id, waiting for turn/started. */
   async *#run(start: () => Promise<string | null>): AsyncIterable<AgentEvent> {
     if (!this.alive) throw new Error("codex app-server 已关闭。");
     if (this.#turn) throw new Error("Codex 还在处理上一轮。");
@@ -276,7 +276,7 @@ class CodexSession implements AgentSession {
     this.#turn = turn;
     try {
       const turnId = await start();
-      // turn/started 通知可能先到，也可能这一轮在响应之前就已经结束。
+      // The turn/started notification may arrive first, or the round may already have ended before the response.
       if (this.#turn === turn && turnId) {
         turn.id ??= turnId;
         if (turn.interruptRequested) void this.interrupt();
@@ -328,7 +328,7 @@ class CodexSession implements AgentSession {
   #onNotification(message: JsonObject): void {
     const params = asObject(message.params);
     if (!params) return;
-    // Codex 自己收回了审批：撤下网页上的卡片，不再回复。
+    // Codex withdrew the approval itself: remove the card from the web page and don't reply.
     if (message.method === "serverRequest/resolved") {
       const requestId = params.requestId;
       if (typeof requestId === "string" || typeof requestId === "number") {
@@ -339,14 +339,14 @@ class CodexSession implements AgentSession {
       return;
     }
     if (params.threadId !== this.#threadId) return;
-    // 上下文用量不按 turn 过滤：压缩、恢复之后的用量也要记下。
+    // Context usage isn't filtered by turn: usage after compaction and resume must be recorded too.
     if (message.method === "thread/tokenUsage/updated") {
       this.#onTokenUsage(this.#threadId, params.tokenUsage);
       return;
     }
     const turn = this.#turn;
     if (!turn) return;
-    // 只认这一轮的通知；turn id 还不知道时先记下第一个出现的。
+    // Only this round's notifications count; while the turn id is unknown, record the first one seen.
     if (typeof params.turnId === "string") {
       if (turn.id && params.turnId !== turn.id) return;
     }
@@ -414,7 +414,7 @@ class CodexSession implements AgentSession {
     this.#approvals.set(id, controller);
     void this.#options.requestApproval(approval.ask, controller.signal)
       .then((answer) => {
-        // 已被 Codex 收回的请求不再回复。
+        // Requests already withdrawn by Codex aren't answered.
         if (!this.#approvals.delete(id)) return;
         if (!this.#client.closed) this.#client.respondToServerRequest(id, approval.respond(answer));
       })
@@ -425,14 +425,14 @@ class CodexSession implements AgentSession {
   }
 }
 
-/** 照 Codex Remote 认这一条错误。 */
+/** Recognizes this error the way Codex Remote does. */
 function isAlreadyDeleted(error: unknown, threadId: string): boolean {
   return error instanceof AppServerRpcError &&
     error.code === -32600 &&
     error.message === `no rollout found for thread id ${threadId}`;
 }
 
-/** 照 Codex Remote：模型和思考强度一起设，权限传权限档案的 id。没有要改的返回 null。 */
+/** As in Codex Remote: model and reasoning effort are set together, and permission passes the permission profile id. Returns null when nothing changes. */
 function settingsUpdate(options: SessionOptions): JsonObject | null {
   const { model, effort, permission } = options.settings;
   const update: JsonObject = {};
@@ -477,7 +477,7 @@ async function listModels(client: Pick<AppServerClient, "request">): Promise<Mod
   return models;
 }
 
-/** 权限档案只有 id 和说明，照 Codex Remote 按名字给出中文标签。不可选的档案不列出。 */
+/** Permission profiles only have an id and description; as in Codex Remote, Chinese labels are given by name. Unselectable profiles aren't listed. */
 async function listPermissions(client: Pick<AppServerClient, "request">, cwd: string): Promise<PermissionOption[]> {
   const response = asObject(await client.request("permissionProfile/list", { cursor: null, limit: 100, cwd }));
   if (!response || !Array.isArray(response.data)) throw new Error("Codex 返回了无法识别的权限列表。");
@@ -556,7 +556,7 @@ function readApproval(method: string, params: JsonObject): ParsedApproval | null
   return null;
 }
 
-/** 把 Codex 的工具类 ThreadItem 缩成一行过程信息；不是工具的返回 null。 */
+/** Condenses a Codex tool ThreadItem into one line of progress info; returns null for non-tools. */
 export function toolActivity(item: JsonObject | null): { kind: "tool"; toolName: string; detail: string } | null {
   if (!item || typeof item.type !== "string") return null;
   const clip = (value: unknown) =>

@@ -177,7 +177,7 @@ test("closes descendants left in a Worker process group", async (context) => {
       try {
         process.kill(descendantPid, "SIGKILL");
       } catch {
-        // 已经退出。
+        // Already exited.
       }
     }
     await rm(temporaryDirectory, { recursive: true, force: true });

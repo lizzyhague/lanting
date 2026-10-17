@@ -20,12 +20,12 @@ export type CursorAdapterOptions = {
   executable: string;
 };
 
-/** session/cancel 之后等这么久这一轮还没结束，就直接关掉 Cursor 进程。 */
+/** If the round hasn't ended this long after session/cancel, the Cursor process is closed outright. */
 const INTERRUPT_TIMEOUT_MS = 10_000;
 
 /**
- * always-approve 不用 `--force`，而是由 lanting 对 Cursor 发来的每个审批选一次性允许，
- * 所以 Cursor 配置里的 deny 仍然生效；Cursor 自己放行的操作不会出现审批。
+ * always-approve doesn't use `--force`; instead lanting picks a one-time allow for every approval Cursor sends,
+ * so deny rules in Cursor's config still apply; operations Cursor allows itself never show an approval.
  */
 export const CURSOR_PERMISSIONS: readonly PermissionOption[] = [
   {
@@ -43,12 +43,12 @@ export const CURSOR_PERMISSIONS: readonly PermissionOption[] = [
 
 const ALWAYS_APPROVE = "always-approve";
 
-/** plan、ask 会进入方案审批或只读问答，群聊里固定用 agent。 */
+/** plan and ask enter plan approval or read-only Q&A, so the group chat always uses agent. */
 const AGENT_MODE = "agent";
 
 /**
- * Cursor 没有追加 system prompt 的启动参数或会话字段，群聊规则只能作为新会话第一条
- * user 消息的开头发一次；恢复会话时规则已经在会话历史里，不再发。
+ * Cursor has no launch argument or session field for appending a system prompt, so the group chat rules can only be sent once, at the start of a new session's first
+ * user message; on resume they are already in the session history and aren't sent again.
  */
 export function firstMessage(systemPrompt: string, text: string): string {
   return [
@@ -62,11 +62,11 @@ export function firstMessage(systemPrompt: string, text: string): string {
 
 export class CursorAdapter implements AgentAdapter {
   readonly kind = "cursor";
-  /** 每轮结束关掉 ACP 进程，下次用 session id 恢复，与 Codex、Grok、Pi 一致。 */
+  /** Closes the ACP process after every round and resumes by session id next time, same as Codex, Grok and Pi. */
   readonly closeAfterTurn = true;
   /**
-   * 不实现 models：`session/set_model` 会改写 Cursor 的全局默认模型，多个 Cursor 成员会互相影响，
-   * 所以跟随 Cursor 当前的默认模型。ACP 也没有压缩、删除会话和用量接口。
+   * models isn't implemented: `session/set_model` rewrites Cursor's global default model, so multiple Cursor members would affect each other;
+   * it follows Cursor's current default model instead. ACP also has no compaction, delete-session or usage API.
    */
   readonly features: AgentFeatures = {
     permissions: async () => [...CURSOR_PERMISSIONS],
@@ -88,23 +88,23 @@ export class CursorAdapter implements AgentAdapter {
 
 type Turn = {
   channel: EventChannel<AgentEvent>;
-  /** 当前这一段 agent_message；下一个工具调用出现时转成过程信息。 */
+  /** The current agent_message segment; becomes progress info when the next tool call appears. */
   segment: string;
-  /** 群主已经要求打断；之后结束的这一轮按 interrupted 处理。 */
+  /** The group owner has asked to interrupt; the round that ends afterwards counts as interrupted. */
   interrupted: boolean;
 };
 
 /**
- * 每个原生会话一个独立的 `agent acp` 子进程（独立进程组）。
- * 明文回复以这一轮最后一段 agent_message 为准，之前的过渡文字转成过程信息。
+ * One separate `agent acp` subprocess (in its own process group) per native session.
+ * The plain reply is the round's last agent_message; earlier interim text becomes progress info.
  */
 class CursorSession implements AgentSession {
   readonly #client: CursorAcpClient;
   readonly #options: SessionOptions;
-  /** 网页上还没回答的审批，按 Cursor 的 JSON-RPC id。 */
+  /** Approvals not yet answered on the web page, keyed by Cursor's JSON-RPC id. */
   readonly #approvals = new Map<number | string, AbortController>();
   #sessionId = "";
-  /** 新会话还没把群聊规则发出去。 */
+  /** The new session hasn't sent the group chat rules yet. */
   #rulesPending = false;
   #turn: Turn | null = null;
 
@@ -139,7 +139,7 @@ class CursorSession implements AgentSession {
       await client.initialize();
       await client.authenticate();
       if (sessionId) {
-        // 加载时 Cursor 先把历史重放成 session/update；这时还没有当前轮，重放不会进群聊。
+        // On load Cursor first replays the history as session/update; there is no current round yet, so the replay stays out of the group chat.
         await client.sessionLoad(sessionId, options.cwd);
         session.#sessionId = sessionId;
       } else {
@@ -259,7 +259,7 @@ class CursorSession implements AgentSession {
     this.#approvals.set(request.rpcId, controller);
     const tool = toolActivity(request.toolCall);
     const settle = (outcome: CursorPermissionOutcome) => {
-      // 已经撤下的审批由撤下的一方回过 cancelled，迟到的网页答复不再写回。
+      // A withdrawn approval was already answered cancelled by whoever withdrew it; a late web answer is no longer written back.
       if (this.#approvals.get(request.rpcId) !== controller) return;
       this.#approvals.delete(request.rpcId);
       this.#client.respondPermission(request.rpcId, outcome);
@@ -273,7 +273,7 @@ class CursorSession implements AgentSession {
     );
   }
 
-  /** 客户端已经回了 cancelled，这里只告诉群主。 */
+  /** The client has already answered cancelled; this only tells the group owner. */
   #onBlocking(request: CursorBlockingRequest): void {
     const turn = this.#turn;
     if (!turn) return;
@@ -284,7 +284,7 @@ class CursorSession implements AgentSession {
     });
   }
 
-  /** 撤下网页上的审批，并告诉仍在运行的 Cursor 这些请求取消了。 */
+  /** Withdraw the approvals on the web page and tell the still-running Cursor those requests were cancelled. */
   #cancelApprovals(): void {
     for (const [rpcId, controller] of this.#approvals) {
       this.#approvals.delete(rpcId);
@@ -294,14 +294,14 @@ class CursorSession implements AgentSession {
   }
 }
 
-/** 只选一次性的允许或拒绝，不选 allow-always，不把授权规则写进 Cursor 配置。 */
+/** Only picks a one-time allow or reject, never allow-always, so no grant rules are written into Cursor's config. */
 function permissionOutcome(request: CursorPermissionRequest, answer: ApprovalAnswer): CursorPermissionOutcome {
   const kind = answer.decision === "allow" ? "allow_once" : "reject_once";
   const option = request.options.find((candidate) => candidate.kind === kind);
   return option ? { outcome: "selected", optionId: option.optionId } : { outcome: "cancelled" };
 }
 
-/** 把 ACP 的 tool_call 缩成一行过程信息。Cursor 的标题常常是用反引号包起来的命令。 */
+/** Condenses an ACP tool_call into one line of progress info. Cursor's titles are often a command wrapped in backticks. */
 export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool"; toolName: string; detail: string } {
   const toolKind = typeof toolCall.kind === "string" ? toolCall.kind : "";
   const rawTitle = typeof toolCall.title === "string" ? toolCall.title.trim() : "";
@@ -317,7 +317,7 @@ export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool";
   };
 }
 
-/** Cursor 在审批的 tool call 内容里说明原因，比如 “Not in allowlist: touch”。 */
+/** Cursor explains the reason in the approval's tool call content, e.g. "Not in allowlist: touch". */
 function permissionReason(toolCall: Record<string, unknown>): string {
   const content = Array.isArray(toolCall.content) ? toolCall.content : [];
   return content
@@ -338,8 +338,8 @@ function objectField(value: unknown): Record<string, unknown> {
 }
 
 /**
- * 网页登录令牌 CLI 用不到，留着只会让每个工具子进程都能拿到网页端的控制权。
- * Claude 的长期 OAuth token 也不交给其他 CLI 及其工具子进程。
+ * The CLI has no use for the web login token; keeping it would only give every tool subprocess control of the web side.
+ * Claude's long-lived OAuth token isn't handed to other CLIs or their tool subprocesses either.
  */
 function childEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const child = { ...environment };

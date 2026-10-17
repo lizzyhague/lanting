@@ -71,8 +71,8 @@ export function tokenizeInline(source) {
 }
 
 export function sanitizeHref(value) {
-  // 浏览器解析 URL 时会先丢掉控制字符，所以判断协议之前必须自己先去掉，
-  // 否则 "\u0001javascript:…" 这类写法会绕过下面的白名单。
+  // Browsers drop control characters when parsing URLs, so they must be stripped here before checking the scheme,
+  // or something like "\u0001javascript:…" would bypass the allowlist below.
   const href = String(value ?? "").replace(/[\u0000-\u0020\u007f]/g, "");
   if (!href || href.startsWith("//")) return null;
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(href)?.[1]?.toLowerCase();

@@ -1,9 +1,9 @@
 import type { AgentCatalog } from "./types.ts";
 
-/** 模型和权限的列表不常变，查一次缓存这么久，免得每次打开成员面板都启动一次 CLI。 */
+/** Model and permission lists rarely change; a lookup is cached this long so opening the member panel doesn't start a CLI every time. */
 const CATALOG_TTL_MS = 10 * 60_000;
 
-/** 按 key 缓存查询结果。查询失败不缓存，下次重新查。 */
+/** Caches lookup results by key. Failed lookups aren't cached and are retried next time. */
 export class CatalogCache {
   readonly #entries = new Map<string, { at: number; value: Promise<AgentCatalog> }>();
   readonly #ttlMs: number;

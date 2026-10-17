@@ -2,14 +2,14 @@ import { attachmentBlock, attachmentNote } from "../attachments/prompt.ts";
 import type { TranscriptEntry } from "./types.ts";
 
 /**
- * 把某个 AI 还没看到的群聊内容拼成一条 user 消息。
+ * Assembles the group chat content an AI hasn't seen yet into one user message.
  *
- * - 它自己的发言不拼进去：那些已经是它原生会话里的 assistant 消息。
- * - 被打断或出错的回复、群里的提示不转给别人，只留在群聊记录里给群主看。
- * - 每段话用发言者的标签包起来，标签平级，不嵌套。
- * - 群主带的附件只交给那一轮被点名的 AI；其他 AI 只看到一行附件说明，附件名和路径。
+ * - Its own replies aren't included: those are already assistant messages in its native session.
+ * - Interrupted or failed replies and group notices aren't forwarded to others; they stay in the chat record for the group owner.
+ * - Each message is wrapped in the speaker's tag; tags are flat, never nested.
+ * - Attachments from the group owner go only to the AIs called that round; other AIs only see a one-line attachment note with the name and path.
  *
- * 返回空字符串表示没有新内容。
+ * Returns an empty string when there is nothing new.
  */
 export function assembleMessage(
   entries: readonly TranscriptEntry[],

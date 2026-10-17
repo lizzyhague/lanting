@@ -1,9 +1,9 @@
 const MAX_USERNAME_LENGTH = 16;
 
 /**
- * 按规格校验用户名，不合规时返回说明（不符合哪一条），合规返回 null。
- * - 只能用英文字母和数字，长度 1～16 位；
- * - 不能与任一 AI 名字完全相同，不区分大小写。
+ * Validates the username against the spec, returning an explanation (which rule failed) when invalid, or null when valid.
+ * - Only English letters and digits, 1-16 characters long;
+ * - Must not exactly match any AI name, case-insensitively.
  */
 export function usernameProblem(username: string, agentNames: readonly string[]): string | null {
   if (username.length === 0) return "用户名不能为空。";

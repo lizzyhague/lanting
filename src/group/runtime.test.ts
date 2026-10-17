@@ -91,7 +91,7 @@ test("an agent called for the first time receives everything since the group was
     "<claude>\nclaude reply 2\n</claude>",
     "<host>\nround 3\n</host>",
   ].join("\n\n")]);
-  // claude 第二次只收到上次发言之后的新内容，不含自己的回复。
+  // claude's second message only contains what's new since its last reply, not its own reply.
   assert.deepEqual(adapters.claude!.received[1], [
     "<codex>\ncodex reply 1\n</codex>",
     "<host>\nround 2\n</host>",
@@ -142,7 +142,7 @@ test("an error ends the round, later agents do not speak, and the failed agent g
 
   assert.equal(await runtime.startRound(groupId, "q2", ["claude"]).done, "completed");
   assert.equal(adapters.claude!.received[1], "<host>\nq1\n</host>\n\n<host>\nq2\n</host>");
-  // 出错后丢掉缓存的会话，下次用记下的原生会话 id 恢复。
+  // After an error the cached session is dropped and resumed next time from the recorded native session id.
   assert.deepEqual(adapters.claude!.calls.map((call) => call.kind), ["start", "resume"]);
 });
 
@@ -304,7 +304,7 @@ test("changed settings take effect on the agent's next call by reopening its ses
   await runtime.startRound(groupId, "q1", ["claude"]).done;
   assert.deepEqual(adapters.claude!.calls[0]!.options.settings, { model: null, effort: null, permission: null });
 
-  // 第二轮里 claude 说完之后、codex 发言之前改 codex 的设置：codex 这一轮就用上新设置。
+  // In the second round, codex's settings change after claude speaks and before codex does: codex uses the new settings this round.
   adapters.claude!.script = (_, call) => [{ type: "end", outcome: "completed", text: `claude ${call}` }];
   runtime.onEvent((event) => {
     if (event.type === "entry.appended" && event.entry.from.role === "agent" && event.entry.from.agent === "claude") {
@@ -316,7 +316,7 @@ test("changed settings take effect on the agent's next call by reopening its ses
   await runtime.startRound(groupId, "q2", ["claude", "codex"]).done;
   assert.deepEqual(adapters.codex!.calls[0]!.options.settings, { model: "large", effort: "high", permission: "yolo" });
 
-  // claude 的设置没变，会话接着用；变了以后关掉旧会话，用新设置恢复。
+  // claude's settings didn't change, so its session is reused; once they change, the old session is closed and resumed with the new settings.
   assert.equal(adapters.claude!.calls.length, 1);
   await store.update(groupId, (group) => {
     group.agents.claude!.settings = { model: "small", effort: null, permission: null };
@@ -345,7 +345,7 @@ test("compaction runs agents in order, skips agents without a session, and only 
   assert.deepEqual(adapters.codex!.compacted, ["codex-session-1"]);
   assert.deepEqual(adapters.claude!.compacted, ["claude-session-1"]);
   assert.deepEqual(adapters.grok!.calls, []);
-  // codex 每次用完就关进程，压缩也一样；claude 的会话留着复用。
+  // codex closes its process after every use, compaction included; claude's session is kept for reuse.
   assert.equal(adapters.codex!.sessions.at(-1)!.closed, true);
   assert.equal(adapters.claude!.sessions.length, 1);
   assert.deepEqual(store.transcript(groupId).slice(-3).map((entry) => [entry.from, entry.text]), [
@@ -361,7 +361,7 @@ test("compaction runs agents in order, skips agents without a session, and only 
     "compact.ended",
   ]);
 
-  // 提示不转给任何 AI。
+  // Notices aren't forwarded to any AI.
   await runtime.startRound(groupId, "q2", ["grok"]).done;
   assert.ok(!adapters.grok!.received[0]!.includes("压缩"));
 });
@@ -597,7 +597,7 @@ test("agent.settled comes after the native id is saved and the process is closed
   };
   const settled: { nativeId: string | null; closed: boolean | undefined }[] = [];
   runtime.onEvent((event) => {
-    // 发言已经写进记录、进程还没关：这段空隙里 usage 也拿不到会话。
+    // The reply is already in the record but the process isn't closed yet: in this gap usage can't get the session either.
     if (event.type === "entry.appended" && event.entry.from.role === "agent") {
       void runtime.readUsage(groupId, "codex", "view");
     }
@@ -614,7 +614,7 @@ test("agent.settled comes after the native id is saved and the process is closed
     { nativeId: "codex-session-1", closed: true },
     { nativeId: "codex-session-1", closed: true },
   ]);
-  // 空隙里的 usage 没有拉起进程：只有两次发言各开了一次。
+  // usage in the gap didn't start a process: only the two replies opened one each.
   assert.deepEqual(gap, [null, null]);
   assert.deepEqual(adapter.calls.map((call) => call.kind), ["start", "resume"]);
 });

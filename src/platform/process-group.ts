@@ -4,19 +4,19 @@ import type { ChildProcess } from "node:child_process";
 import type { SpawnedProcess, SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
 
 /**
- * 关闭运行时的进程退出屏障，Linux 与 macOS 共用同一套实现。
+ * Process exit barrier for closing the runtime, with one implementation shared by Linux and macOS.
  *
- * 要点有两个，缺一不可：
- * - **必须带走整棵进程树**：Claude Code 会 spawn bash 等工具子进程，只杀 CLI 本身
- *   会留下孤儿，而孤儿仍可能持有工作目录或继续写会话文件——正是这道 barrier 要防的事
- * - **不能只发一次信号就认为结束了**：20ms 轮询一次，最多等 2000ms，
- *   仍未退出则升级 `SIGKILL`，再等 1000ms
+ * Two points, both required:
+ * - **The whole process tree must go**: Claude Code spawns bash and other tool subprocesses; killing only the CLI
+ *   leaves orphans, which may still hold the working directory or keep writing session files, exactly what this barrier prevents
+ * - **One signal doesn't mean it's over**: poll every 20ms for up to 2000ms;
+ *   if it still hasn't exited, escalate to `SIGKILL` and wait another 1000ms
  *
- * 做法是 `detached: true`：子进程成为新 POSIX 进程组的组长，它的 pid 同时是进程组 id，
- * 向负 pid 发信号即可覆盖整组。不枚举系统进程表，因此不依赖 `/proc`，也不需要 `ps`。
+ * The approach is `detached: true`: the child becomes leader of a new POSIX process group, its pid is also the process group id,
+ * and signaling the negative pid covers the whole group. The system process table isn't enumerated, so there is no dependency on `/proc` or `ps`.
  *
- * 边界：工具若自行 `setsid` 再次脱离进程组，就不在这道屏障的覆盖范围内。系统服务停止、
- * 空闲回收和应用内删除都必须走主动清理，不能指望 systemd 或 launchd 在宿主退出后代为收尾。
+ * Limit: a tool that calls `setsid` to leave the process group again is outside this barrier's reach. Service stop,
+ * idle reclamation and in-app deletion must all clean up actively; systemd or launchd can't be relied on to finish up after the host exits.
  */
 
 const POLL_INTERVAL_MS = 20;
@@ -27,16 +27,16 @@ const STDERR_TAIL_LIMIT = 8_192;
 type ExitListener = (code: number | null, signal: NodeJS.Signals | null) => void;
 type ErrorListener = (error: Error) => void;
 
-/** 一个长驻 Query 对应一个实例：持有它启动的进程组，并负责确认该组退出。 */
+/** One instance per long-lived Query: holds the process group it started and is responsible for confirming that group has exited. */
 export class ProcessGroup {
   #processGroupId: number | null = null;
   #stderrTail = "";
 
   /**
-   * 交给 SDK 的 `Options.spawnClaudeCodeProcess`。命令、参数、工作目录和环境全部沿用
-   * SDK 给出的值，只改两件事：放进独立进程组，以及把信号打到整组。
+   * Passed to the SDK's `Options.spawnClaudeCodeProcess`. The command, arguments, working directory and environment are all
+   * the SDK's values; only two things change: it runs in its own process group, and signals go to the whole group.
    *
-   * 注意：一旦提供这个回调，SDK 就不再自动附加它自己的 `--debug-file`。
+   * Note: once this callback is provided, the SDK no longer adds its own `--debug-file` automatically.
    */
   readonly spawn = (options: SpawnOptions): SpawnedProcess => {
     const child = spawn(options.command, options.args, {
@@ -46,21 +46,21 @@ export class ProcessGroup {
       detached: true,
       windowsHide: true,
     });
-    // spawn 失败时拿不到 pid，此时没有任何已启动的进程组需要等待。
+    // A failed spawn yields no pid, so there is no started process group to wait for.
     this.#processGroupId = child.pid ?? null;
 
-    // `SpawnedProcess` 不含 stderr，SDK 不会替自定义 spawn 读它；没人读就会写满管道
-    // 把 CLI 卡住。只留有上限的尾部供服务端故障日志使用。
+    // `SpawnedProcess` has no stderr, and the SDK doesn't read it for a custom spawn; if nobody reads it the pipe fills up
+    // and stalls the CLI. Only a bounded tail is kept for server failure logs.
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
       this.#stderrTail = `${this.#stderrTail}${chunk}`.slice(-STDERR_TAIL_LIMIT);
     });
     child.stderr.on("error", () => {
-      // 子进程退出过程中管道读失败是正常的，不该把后端带走。
+      // Pipe read failures while the child exits are normal and shouldn't take down the backend.
     });
 
-    // 这个 signal 由 SDK 转发，只在它自己的 stdin EOF + 宽限期走完之后才 abort，
-    // 所以直接强杀整组。不能交给 Node 的 `spawn({ signal })`：那只会杀组长。
+    // This signal is forwarded by the SDK and only aborts after its own stdin EOF plus grace period,
+    // so kill the whole group outright. It can't be left to Node's `spawn({ signal })`, which only kills the leader.
     options.signal.addEventListener("abort", () => {
       signalGroup(this.#processGroupId, "SIGKILL");
     }, { once: true });
@@ -77,8 +77,8 @@ export class ProcessGroup {
       get signalCode(): NodeJS.Signals | null {
         return child.signalCode;
       },
-      // SDK 正常关闭时依次发 SIGTERM、SIGKILL；打到整组才能带走工具子进程。
-      // 进程组已经不存在时退回单进程，让 SDK 的 killed 语义保持正常。
+      // On a normal close the SDK sends SIGTERM then SIGKILL; only hitting the whole group takes down the tool subprocesses.
+      // When the process group no longer exists, fall back to the single process so the SDK's killed semantics stay intact.
       kill: (signal: NodeJS.Signals): boolean =>
         signalGroup(this.#processGroupId, signal) || child.kill(signal),
       on: bindEvent(child, "on"),
@@ -87,24 +87,24 @@ export class ProcessGroup {
     };
   };
 
-  /** 组长 pid，同时是进程组 id；spawn 未取得 pid 时为 null。 */
+  /** Leader pid, which is also the process group id; null when spawn got no pid. */
   get processGroupId(): number | null {
     return this.#processGroupId;
   }
 
-  /** 有上限的 stderr 尾部，只用于服务端日志，不送往浏览器。 */
+  /** Bounded tail of stderr, for server logs only, never sent to the browser. */
   get stderrTail(): string {
     return this.#stderrTail;
   }
 
   /**
-   * 杀掉整个进程组并**确认**它真的不在了。
-   * 返回 false 表示仍有进程活着，或者存在但无权发信号，调用方据此判定关闭失败。
+   * Kills the whole process group and **confirms** it is really gone.
+   * Returning false means a process is still alive, or exists but can't be signaled; callers treat that as a failed close.
    */
   async terminate(): Promise<boolean> {
     const processGroupId = this.#processGroupId;
-    // 从未取得 pid：要么根本没调用过 spawn，要么 spawn 在启动前就失败了。
-    // 这是唯一可以在没有进程组的情况下明确判定「无需等待」的分支。
+    // Never got a pid: either spawn was never called, or it failed before starting.
+    // This is the only branch where "no need to wait" can be decided without a process group.
     if (processGroupId === null) return true;
     if (!groupExists(processGroupId)) return true;
 
@@ -116,10 +116,10 @@ export class ProcessGroup {
 }
 
 /**
- * 进程组是否还有成员。
+ * Whether the process group still has members.
  *
- * `-1` 表示「所有进程」、`0` 表示「本进程组」，都必须挡在外面，否则一次误判就会
- * 把整台机器或服务自己打掉。
+ * `-1` means "all processes" and `0` means "this process group"; both must be rejected, or a single mistake would
+ * take down the whole machine or the service itself.
  */
 export function groupExists(processGroupId: number | null): boolean {
   if (processGroupId === null || !Number.isInteger(processGroupId) || processGroupId <= 1) {
@@ -129,7 +129,7 @@ export function groupExists(processGroupId: number | null): boolean {
     process.kill(-processGroupId, 0);
     return true;
   } catch (error) {
-    // EPERM 说明组还在、只是不归我们管；只有 ESRCH 才是真的空了。
+    // EPERM means the group still exists but isn't ours; only ESRCH means it is really empty.
     return errorCode(error) === "EPERM";
   }
 }
@@ -142,11 +142,11 @@ function signalGroup(
     return false;
   }
   try {
-    // 只要组里还有成员，内核就不会把这个 pid 重新分配出去，负 pid 不会误伤别人。
+    // As long as the group has members, the kernel won't reassign this pid, so a negative pid can't hit anyone else.
     process.kill(-processGroupId, signal);
     return true;
   } catch {
-    return false; // 已经退出的进程组再发一次信号不算错误。
+    return false; // Signaling an already-exited process group again isn't an error.
   }
 }
 
@@ -160,8 +160,8 @@ async function pollUntilGone(processGroupId: number, budgetMs: number): Promise<
 }
 
 /**
- * 这里的定时器**不能 unref**：关机时它往往是事件循环里唯一剩下的东西，
- * unref 掉会让 Node 直接退出、barrier 的等待永远不结算——等于没等。
+ * The timer here **must not be unref'd**: at shutdown it is often the only thing left in the event loop;
+ * unref'ing it lets Node exit outright and the barrier's wait never settles, which is the same as not waiting.
  */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {

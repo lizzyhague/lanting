@@ -1,4 +1,4 @@
-/** 把回调式的事件转成可以 for await 的事件流。只能被一个消费者迭代一次。 */
+/** Turns callback-style events into an event stream usable with for await. Can be iterated only once, by one consumer. */
 export class EventChannel<T> implements AsyncIterable<T> {
   readonly #items: T[] = [];
   #wake: (() => void) | null = null;

@@ -24,9 +24,9 @@ const RECONNECT_DELAY_MS = 3_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const DIRECTORY_KEY = "lanting.directory";
 const SIDEBAR_COLLAPSED_KEY = "lanting.sidebar-collapsed";
-/** 离底部不到这么多像素时，新内容到来自动滚到底；用户往上翻时不打扰。 */
+/** Within this many pixels of the bottom, new content auto-scrolls to the bottom; scrolling up is left alone. */
 const STICK_TO_BOTTOM_PX = 80;
-/** 照 ai-remote-upload 的限制。 */
+/** Matches ai-remote-upload's limit. */
 const MAX_UPLOAD_BYTES = 25 * 1_048_576;
 const MAX_MESSAGE_ATTACHMENTS = 100;
 const GROUP_SELECTION_RESTORE_DELETING_MESSAGE = "选中的群里有正在永久删除的，不能恢复。";
@@ -166,7 +166,7 @@ const elements = {
 };
 
 const state = {
-  /** 每次重新连接加一，旧连接的回调据此作废。 */
+  /** Incremented on every reconnect; callbacks from older connections are discarded by it. */
   generation: 0,
   socket: null,
   authenticated: false,
@@ -175,65 +175,65 @@ const state = {
   nextRequestId: 1,
   pending: new Map(),
 
-  /** lanting 支持的 CLI 种类及当前是否配置。 */
+  /** CLI kinds lanting supports and whether each is configured. */
   agentKinds: [],
-  /** 后端下发的主色表。 */
+  /** Primary color table sent by the backend. */
   palette: [],
   directories: [],
-  /** 群摘要，按 id 存。 */
+  /** Group summaries, keyed by id. */
   groups: new Map(),
-  /** 新建群时勾选的 AI。 */
+  /** AIs checked when creating a group. */
   createMembers: new Set(),
-  /** 后端的设置：{ username, agents, initialized, createMembers, collaboration } */
+  /** Backend settings: { username, agents, initialized, createMembers, collaboration } */
   settings: null,
-  /** 设置页用的模型和权限列表，按“内部 id:CLI 种类”存。 */
+  /** Model and permission lists for the settings page, keyed by "internal id:CLI kind". */
   settingsCatalogs: new Map(),
   savingDefaults: new Set(),
-  /** 同一条记录可能因名字失焦和另一个控件变化而同时有多个请求。 */
+  /** One record may have several requests at once, e.g. a name blur and another control changing. */
   savingAgents: new Map(),
   settingsActionBusy: false,
-  /** 进行中的单项保存；顶部按钮先等它们结束，再按最新列表操作。 */
+  /** Per-item saves in flight; the top buttons wait for them, then act on the latest list. */
   settingsSaves: new Set(),
-  /** 焦点还在输入框或下拉框里时跳过了一次重绘，焦点离开列表后补上。 */
+  /** A redraw was skipped while focus was in an input or select; it is done once focus leaves the list. */
   settingsRenderPending: false,
   selectedAgentId: null,
   openColorAgentId: null,
-  /** 当前设置弹窗里展开默认模型和权限的 AI。 */
+  /** The AI whose default model and permission are expanded in the settings dialog. */
   expandedSettingsAgents: new Set(),
-  /** 名字请求失败后保留用户输入，不被后端快照冲掉。 */
+  /** Keeps the user's input after a failed name request so the backend snapshot doesn't overwrite it. */
   settingsNameDrafts: new Map(),
-  /** 每条 AI 当前的字段错误，键是内部 id。 */
+  /** Current field errors per AI, keyed by internal id. */
   settingsErrors: new Map(),
-  /** 当前群输入框里待发的附件：{ localId, name, status: uploading|done|failed, attachment, error } */
+  /** Attachments pending in the current group's input: { localId, name, status: uploading|done|failed, attachment, error } */
   drafts: [],
   createBusy: false,
-  /** 侧栏显示哪一类：groups（最近）、archived（归档）或 trash（回收站）。 */
+  /** Which list the sidebar shows: groups (recent), archived, or trash. */
   listView: "groups",
   searchTimer: null,
   sidebarCollapsed: stateGet(SIDEBAR_COLLAPSED_KEY) === "1",
 
   currentGroupId: null,
-  /** 正在等订阅响应的群；换群时旧群已先退订，面板上的群只是还没换下来。 */
+  /** Group awaiting a subscribe response; when switching, the old group is unsubscribed first and the panel just hasn't swapped yet. */
   openingGroupId: null,
-  /** 当前打开的群：{ group, transcript, round, compaction, approvals: Map } */
+  /** The open group: { group, transcript, round, compaction, approvals: Map } */
   current: null,
-  /** 当前群的点名顺序（按钮按下的先后），以后端保存的为准。 */
+  /** Call order for the current group (order the buttons were pressed); the backend's saved value wins. */
   callOrder: [],
-  /** 点名正在保存：成员按钮和发送按钮都锁住。 */
+  /** Call order is being saved: member buttons and the send button are locked. */
   savingOrder: false,
-  /** 自动移除未接入成员的保存刚失败；恢复后重画时不要立刻再发同一个请求。 */
+  /** Saving the automatic removal of disconnected members just failed; don't resend the same request right away on redraw after recovery. */
   skipUnavailableOrderSave: false,
   sending: false,
   interrupting: false,
-  /** 成员面板用的模型和权限列表，按 “群 id:AI” 存；值为 { catalog } 或 { error }。 */
+  /** Model and permission lists for the member panel, keyed by "group id:AI"; values are { catalog } or { error }. */
   catalogs: new Map(),
-  /** 正在保存设置的 AI，它的下拉框锁住。 */
+  /** AI whose settings are being saved; its selects are locked. */
   savingSettings: new Set(),
-  /** 当前打开设置框的 AI。 */
+  /** AI whose settings dialog is open. */
   openAgent: null,
-  /** + 菜单当前在哪一级：root、compact、settings 或 usage。 */
+  /** Current level of the + menu: root, compact, settings, or usage. */
   plusLevel: "root",
-  /** 审批卡片倒计时的定时器；没有待批的审批时为 null。 */
+  /** Countdown timer for approval cards; null when no approvals are pending. */
   countdownTimer: null,
 };
 
@@ -275,7 +275,7 @@ const selectionBar = createSelectionBar({
 
 elements.appView.dataset.sidebarCollapsed = String(state.sidebarCollapsed);
 
-/* ---------- 登录与连接 ---------- */
+/* ---------- Login and connection ---------- */
 
 elements.tokenForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -379,9 +379,9 @@ async function connect(token) {
     try {
       await loadAppState();
       await request("connection.ready");
-      // 断线重连后回到原来的群，按快照补齐。
+      // After reconnecting, return to the previous group and fill in from the snapshot.
       if (state.currentGroupId) {
-        // 断线期间这个群可能被归档或删了。
+        // The group may have been archived or deleted while disconnected.
         const group = state.groups.get(state.currentGroupId);
         if (!group || group.archived || group.trashedAt) closeGroup();
         else await openGroup(state.currentGroupId, { keepPane: true });
@@ -474,7 +474,7 @@ function handleSocketMessage(data) {
   if (message.type === "event") handleEvent(message.event);
 }
 
-/* ---------- 事件 ---------- */
+/* ---------- Events ---------- */
 
 function handleEvent(event) {
   switch (event.type) {
@@ -489,14 +489,14 @@ function handleEvent(event) {
     case "group.created":
     case "group.updated":
       state.groups.set(event.group.id, event.group);
-      // 群被归档或移进回收站（可能是别的设备操作的），正开着的这个群就关掉。
+      // The group was archived or moved to trash (possibly from another device); close it if it is open.
       if ((event.group.archived || event.group.trashedAt) && event.group.id === state.currentGroupId) closeGroup();
       renderGroupList();
       if (state.current && event.group.id === state.currentGroupId) {
-        // 换了 usage 成员，旧成员的结果不能留着。
+        // The usage member changed; the old member's result can't be kept.
         if (state.current.group.usageAgent !== event.group.usageAgent) state.current.usage = null;
         state.current.group = event.group;
-        // 别的设备改了点名，跟着后端走；自己正在保存时以保存结果为准。
+        // Another device changed the call order: follow the backend; while saving locally, the save result wins.
         if (!state.savingOrder) {
           state.callOrder = [...event.group.callOrder];
           renderCallPicks();
@@ -587,7 +587,7 @@ function handleEvent(event) {
   }
 }
 
-/* ---------- 应用状态与新建群 ---------- */
+/* ---------- App state and group creation ---------- */
 
 async function loadAppState() {
   const data = await request("app.state");
@@ -675,7 +675,7 @@ elements.directorySelect.addEventListener("change", () => {
   selectionBar.setView("groups");
   elements.groupSearchInput.value = "";
   elements.listStatus.textContent = "";
-  // 换群途中旧群已经退订，即使目录对得上也不能留着它。
+  // The old group is already unsubscribed mid-switch; it can't be kept even if the directory matches.
   const switching = state.openingGroupId !== null && state.openingGroupId !== state.currentGroupId;
   if (switching || state.current?.group.directory !== directory) closeGroup();
   renderGroupList();
@@ -709,7 +709,7 @@ elements.createForm.addEventListener("submit", async (event) => {
   }
 });
 
-/* ---------- 群列表、选择、归档与回收站 ---------- */
+/* ---------- Group list, selection, archive and trash ---------- */
 
 function visibleGroups() {
   const directory = elements.directorySelect.value;
@@ -885,7 +885,7 @@ function groupPinIcon(pinned) {
   svg.setAttribute("aria-hidden", "true");
   svg.classList.add("group-pin-icon");
 
-  // 两个状态各用一副图形，避免把斜图钉旋转后裁出 viewBox；钉住时填实钉身。
+  // Each state has its own glyph so the tilted pin isn't rotated and clipped by the viewBox; the pinned glyph has a filled body.
   const LOOSE = {
     body: "M15 4.5l-4 4l-4 1.5l-1.5 1.5l7 7l1.5-1.5l1.5-4l4-4",
     needle: "M9 15l-4.5 4.5",
@@ -980,7 +980,7 @@ function agentDot(agent, group = state.current?.group) {
   return dot;
 }
 
-/* ---------- 打开群 ---------- */
+/* ---------- Opening a group ---------- */
 
 async function openGroup(groupId, { keepPane = false } = {}) {
   const previous = state.currentGroupId;
@@ -994,7 +994,7 @@ async function openGroup(groupId, { keepPane = false } = {}) {
   } finally {
     if (state.openingGroupId === groupId) state.openingGroupId = null;
   }
-  // 换目录会清空当前会话；订阅响应迟到时也不能把旧目录的群重新打开。
+  // Changing directory clears the current session; a late subscribe response must not reopen a group from the old directory.
   if (snapshot.group.directory !== elements.directorySelect.value) {
     void request("group.unsubscribe", { groupId }).catch(() => {});
     return;
@@ -1014,7 +1014,7 @@ async function openGroup(groupId, { keepPane = false } = {}) {
   if (switched) {
     elements.composerStatus.textContent = "";
     closePopovers();
-    // 附件绑定在群上，换群就清掉没发出去的。
+    // Attachments belong to a group; unsent ones are cleared when switching groups.
     state.drafts = [];
     renderDrafts();
   }
@@ -1031,7 +1031,7 @@ async function openGroup(groupId, { keepPane = false } = {}) {
   resizeComposer();
 }
 
-/** 点开跨目录的钉住群时，只同步目录框和列表，不先关掉正在切换的群。 */
+/** Opening a pinned group in another directory only syncs the directory box and list, without first closing the group being switched to. */
 async function openListedGroup(group) {
   if (group.archived || group.trashedAt) return;
   if (!state.directories.includes(group.directory)) {
@@ -1048,7 +1048,7 @@ async function openListedGroup(group) {
   await openGroup(group.id);
 }
 
-/** 当前的群被删了：回到空白页。 */
+/** The current group was deleted: go back to the blank page. */
 function closeGroup() {
   if (!state.currentGroupId) return;
   void request("group.unsubscribe", { groupId: state.currentGroupId }).catch(() => {});
@@ -1071,7 +1071,7 @@ function renderHeader() {
   renderUsage();
 }
 
-/** 标题栏的兰花：点一下切换 usage 行显示的成员，当前那一朵画一圈描边。 */
+/** Orchids in the title bar: a click switches the member shown in the usage row; the current one gets an outline. */
 function memberFlower(member, group) {
   const button = document.createElement("button");
   button.type = "button";
@@ -1096,7 +1096,7 @@ function memberFlower(member, group) {
   return button;
 }
 
-/** usage 行：各段之间用灰色竖线分开，行首不放兰花。 */
+/** Usage row: segments are separated by gray vertical bars; no orchid at the start of the row. */
 function renderUsage() {
   const current = state.current;
   const agent = visibleUsageAgent(current?.group);
@@ -1217,7 +1217,7 @@ mobileNavigationQuery.addEventListener("change", () => {
 });
 syncSidebarState();
 
-/* ---------- 时间线 ---------- */
+/* ---------- Timeline ---------- */
 
 function renderTimeline() {
   const current = state.current;
@@ -1411,9 +1411,9 @@ function keepBottom(change) {
   if (atBottom) timeline.scrollTop = timeline.scrollHeight;
 }
 
-/* ---------- 审批 ---------- */
+/* ---------- Approvals ---------- */
 
-/** 收到审批时按本机时钟定下截止时刻；剩余时间以服务端发来的 remainingMs 为准。 */
+/** The deadline is fixed by the local clock when an approval arrives; remaining time follows the server's remainingMs. */
 function withDeadline(approval) {
   const remainingMs = typeof approval.remainingMs === "number"
     ? approval.remainingMs
@@ -1487,7 +1487,7 @@ function stopCountdown() {
   state.countdownTimer = null;
 }
 
-/* ---------- 输入区 ---------- */
+/* ---------- Composer ---------- */
 
 function renderCallPicks() {
   const group = state.current?.group;
@@ -1511,7 +1511,7 @@ function renderCallPicks() {
   }));
 }
 
-/** 新建群和点名共用的成员按钮：叶子加名字，选中时叶子变实心、名字加粗。 */
+/** Member button shared by group creation and the call order: leaf plus name; when selected the leaf is filled and the name bold. */
 function agentPick(agent, colorId, name, selected) {
   const pick = document.createElement("button");
   pick.type = "button";
@@ -1526,7 +1526,7 @@ function agentPick(agent, colorId, name, selected) {
   return pick;
 }
 
-/** 每次点名变化都存到后端；保存期间锁住成员按钮和发送，失败时恢复成后端的状态。 */
+/** Every call order change is saved to the backend; member buttons and send are locked while saving, and the backend state is restored on failure. */
 async function saveCallOrder(order, removingUnavailable = false) {
   const current = state.current;
   if (!current || state.savingOrder) return;
@@ -1558,7 +1558,7 @@ function renderComposer() {
   renderPlusMenu();
   const current = state.current;
   const busy = Boolean(current?.group.busy || current?.round || current?.compaction);
-  // 压缩一旦开始不打断，只有发言能打断。
+  // Once compaction starts it isn't interrupted; only replies can be interrupted.
   const canInterrupt = busy && !Boolean(current?.compaction && !current?.round);
   const taskLabel = canInterrupt ? state.interrupting ? "正在停止" : "停止" : "发送";
   elements.taskButton.dataset.action = canInterrupt ? "stop" : "send";
@@ -1627,7 +1627,7 @@ async function interrupt() {
   }
 }
 
-/* ---------- + 菜单与成员设置框 ---------- */
+/* ---------- + menu and member settings dialog ---------- */
 
 function closePopovers() {
   elements.plusMenu.hidden = true;
@@ -1656,8 +1656,8 @@ elements.plusButton.addEventListener("click", () => {
 });
 
 document.addEventListener("click", (event) => {
-  // 用点击那一刻的祖先链判断：菜单在点击处理里重画后，被点的按钮已经不在页面上，
-  // 再从它往上找就找不到所属的菜单，会被误当成点在外面。
+  // Use the ancestor chain at click time: after the menu redraws in the click handler, the clicked button is no longer in the page,
+  // so walking up from it would not find its menu and the click would be mistaken for an outside click.
   const inside = event.composedPath().some((node) =>
     node instanceof Element && node.matches(".menu-anchor, .agent-panel, .settings-color-wrap")
   );
@@ -1676,7 +1676,7 @@ function groupBusy() {
   return Boolean(current?.group.busy || current?.round || current?.compaction);
 }
 
-/** + 菜单：群级的共用操作，分两级。压缩上下文点开后再选某个 AI 或全部。 */
+/** + menu: group-level shared actions, in two levels. Compact context opens a choice of one AI or all. */
 function renderPlusMenu() {
   const group = state.current?.group;
   if (!group || elements.plusMenu.hidden) return;
@@ -1694,7 +1694,7 @@ function renderPlusMenu() {
   };
   const compactItem = submenuItem("压缩上下文", "compact");
   const settingsItem = submenuItem("AI 设置", "settings");
-  // 没有能选的成员时不出现，不置灰。
+  // Hidden, not grayed out, when no member can be chosen.
   const usageItem = usageMembers.length > 0 ? submenuItem("AI usage", "usage") : null;
   const attachItem = menuItem("添加附件", null, !state.authenticated, () => {
     closePopovers();
@@ -1718,7 +1718,7 @@ function renderPlusMenu() {
     const choices = usageMembers.map((member) => {
       const selected = group.usageAgent === member;
       const item = menuItem(member, member, !state.authenticated, () => {
-        // 再点当前已选的成员等于关闭。
+        // Clicking the currently selected member again turns it off.
         closePopovers();
         void setUsageAgent(selected ? null : member);
       });
@@ -1812,7 +1812,7 @@ function catalogKey(groupId, agent) {
   return `${groupId}:${agent}`;
 }
 
-/** 每次点开都重新问一次；后端有缓存，不会每次都启动 CLI。 */
+/** Asks again on every open; the backend caches, so the CLI isn't started each time. */
 async function loadCatalog(agent) {
   const current = state.current;
   if (!current) return;
@@ -1842,7 +1842,7 @@ function closeAgentPanel() {
   elements.agentPanel.hidden = true;
 }
 
-/** 一个 AI 的设置框：模型、思考强度、权限，加单独压缩。只影响这个群。 */
+/** Settings dialog for one AI: model, reasoning effort, permission, plus individual compaction. Affects this group only. */
 function renderAgentPanel() {
   const group = state.current?.group;
   const agent = state.openAgent;
@@ -1851,7 +1851,7 @@ function renderAgentPanel() {
     closeAgentPanel();
     return;
   }
-  // 下拉框正打开时重画会把它收起来，等用户选完再画。
+  // Redrawing while a select is open would close it; wait until the user has chosen.
   if (elements.agentPanel.contains(document.activeElement) && document.activeElement?.tagName === "SELECT") return;
   elements.agentPanel.dataset.agent = agent;
   paintAgent(elements.agentPanel, memberColor(group, agent));
@@ -1926,7 +1926,7 @@ function memberRow(group, agent) {
   return row;
 }
 
-/** 模型、思考强度、权限三个下拉框，加当前权限的说明。成员设置框和设置页共用。 */
+/** Model, reasoning effort and permission selects, plus a description of the current permission. Shared by the member settings dialog and the settings page. */
 function settingControls(catalog, settings, locked, supports, save, unavailable = false) {
   const model = catalog.models.find((item) => item.id === settings.model) ?? null;
   const modelSelect = settingSelect("模型", settings.model, catalog.models.map((item) => ({
@@ -1949,7 +1949,7 @@ function settingControls(catalog, settings, locked, supports, save, unavailable 
   modelSelect.select.addEventListener("change", () => {
     const nextModel = modelSelect.select.value || null;
     const efforts = catalog.models.find((item) => item.id === nextModel)?.efforts ?? [];
-    // 新模型不支持原来的思考强度时，回到默认。
+    // When the new model doesn't support the previous reasoning effort, fall back to the default.
     const effort = nextModel && efforts.includes(settings.effort) ? settings.effort : null;
     save({ ...settings, model: nextModel, effort });
   });
@@ -1965,7 +1965,7 @@ function settingControls(catalog, settings, locked, supports, save, unavailable 
   return controls;
 }
 
-/** 第一项显示“默认”或不可用原因；可用时，当前值不在列表里也照样显示出来。 */
+/** The first option shows "default" or the reason it is unavailable; when available, the current value is shown even if it isn't in the list. */
 function settingSelect(labelText, value, options, disabled, defaultLabel = "默认") {
   const label = document.createElement("label");
   label.className = "setting";
@@ -2012,7 +2012,7 @@ async function saveSettings(agent, settings) {
   }
 }
 
-/* ---------- 设置 ---------- */
+/* ---------- Settings ---------- */
 
 elements.settingsButton.addEventListener("click", () => {
   if (!state.settings) return;
@@ -2033,7 +2033,7 @@ elements.settingsButton.addEventListener("click", () => {
   loadAvailableSettingsCatalogs();
 });
 
-// 外观只存在当前浏览器，由 theme.js 负责读写和应用；它没加载时不显示这一项。
+// Appearance is stored only in the current browser; theme.js reads, writes and applies it. This item is hidden when it isn't loaded.
 function renderThemeChoice() {
   const theme = window.lantingTheme;
   elements.themeSetting.hidden = !theme;
@@ -2061,7 +2061,7 @@ elements.usernameInput.addEventListener("input", () => {
   elements.usernameStatus.textContent = "";
 });
 
-// 保存按钮只有图标：保存成功后对勾短暂变色，提示文字同步改为“已保存”。
+// The save button is icon-only: after a successful save the check mark briefly changes color and the label changes to "saved".
 function flashSaved(button) {
   button.dataset.saved = "true";
   button.setAttribute("aria-label", "已保存");
@@ -2360,7 +2360,7 @@ function selectSettingsAgent(agentId) {
 function updateSettingsActions() {
   const ids = state.settings?.agents.map((agent) => agent.id) ?? [];
   const index = ids.indexOf(state.selectedAgentId);
-  // 单项保存进行中时不禁用：名字失焦发出的保存就发生在按下按钮和 click 之间。
+  // Not disabled while a per-item save is in flight: the save triggered by a name blur happens between pressing the button and the click.
   const busy = state.settingsActionBusy || !state.authenticated;
   elements.settingsAddButton.disabled = busy || ids.length >= 12;
   elements.settingsRemoveButton.disabled = busy || index < 0;
@@ -2368,7 +2368,7 @@ function updateSettingsActions() {
   elements.settingsDownButton.disabled = busy || index < 0 || index === ids.length - 1;
 }
 
-/** 顶部按钮的操作先占住 settingsActionBusy，再等进行中的单项保存结束。 */
+/** Top button actions first claim settingsActionBusy, then wait for per-item saves in flight to finish. */
 async function beginSettingsAction() {
   if (!state.settings || state.settingsActionBusy) return false;
   state.settingsActionBusy = true;
@@ -2390,7 +2390,7 @@ function trackSettingsSave(promise) {
 }
 
 elements.settingsAgentList.addEventListener("focusout", () => {
-  // 等新焦点落定；焦点离开列表后才补重绘，不在点击途中换掉目标控件。
+  // Wait for the new focus to settle; redraw only after focus leaves the list, so the target control isn't replaced mid-click.
   setTimeout(() => {
     if (state.settingsRenderPending && !elements.settingsAgentList.contains(document.activeElement)) {
       renderSettingsDialog();
@@ -2457,7 +2457,7 @@ async function saveAgentName(agentId, value) {
   const agent = settingsAgent(agentId);
   if (!agent) return;
   if (value === agent.name) {
-    // 这里在失焦时同步执行，新焦点还没落定，不能重绘，只就地更新这一行。
+    // This runs synchronously on blur before the new focus settles, so it can't redraw; update just this row in place.
     state.settingsNameDrafts.delete(agentId);
     clearSettingsFieldError(agentId, "name");
     syncSettingsRowError(agentId);
@@ -2529,7 +2529,7 @@ async function sendDefaults(agentId, settings) {
   }
 }
 
-/** 重绘被跳过时，也要把这一行的错误标记和文字就地更新。 */
+/** When a redraw is skipped, this row's error state and text still have to be updated in place. */
 function syncSettingsRowError(agentId) {
   const row = elements.settingsAgentList.querySelector(`[data-agent-id="${agentId}"]`);
   if (!row) return;
@@ -2585,7 +2585,7 @@ function setSettingsError(error, fallbackAgentId, fallbackField) {
   }
 }
 
-/* ---------- 附件 ---------- */
+/* ---------- Attachments ---------- */
 
 let nextDraftId = 1;
 
@@ -2607,7 +2607,7 @@ elements.fileInput.addEventListener("change", () => {
   renderComposer();
 });
 
-/** 先在 WebSocket 上要一张票据，再把文件原样传给后端，由后端转交 ai-remote-upload。 */
+/** First request a ticket over the WebSocket, then send the file as-is to the backend, which forwards it to ai-remote-upload. */
 async function upload(current, draft, file) {
   try {
     if (file.size > MAX_UPLOAD_BYTES) throw new Error("单个文件不能超过 25 MiB。");
@@ -2661,12 +2661,12 @@ function renderDrafts() {
   if (failed) elements.composerStatus.textContent = `${failed.name} 上传失败：${failed.error}`;
 }
 
-/* ---------- 重命名 ---------- */
+/* ---------- Rename ---------- */
 
-/** 弹窗打开后群可能切换；提交始终改打开弹窗时认下的群。 */
+/** The group may change after the dialog opens; submit always renames the group captured when the dialog opened. */
 let renamingGroupId = null;
 
-/** 只改 lanting 里的群名，各 AI 的原生会话名不动。 */
+/** Only renames the group in lanting; each AI's native session name is left alone. */
 function openRenameDialog(group) {
   if (!group || group.archived || group.trashedAt || group.deleting) return;
   renamingGroupId = group.id;
@@ -2709,7 +2709,7 @@ elements.renameForm.addEventListener("submit", async (event) => {
   }
 });
 
-/* ---------- 杂项 ---------- */
+/* ---------- Misc ---------- */
 
 function memberColor(group, agent) {
   return group?.colors?.[agent] ?? null;
@@ -2744,7 +2744,7 @@ function setConnectionStatus(stateName, text) {
   elements.connectionStatus.textContent = text;
 }
 
-/** 登录卡片的状态行：普通提示、进行中和错误分别使用自己的颜色。 */
+/** Status line of the login card: plain notices, progress and errors each use their own color. */
 function setLoginStatus(text, tone = null) {
   elements.loginStatus.textContent = text;
   if (tone) elements.loginStatus.dataset.tone = tone;
@@ -2767,6 +2767,6 @@ function stateSet(key, value) {
   try {
     localStorage.setItem(key, value);
   } catch {
-    // 浏览器禁用本地存储时，当前页面仍可继续使用。
+    // If the browser disables local storage, the current page keeps working.
   }
 }

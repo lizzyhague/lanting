@@ -4,47 +4,47 @@ import type { AgentSettings } from "../agents/types.ts";
 import type { StoredAttachment } from "../attachments/prompt.ts";
 
 export type AgentState = {
-  /** 建群时冻结的 CLI 种类。 */
+  /** CLI kind frozen when the group was created. */
   kind: AgentKind;
-  /** 建群时冻结的主色。 */
+  /** Primary color frozen when the group was created. */
   color: PaletteId;
-  /** CLI 的原生会话 id；还没开过会话时为 null。 */
+  /** The CLI's native session id; null before a session has been opened. */
   nativeSessionId: string | null;
   /**
-   * 这个 AI 已经看到群聊记录的哪一条（seq）。0 表示什么都没看到，
-   * 第一次被点名时会收到开群以来的全部内容。
+   * Which chat record entry (seq) this AI has seen up to. 0 means it has seen nothing
+   * and will receive everything since the group was created the first time it is called on.
    */
   cursor: number;
-  /** 这个群里给它选的模型、思考强度和权限，只影响这个群。 */
+  /** Model, reasoning effort and permission chosen for it in this group; affects this group only. */
   settings: AgentSettings;
 };
 
 export type Group = {
   id: string;
   title: string;
-  /** 群里所有 AI 的工作目录，绝对路径。 */
+  /** Working directory of every AI in the group, as an absolute path. */
   cwd: string;
-  /** 建群时的用户名，之后不再改变。 */
+  /** Username at group creation; never changes afterwards. */
   username: string;
-  /** 冻结标签：建群时从 AI 名字复制，之后不变；按建群时的设置顺序。 */
+  /** Frozen tags: copied from the AI names at group creation and unchanged afterwards; in the settings order at creation time. */
   members: string[];
-  /** 上一次的点名顺序。 */
+  /** The previous call order. */
   callOrder: string[];
   agents: Record<string, AgentState>;
   createdAt: string;
-  /** 最后活动时间，用于把最近动过的群排在前面。 */
+  /** Last activity time, used to put recently active groups first. */
   updatedAt: number;
-  /** 是否固定显示在最近群会话顶部。 */
+  /** Whether the group is pinned to the top of recent groups. */
   pinned: boolean;
-  /** 是否从最近群会话移到归档。 */
+  /** Whether the group has been moved from recent groups to the archive. */
   archived: boolean;
-  /** 标题栏下面 usage 行显示哪个成员；null 表示关闭。 */
+  /** Which member the usage row under the title bar shows; null means off. */
   usageAgent: string | null;
-  /** 移入回收站的时间；不在回收站时为 null。到期时间由它推出来，不另存。 */
+  /** When the group was moved to trash; null when it isn't in trash. The expiry time is derived from it and not stored separately. */
   trashedAt: string | null;
   /**
-   * 开始永久删除的时间。删到一半失败时留着，服务启动和下一次扫描时接着删；
-   * 这期间群不能恢复，也不能做别的操作。
+   * When permanent deletion started. Kept if deletion fails halfway; deletion continues at service startup and on the next scan.
+   * Meanwhile the group can't be restored or used for anything else.
    */
   deletingAt: string | null;
 };
@@ -52,29 +52,29 @@ export type Group = {
 export type Speaker =
   | { role: "host" }
   | { role: "agent"; agent: string }
-  /** 群里的提示（比如压缩了谁的上下文），只给群主看，不转给任何 AI。 */
+  /** Group notice (e.g. whose context was compacted), visible only to the group owner and never forwarded to any AI. */
   | { role: "notice"; agent: string };
 
 export type ReplyStatus = "completed" | "interrupted" | "failed";
 
 export type TranscriptEntry = {
-  /** 从 1 开始，按追加顺序递增。 */
+  /** Starts at 1 and increases in append order. */
   seq: number;
   at: string;
   from: Speaker;
   text: string;
-  /** 只有 AI 的发言有。只有 completed 的回复会转给其他 AI。 */
+  /** Only present on AI replies. Only completed replies are forwarded to other AIs. */
   status?: ReplyStatus;
   error?: string;
-  /** 这次发言的过程信息（工具调用等），只给群主看，不转给其他 AI。 */
+  /** Progress info for this reply (tool calls, etc.), visible only to the group owner and not forwarded to other AIs. */
   activities?: Activity[];
-  /** 群主这一条带的附件。路径只留在后端。 */
+  /** Attachments on this message from the group owner. Paths stay on the backend only. */
   attachments?: StoredAttachment[];
   /**
-   * 带附件的那一轮点了谁。这些 AI 收到附件本身；之后才被点名的 AI 只看到一行附件说明。
+   * Who was called in the round with the attachments. These AIs receive the attachments themselves; AIs called later only see a one-line attachment note.
    */
   recipients?: string[];
 };
 
-/** 由各家适配决定内容，至少带 kind。 */
+/** Content is decided by each adapter; carries at least kind. */
 export type Activity = Record<string, unknown> & { kind: string };

@@ -5,13 +5,13 @@ import { AGENT_KINDS, type AgentKind } from "../agents/kinds.ts";
 import { expandHome, requireString } from "./fields.ts";
 
 export type AppConfig = {
-  /** 新建群时，工作目录从这个目录下的第一层文件夹里选。 */
+  /** When creating a group, the working directory is chosen from the top-level folders under this directory. */
   projectRoot: string;
-  /** 各种 CLI 的路径。没有配置的种类不接入。 */
+  /** Paths to each CLI. Kinds without a configured path aren't connected. */
   agents: Record<string, Record<string, unknown>>;
 };
 
-/** 这台机器已经配置的 CLI 种类，始终按代码里的固定顺序返回。 */
+/** CLI kinds configured on this machine, always returned in the fixed order defined in code. */
 export function configuredKinds(config: AppConfig): AgentKind[] {
   return AGENT_KINDS.filter((kind) => config.agents[kind] !== undefined);
 }

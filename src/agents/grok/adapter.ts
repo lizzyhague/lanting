@@ -20,20 +20,20 @@ import { AcpClient, type AcpPermissionRequest, type AcpUpdate } from "./acp-clie
 
 export type GrokAdapterOptions = {
   executable: string;
-  /** Grok 保存会话的根目录，默认取 GROK_HOME，没有就是 ~/.grok。 */
+  /** Root directory where Grok stores sessions; defaults to GROK_HOME, otherwise ~/.grok. */
   grokHome?: string;
 };
 
-/** session/cancel 之后等这么久这一轮还没结束，就直接关掉 Grok 进程。 */
+/** If the round hasn't ended this long after session/cancel, the Grok process is closed outright. */
 const INTERRUPT_TIMEOUT_MS = 10_000;
 const EXIT_WAIT_MS = 8_000;
 
-/** Grok 要直接问用户问题的工具。群聊里有问题写在回复里，这类请求一律取消。 */
+/** Grok tools that ask the user a question directly. In the group chat questions go in the reply, so these requests are always cancelled. */
 const HUMAN_TOOL_NAMES = new Set(["ask_user_question", "ask_user", "request_user_input", "elicitation"]);
 
 /**
- * 照 Grok Remote 只有两档。always-approve 时开会话带 yoloMode，
- * 仍然送到 lanting 的审批（直接提问的除外）也自动放行。
+ * As in Grok Remote there are only two levels. With always-approve the session opens with yoloMode,
+ * and approvals that still reach lanting (except direct questions) are allowed automatically.
  */
 export const GROK_PERMISSIONS: readonly PermissionOption[] = [
   { id: "ask", label: "逐次确认", description: "需要确认的工具调用都由群主在网页上批准。" },
@@ -49,7 +49,7 @@ const ALWAYS_APPROVE = "always-approve";
 
 export class GrokAdapter implements AgentAdapter {
   readonly kind = "grok";
-  /** 照 Grok Remote：每轮结束就关掉 Grok 进程。 */
+  /** As in Grok Remote: the Grok process is closed after every round. */
   readonly closeAfterTurn = true;
   readonly features: AgentFeatures = {
     compact: (session) => asOwnSession(session).compact(),
@@ -64,7 +64,7 @@ export class GrokAdapter implements AgentAdapter {
     this.#options = options;
   }
 
-  /** 照 Grok Remote：模型列表在 initialize 的返回里，不用开会话。 */
+  /** As in Grok Remote: the model list comes in the initialize response, no session needed. */
   #catalog(cwd: string): Promise<AgentCatalog> {
     return this.#catalogs.get("", async () => {
       const child = spawnGrok(this.#options.executable, cwd);
@@ -80,8 +80,8 @@ export class GrokAdapter implements AgentAdapter {
   }
 
   /**
-   * Grok 没有删除会话的 RPC。照 Grok Remote 删磁盘目录 `<GROK_HOME>/sessions/<分组>/<会话 id>`；
-   * 找不到目录就当作已经删掉了。
+   * Grok has no delete-session RPC. As in Grok Remote, delete the directory `<GROK_HOME>/sessions/<group>/<session id>` on disk;
+   * a missing directory counts as already deleted.
    */
   async #deleteSession(nativeId: string): Promise<void> {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(nativeId) || nativeId.includes("..")) {
@@ -112,15 +112,15 @@ function asOwnSession(session: AgentSession): GrokSession {
 
 type Turn = {
   channel: EventChannel<AgentEvent>;
-  /** 当前这一段 agent_message；下一个工具调用出现时转成过程信息。 */
+  /** The current agent_message segment; becomes progress info when the next tool call appears. */
   segment: string;
-  /** 群主已经要求打断；之后结束的这一轮按 interrupted 处理。 */
+  /** The group owner has asked to interrupt; the round that ends afterwards counts as interrupted. */
   interrupted: boolean;
 };
 
 /**
- * 每个原生会话一个独立的 `grok agent stdio` 子进程（独立进程组）。
- * 明文回复以这一轮最后一段 agent_message 为准，之前的过渡文字转成过程信息。
+ * One separate `grok agent stdio` subprocess (in its own process group) per native session.
+ * The plain reply is the round's last agent_message; earlier interim text becomes progress info.
  */
 class GrokSession implements AgentSession {
   readonly #process: ChildProcessWithoutNullStreams;
@@ -315,13 +315,13 @@ function spawnGrok(executable: string, cwd: string): ChildProcessWithoutNullStre
     detached: true,
     windowsHide: true,
   }) as ChildProcessWithoutNullStreams;
-  // 启动失败（比如路径不对）时 pid 为空，调用方会报“无法启动 Grok”；
-  // 不接住 error 事件的话，整个服务会因为未处理的 error 退出。
+  // On a failed launch (e.g. wrong path) pid is empty and the caller reports "can't start Grok";
+  // without catching the error event, the whole service would exit on an unhandled error.
   child.on("error", (error) => console.error(`Grok 进程出错：${error.message}`));
   return child;
 }
 
-/** initialize 返回的 `_meta.modelState.availableModels`，照 Grok Remote 读取。 */
+/** Reads `_meta.modelState.availableModels` from the initialize response, as Grok Remote does. */
 export function modelOptions(initialize: unknown): ModelOption[] {
   const models = objectField(objectField(objectField(initialize)._meta).modelState).availableModels;
   if (!Array.isArray(models)) return [];
@@ -344,7 +344,7 @@ function permissionOutcome(
   request: AcpPermissionRequest,
   answer: ApprovalAnswer,
 ): { outcome: "cancelled" } | { outcome: "selected"; optionId: string } {
-  // 只给一次性的允许或拒绝，不建立长期授权规则。
+  // Only one-time allow or reject; no long-term grant rules are created.
   const pick = (kind: string, pattern: RegExp) =>
     request.options.find((option) => option.kind === kind) ??
     request.options.find((option) => pattern.test(option.optionId) && !/always/i.test(option.optionId));
@@ -352,7 +352,7 @@ function permissionOutcome(
   return option ? { outcome: "selected", optionId: option.optionId } : { outcome: "cancelled" };
 }
 
-/** 过程信息的细节依次取命令、路径类参数、搜索词。 */
+/** Progress info details are taken from the command, then path-like arguments, then the search term. */
 const DETAIL_KEYS = [
   "command",
   "path",
@@ -371,7 +371,7 @@ const DETAIL_KEYS = [
   "keywords",
 ];
 
-/** 把 ACP 的 tool_call 缩成一行过程信息。 */
+/** Condenses an ACP tool_call into one line of progress info. */
 export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool"; toolName: string; detail: string } | null {
   const toolKind = typeof toolCall.kind === "string" ? toolCall.kind : "";
   if (toolKind === "think") return null;
@@ -413,8 +413,8 @@ function objectField(value: unknown): Record<string, unknown> {
 }
 
 /**
- * 网页登录令牌 CLI 用不到，留着只会让每个工具子进程都能拿到网页端的控制权。
- * Claude 的长期 OAuth token 也不交给其他 CLI 及其工具子进程。
+ * The CLI has no use for the web login token; keeping it would only give every tool subprocess control of the web side.
+ * Claude's long-lived OAuth token isn't handed to other CLIs or their tool subprocesses either.
  */
 function withoutWebLoginToken(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const childEnvironment = { ...environment };
@@ -423,7 +423,7 @@ function withoutWebLoginToken(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv
   return childEnvironment;
 }
 
-/** 先 SIGTERM 整个进程组，等不到退出再 SIGKILL。 */
+/** SIGTERM the whole process group first, then SIGKILL if it doesn't exit. */
 async function terminateGroup(child: ChildProcessWithoutNullStreams): Promise<void> {
   if (child.pid === undefined) return;
   const exited = new Promise<void>((resolve) => {
@@ -437,7 +437,7 @@ async function terminateGroup(child: ChildProcessWithoutNullStreams): Promise<vo
       try {
         child.kill(name);
       } catch {
-        // 进程已经不在了。
+        // The process is already gone.
       }
     }
   };

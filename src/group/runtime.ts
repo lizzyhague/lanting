@@ -30,31 +30,31 @@ export type GroupEvent =
   | { type: "compact.progress"; groupId: string; agent: string }
   | { type: "compact.ended"; groupId: string }
   /**
-   * 这个 AI 的一次发言或压缩收尾全部做完：原生会话 id 已存好，要关的进程也已经关掉。
-   * 只供服务层刷新 usage，不转发给浏览器。
+   * All wrap-up for one reply or compaction by this AI is done: the native session id is saved and any process to close has been closed.
+   * Only used by the service layer to refresh usage; not forwarded to the browser.
    */
   | { type: "agent.settled"; groupId: string; agent: string };
 
 export type UsageResult =
   | { status: "not_started" }
   | { status: "ok"; parts: UsagePart[] }
-  /** 这次没有新数据，保留上一次的结果。 */
+  /** No new data this time; keep the previous result. */
   | { status: "none" };
 
-/** 进行中的压缩，供页面刷新或换设备后接着显示。 */
+/** Compaction in progress, so it can still be shown after a page refresh or device switch. */
 export type CompactionSnapshot = {
   agents: string[];
-  /** 正在压缩的 AI。 */
+  /** The AI being compacted. */
   current: string | null;
 };
 
-/** 进行中的一轮，供页面刷新或换设备后接着显示。 */
+/** The round in progress, so it can still be shown after a page refresh or device switch. */
 export type RoundSnapshot = {
   roundId: string;
   order: string[];
-  /** 正在发言的 AI；还没轮到任何 AI 时为 null。 */
+  /** The AI currently replying; null before any AI's turn. */
   speaking: string | null;
-  /** 正在发言的 AI 已经流出来的文字和过程信息。 */
+  /** Text and progress info the replying AI has streamed so far. */
   text: string;
   activities: Activity[];
 };
@@ -81,23 +81,23 @@ type ActiveRound = {
   activities: Activity[];
 };
 
-/** settings 是开这个会话时用的设置；群里的设置变了就关掉重开。 */
+/** settings are the settings used to open this session; if the group's settings change, it is closed and reopened. */
 type CachedSession = { session: AgentSession; settings: AgentSettings; lastUsedAt: number };
 
 type FinalEvent = Extract<AgentEvent, { type: "end" }>;
 
-/** 一次发言最多保留的过程信息条数，防止一轮里成百上千次工具调用把记录撑大。 */
+/** Maximum progress info entries kept per reply, so hundreds or thousands of tool calls in a round don't bloat the record. */
 const MAX_ACTIVITIES = 500;
-/** 空闲多久的原生会话关掉进程，下次点名时再恢复。 */
+/** How long a native session may idle before its process is closed; it is resumed on the next call. */
 const DEFAULT_IDLE_CLOSE_MS = 15 * 60_000;
 
 /**
- * 轮次调度：群主发一条消息并点名，被点名的 AI 按顺序依次发言。
+ * Round scheduling: the group owner sends a message and calls on AIs, which reply one after another in order.
  *
- * - 同一个群同一时间只有一轮、一个 AI 在说话。
- * - 打断或出错时这一轮结束，排在后面的 AI 不再发言。
- * - 原生会话按 (群, AI) 缓存在内存里。常驻的 AI 空闲一段时间后关掉，其余的每次发言完就关；
- *   之后都用记下的原生会话 id 恢复。
+ * - Only one round, and one AI speaking, per group at a time.
+ * - An interrupt or error ends the round; AIs later in the order don't reply.
+ * - Native sessions are cached in memory per (group, AI). Resident AIs are closed after idling a while, the rest after every reply;
+ *   either way they are resumed later from the recorded native session id.
  */
 export class GroupRuntime {
   readonly #store: GroupStore;
@@ -109,11 +109,11 @@ export class GroupRuntime {
   readonly #rounds = new Map<string, ActiveRound>();
   readonly #sessions = new Map<string, CachedSession>();
   readonly #compactions = new Map<string, CompactionSnapshot>();
-  /** 正在打开的原生会话，同一个 (群, AI) 只打开一次，等待者共用结果。 */
+  /** Native sessions being opened; each (group, AI) is opened only once and waiters share the result. */
   readonly #opening = new Map<string, Promise<AgentSession>>();
-  /** 从开始发言或压缩到收尾全部做完的 (群, AI)。这期间 usage 不碰它的会话。 */
+  /** (group, AI) pairs from the start of a reply or compaction until all wrap-up is done. usage doesn't touch their sessions meanwhile. */
   readonly #settling = new Set<string>();
-  /** 正在关闭全部会话的群，这期间 usage 不再拉起进程。 */
+  /** Groups whose sessions are all being closed; usage doesn't start processes for them meanwhile. */
   readonly #closing = new Set<string>();
   #sweeper: NodeJS.Timeout | null = null;
 
@@ -122,7 +122,7 @@ export class GroupRuntime {
     agents: AgentRegistry;
     approvals?: ApprovalRegistry;
     idleCloseMs?: number;
-    /** 设置里的群聊协作方式，开会话时读当时的值。 */
+    /** The group chat collaboration rules from settings, read at the time a session opens. */
     collaboration?: () => string;
   }) {
     this.#store = options.store;
@@ -141,7 +141,7 @@ export class GroupRuntime {
     return () => this.#listeners.delete(listener);
   }
 
-  /** 有一轮在进行，或正在压缩上下文。 */
+  /** A round is in progress, or context is being compacted. */
   isBusy(groupId: string): boolean {
     return this.#rounds.has(groupId) || this.#compactions.has(groupId);
   }
@@ -164,8 +164,8 @@ export class GroupRuntime {
   }
 
   /**
-   * 开始一轮。参数不对或群正忙时同步抛 GroupError；之后的结果从 done 拿，done 不会 reject。
-   * attachments 只交给这一轮被点名的 AI，路径由调用方从 ai-remote-upload 的租约里取得。
+   * Starts a round. Throws GroupError synchronously on bad arguments or a busy group; the outcome comes from done afterwards, which never rejects.
+   * attachments go only to the AIs called this round; the caller obtains the paths from ai-remote-upload leases.
    */
   startRound(
     groupId: string,
@@ -204,9 +204,9 @@ export class GroupRuntime {
   }
 
   /**
-   * 依次压缩几个 AI 的上下文。只能在群空闲时做；压缩一旦开始不打断。
-   * 每个 AI 的结果写成一条提示进群聊记录，只给群主看。还没有原生会话的 AI 跳过。
-   * 参数不对或群正忙时同步抛 GroupError；done 不会 reject。
+   * Compacts several AIs' context in turn. Only allowed while the group is idle; once compaction starts it isn't interrupted.
+   * Each AI's result is written to the chat record as a notice, visible only to the group owner. AIs with no native session yet are skipped.
+   * Throws GroupError synchronously on bad arguments or a busy group; done never rejects.
    */
   compact(groupId: string, agents: readonly string[]): { done: Promise<void> } {
     const group = this.#requireGroup(groupId);
@@ -222,7 +222,7 @@ export class GroupRuntime {
     return { done: this.#runCompaction(groupId, compaction) };
   }
 
-  /** 打断这个群正在进行的一轮。没有进行中的一轮时返回 false。 */
+  /** Interrupts this group's round in progress. Returns false when there is none. */
   async interrupt(groupId: string): Promise<boolean> {
     const round = this.#rounds.get(groupId);
     if (!round) return false;
@@ -232,12 +232,12 @@ export class GroupRuntime {
     return true;
   }
 
-  /** 关掉这个群缓存的所有原生会话，等进程确实退出。群必须空闲。 */
+  /** Closes all native sessions cached for this group and waits for the processes to actually exit. The group must be idle. */
   async closeSessions(groupId: string): Promise<void> {
     if (this.isBusy(groupId)) throw new GroupError("busy", "这个群正忙，请等这一轮或这次压缩结束。");
     this.#closing.add(groupId);
     try {
-      // 先等正在打开的会话（比如 usage 拉起的）开完，再一起关掉。
+      // First wait for sessions being opened (e.g. started by usage) to finish, then close them all together.
       await this.#settleOpening((key) => key.split("\0")[0] === groupId);
       const closing: AgentSession[] = [];
       for (const [key, cached] of this.#sessions) {
@@ -252,9 +252,9 @@ export class GroupRuntime {
   }
 
   /**
-   * 读这个 AI 的上下文和额度。还没有原生会话时不调用模块。
-   * 传给模块的 session(open)：这个 AI 正在发言或压缩时一律返回 null；open 为 false 时只取运行中的会话，
-   * 不拉进程，也不推迟空闲回收。
+   * Reads this AI's context and quota. The module isn't called when there is no native session yet.
+   * session(open) passed to the module always returns null while this AI is replying or compacting; with open false it only takes a running session,
+   * without starting a process or postponing idle reclamation.
    */
   async readUsage(groupId: string, agent: string, reason: "view" | "turn" | "visible"): Promise<UsageResult> {
     const group = this.#requireGroup(groupId);
@@ -285,7 +285,7 @@ export class GroupRuntime {
     }
   }
 
-  /** 定时关掉空闲的原生会话。 */
+  /** Periodically closes idle native sessions. */
   startIdleSweeper(intervalMs = 60_000): void {
     if (this.#sweeper) return;
     this.#sweeper = setInterval(() => void this.closeIdleSessions(), intervalMs);
@@ -305,7 +305,7 @@ export class GroupRuntime {
     return closing.length;
   }
 
-  /** 打断所有进行中的轮次，关闭所有原生会话。 */
+  /** Interrupts all rounds in progress and closes all native sessions. */
   async shutdown(): Promise<void> {
     if (this.#sweeper) clearInterval(this.#sweeper);
     this.#sweeper = null;
@@ -377,7 +377,7 @@ export class GroupRuntime {
     }
   }
 
-  /** 返回写进群聊记录的提示。 */
+  /** Returns the notice written to the chat record. */
   async #compactOne(groupId: string, agent: string): Promise<string> {
     const group = this.#requireGroup(groupId);
     const state = group.agents[agent]!;
@@ -406,7 +406,7 @@ export class GroupRuntime {
     return this.#settle(groupId, agent, () => this.#reply(groupId, round, agent));
   }
 
-  /** 发言或压缩期间标记这个 AI 正在收尾，全部做完后才发 agent.settled。 */
+  /** Marks this AI as wrapping up during a reply or compaction; agent.settled is sent only once everything is done. */
   async #settle<T>(groupId: string, agent: string, work: () => Promise<T>): Promise<T> {
     const key = sessionKey(groupId, agent);
     this.#settling.add(key);
@@ -427,7 +427,7 @@ export class GroupRuntime {
       group.username,
     );
 
-    // 附件路径不给浏览器看：回复和过程信息里出现的路径换成文件名。
+    // Attachment paths aren't shown to the browser: paths in replies and progress info are replaced with filenames.
     const redactor = new PathRedactor(new Map(this.#store.transcript(groupId).flatMap((entry) =>
       (entry.attachments ?? []).map((attachment) => [attachment.path, attachment.originalName] as const)
     )));
@@ -451,7 +451,7 @@ export class GroupRuntime {
           this.#emit({ type: "agent.text", groupId, roundId: round.id, agent, delta });
         } else if (event.type === "activity") {
           const activity = toActivity(redactor.redactDeep(event.activity));
-          // 过程信息出现时，之前流出的文字已经归入过程信息，正文重新开始。
+          // When progress info appears, the text streamed so far has moved into progress info and the reply text starts over.
           round.text = "";
           stream = redactor.stream();
           if (round.activities.length < MAX_ACTIVITIES) round.activities.push(activity);
@@ -487,19 +487,19 @@ export class GroupRuntime {
       const state = next.agents[agent];
       if (!state) return;
       if (nativeId) state.nativeSessionId = nativeId;
-      // 出错时不确定消息有没有送到，不推进：下次重发，宁可重复也不漏。
+      // After an error it's unclear whether the message arrived, so don't advance: resend next time, preferring a duplicate over a gap.
       if (final.outcome !== "failed") state.cursor = entry.seq;
     });
     if (session && (final.outcome === "failed" || this.#adapter(group, agent).closeAfterTurn)) {
-      // 等进程确实关掉再结束这次发言，免得下一次点名时新旧两个进程同时接着同一个会话。
+      // Wait for the process to actually close before ending this reply, so on the next call old and new processes don't both continue the same session.
       await this.#dropSession(groupId, agent, session);
     }
     return final.outcome;
   }
 
   /**
-   * 取这个 AI 的会话，没有就打开。同一个 (群, AI) 同一时间只有一个打开任务，
-   * 发言、压缩和 usage 同时要会话时共用它，免得两个进程接着同一个原生会话。
+   * Gets this AI's session, opening it if there is none. Only one open task per (group, AI) at a time;
+   * replies, compaction and usage needing the session at once share it, so two processes never continue the same native session.
    */
   #session(group: Group, agent: string): Promise<AgentSession> {
     const key = sessionKey(group.id, agent);
@@ -512,7 +512,7 @@ export class GroupRuntime {
     return task;
   }
 
-  /** 每次都从 store 取当前设置；打开途中设置变了，关掉按旧设置开的会话再开，直到设置稳定。 */
+  /** Reads the current settings from the store each time; if they change mid-open, close the session opened with the old settings and reopen until they stabilize. */
   async #openSession(groupId: string, agent: string): Promise<AgentSession> {
     for (;;) {
       const group = this.#requireGroup(groupId);
@@ -528,7 +528,7 @@ export class GroupRuntime {
     if (!state) throw new GroupError("invalid_agent", `${agent} 不是这个群的成员。`);
     const settings = state.settings;
     const cached = this.#sessions.get(key);
-    // 设置变了就关掉重开，用新设置恢复会话：三家的设置都在开会话时应用，路径只有一条。
+    // If settings changed, close and reopen, resuming with the new settings: every CLI applies settings when opening a session, so there is only one path.
     if (cached?.session.alive && sameSettings(cached.settings, settings)) {
       cached.lastUsedAt = Date.now();
       return cached.session;

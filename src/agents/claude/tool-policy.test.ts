@@ -35,14 +35,14 @@ test("a Bash command only counts as reading when the name sits in a read positio
   const behavior = async (command: string) =>
     (await decideToolUse({ toolName: "Bash", input: { command }, cwd })).behavior;
 
-  // 读取：拒绝。
+  // Reads: denied.
   assert.equal(await behavior("cat .env"), "deny");
   assert.equal(await behavior("head -n 5 config/.env.local"), "deny");
   assert.equal(await behavior("ls && source .env"), "deny");
   assert.equal(await behavior("while read line < .env; do echo $line; done"), "deny");
   assert.equal(await behavior("cat ~/.config/gh/token"), "deny");
 
-  // 只是提到名字：放行。这些都不会把内容取出来。
+  // Merely mentioning the name: allowed. None of these extract the contents.
   assert.equal(await behavior(`git commit -m "ignore .env"`), "ask");
   assert.equal(await behavior(`echo ".env" >> .gitignore`), "ask");
   assert.equal(await behavior(`grep -n "^\\.env" .gitignore`), "ask");
@@ -58,7 +58,7 @@ test("hard-denies a Bash command that dumps the whole environment", async () => 
   const behavior = async (command: string) =>
     (await decideToolUse({ toolName: "Bash", input: { command }, cwd })).behavior;
 
-  // 整个环境打印出来：令牌也在里面，拒绝。
+  // Printing the whole environment: the token is in there too, so denied.
   assert.equal(await behavior("env"), "deny");
   assert.equal(await behavior("env | sort"), "deny");
   assert.equal(await behavior("env -0 > vars.txt"), "deny");
@@ -70,7 +70,7 @@ test("hard-denies a Bash command that dumps the whole environment", async () => 
   assert.equal(await behavior("declare -px"), "deny");
   assert.equal(await behavior("set"), "deny");
 
-  // 借 env 运行别的程序、按名字取单个变量、只改选项：不是整体打印。
+  // Using env to run another program, fetching one variable by name, or only changing options: not a full dump.
   assert.equal(await behavior("env NODE_ENV=test npm test"), "ask");
   assert.equal(await behavior("env -u FOO node app.js"), "ask");
   assert.equal(await behavior("printenv PATH"), "ask");

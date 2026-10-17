@@ -26,7 +26,7 @@ export type ClaudeAdapterOptions = {
   pathToClaudeCodeExecutable: string;
 };
 
-/** 照 Relayu 的权限菜单。 */
+/** Follows Relayu's permission menu. */
 export const CLAUDE_PERMISSIONS: readonly (PermissionOption & { id: PermissionMode })[] = [
   { id: "default", label: "Default", description: "按 lanting 规则逐次确认可写或有副作用的工具。" },
   { id: "acceptEdits", label: "Accept Edits", description: "自动接受文件编辑，其他调用仍逐次确认。" },
@@ -41,22 +41,22 @@ export const CLAUDE_PERMISSIONS: readonly (PermissionOption & { id: PermissionMo
   },
 ];
 
-/** SDK 没给某个模型的思考强度元数据时，照 Relayu 退回全集。 */
+/** When the SDK has no reasoning effort metadata for a model, fall back to the full set, as Relayu does. */
 const ALL_EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high", "xhigh", "max"];
 
-/** 模型列表里的“跟随默认”那一行，选它等于不指定模型。 */
+/** The "follow default" row in the model list; choosing it means no model is specified. */
 const DEFAULT_MODEL_ID = "default";
 
 export class ClaudeAdapter implements AgentAdapter {
   readonly kind = "claude";
-  /** 照 Relayu：Claude Code 进程常驻，空闲后回收。 */
+  /** As in Relayu: the Claude Code process stays resident and is reclaimed when idle. */
   readonly closeAfterTurn = false;
   readonly features: AgentFeatures = {
     compact: (session) => asOwnSession(session).compact(),
     deleteSession: (nativeId, cwd) => this.#deleteSession(nativeId, cwd),
     models: async (cwd) => (await this.#catalog(cwd)).models,
     permissions: async (cwd) => (await this.#catalog(cwd)).permissions,
-    // 照 Relayu：打开群或切换成员时没有进程就拉起来；发言结束和切回前台只读运行中的。
+    // As in Relayu: opening a group or switching members starts a process if none is running; reply completion and returning to the foreground only read running ones.
     usage: async (request) => {
       const session = await request.session(request.reason === "view");
       return session ? asOwnSession(session).usage() : null;
@@ -71,7 +71,7 @@ export class ClaudeAdapter implements AgentAdapter {
 
   #catalog(cwd: string): Promise<AgentCatalog> {
     return this.#catalogs.get(cwd, async () => {
-      // supportedModels() 只能问运行着的 Claude Code，所以临时起一个不落盘、不发消息的。
+      // supportedModels() can only ask a running Claude Code, so start a temporary one that writes nothing to disk and sends no messages.
       const runtime = await ClaudeRuntime.start({
         sessionId: randomUUID(),
         resume: false,
@@ -93,7 +93,7 @@ export class ClaudeAdapter implements AgentAdapter {
     });
   }
 
-  /** 照 Relayu：SDK 的 deleteSession；会话文件已经不在也算删掉了。 */
+  /** As in Relayu: the SDK's deleteSession; a session file that is already gone counts as deleted. */
   async #deleteSession(nativeId: string, cwd: string): Promise<void> {
     try {
       await deleteSession(nativeId, { dir: cwd });
@@ -103,7 +103,7 @@ export class ClaudeAdapter implements AgentAdapter {
   }
 
   startSession(options: SessionOptions): Promise<AgentSession> {
-    // Claude Code 允许事先指定会话 id，开会话时就能记下对应关系。
+    // Claude Code allows the session id to be chosen up front, so the mapping is recorded when the session opens.
     return ClaudeSession.open(randomUUID(), false, options, this.#options);
   }
 
@@ -118,10 +118,10 @@ function asOwnSession(session: AgentSession): ClaudeSession {
 }
 
 /**
- * 把运行时的回调事件转成统一接口的事件流。
+ * Converts runtime callback events into the shared interface's event stream.
  *
- * 明文回复以这一轮最后一条 assistant 文字为准：工具调用之前的过渡文字
- * （“我先看一下……”）转成过程信息，只给群主看，不进群聊记录。
+ * The plain reply is the round's last assistant text: interim text before tool calls
+ * ("let me take a look first...") becomes progress info, shown only to the group owner and kept out of the chat record.
  */
 class ClaudeSession implements AgentSession {
   readonly nativeId: string;
@@ -189,8 +189,8 @@ class ClaudeSession implements AgentSession {
   }
 
   /**
-   * 照 Relayu 的 metrics：先读上下文；额度读取失败只记日志，上下文照常返回。
-   * 两个都是 SDK 的控制请求，不和发言抢，也不等发言结束。
+   * Follows Relayu's metrics: read context first; a failed quota read is only logged and context is returned as usual.
+   * Both are SDK control requests: they don't compete with replies or wait for them to finish.
    */
   async usage(): Promise<UsagePart[]> {
     const runtime = this.#runtime;
@@ -254,7 +254,7 @@ class ClaudeSession implements AgentSession {
   }
 }
 
-/** 与 Relayu 一致：只用 SDK 给出的目录，空 id 和重复 id 去掉。 */
+/** Same as Relayu: use only the catalog the SDK provides, dropping empty and duplicate ids. */
 export function modelOptions(models: readonly ModelInfo[]): ModelOption[] {
   const options: ModelOption[] = [];
   const seen = new Set<string>();
@@ -276,7 +276,7 @@ export function modelOptions(models: readonly ModelInfo[]): ModelOption[] {
 
 type RateWindow = { utilization: number | null; resets_at: string | null } | null | undefined;
 
-/** 窗口照 Relayu 的 sessionMetricsOf，文字照它的 renderMetrics。 */
+/** Windows follow Relayu's sessionMetricsOf; text follows its renderMetrics. */
 export function usageParts(
   context: Pick<SDKControlGetContextUsageResponse, "percentage">,
   usage: Pick<SDKControlGetUsageResponse, "rate_limits_available" | "rate_limits"> | null,

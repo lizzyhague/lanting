@@ -265,7 +265,7 @@ test("directory changes and group creation both return to recent groups", () => 
   );
   const groupCreation = section(
     'elements.createForm.addEventListener("submit"',
-    "/* ---------- 群列表、选择、归档与回收站 ---------- */",
+    "/* ---------- Group list, selection, archive and trash ---------- */",
   );
   assert.match(directoryChange, /state\.listView = "groups";[\s\S]*selectionBar\.setView\("groups"\)/u);
   assert.match(groupCreation, /setListView\("groups"\)/u);

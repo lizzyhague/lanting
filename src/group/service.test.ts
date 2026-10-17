@@ -51,7 +51,7 @@ async function setup(t: test.TestContext, claudeWithout: readonly AgentFeatureId
   };
 }
 
-/** 假的 ai-remote-upload：记录票据、租约的申请和释放。 */
+/** Fake ai-remote-upload: records ticket and lease requests and releases. */
 class FakeUploads implements Pick<SharedUploadClient, "createTicket" | "createLease" | "renewLease" | "releaseLease"> {
   readonly blobs: string;
   readonly tickets: (AttachmentBinding & { originalName: string })[] = [];
@@ -314,7 +314,7 @@ async function idle(service: GroupService, groupId: string) {
   }
 }
 
-/** 发一轮让 claude 开出原生会话，等这一轮结束。 */
+/** Runs one round so claude opens a native session, and waits for the round to end. */
 async function withSession(service: GroupService, groupId: string) {
   await service.startRound(groupId, "hello", ["claude"]);
   await idle(service, groupId);
@@ -596,7 +596,7 @@ test("the username is validated, and a new group copies the username, default se
   assert.deepEqual(saved.agents.claude?.settings, { model: null, effort: null, permission: null });
   assert.deepEqual(service.settings().createMembers, [agentIds.claude, agentIds.codex]);
 
-  // 改名、换 CLI、改色、删除设置记录，都不影响已经开的群。
+  // Renaming, changing the CLI, changing the color and deleting settings records don't affect groups already created.
   await settings.update((next) => {
     const claude = next.agents.find((record) => record.id === agentIds.claude)!;
     claude.name = "renamed";
@@ -652,7 +652,7 @@ test("attachments are leased for the round, reach only the called agents, and ne
   const host = store.transcript(groupId)[0]!;
   assert.deepEqual(host.recipients, ["claude"]);
   assert.equal(host.attachments?.[0]?.path, blobPath);
-  // AI 回复里的路径换成文件名；发给浏览器的记录里没有路径。
+  // Paths in AI replies are replaced with filenames; records sent to the browser contain no paths.
   assert.equal(store.transcript(groupId)[1]?.text, `I read ${attachmentId}.png`);
   const browserView = JSON.stringify([service.snapshot(groupId), events]);
   assert.ok(!browserView.includes(uploads.blobs), "a storage path reached the browser");
@@ -673,7 +673,7 @@ function gate() {
   return { promise, open };
 }
 
-/** 让出事件循环，等在途的 usage 读取往前走。 */
+/** Yields the event loop so in-flight usage reads can make progress. */
 function tick() {
   return new Promise((resolve) => setTimeout(resolve, 1));
 }
@@ -704,7 +704,7 @@ test("usage results are cached per member and reach the snapshot", async (t) => 
   const { service, adapter, events, groupId } = await setup(t);
   await service.setUsageAgent(groupId, "claude");
   await service.refreshUsage(groupId, "view");
-  // 还没发过言：不调用模块。
+  // Hasn't replied yet: the module isn't called.
   assert.equal(adapter.usageRequests.length, 0);
   assert.deepEqual(service.snapshot(groupId).usage, { status: "not_started" });
 
@@ -747,14 +747,14 @@ test("in-flight usage reads merge visible but re-read for a later view or turn",
     await release.promise;
     return [];
   };
-  // view 在途时 visible 并进去。
+  // visible arriving while view is in flight is merged into it.
   const view = service.refreshUsage(groupId, "view");
   const visible = service.refreshUsage(groupId, "visible");
   release.open();
   await Promise.all([view, visible]);
   assert.deepEqual(adapter.usageRequests.map((request) => request.reason), ["view"]);
 
-  // visible 在途时来了 view：读完补一次能拉进程的。
+  // view arriving while visible is in flight: after the read, one more read that may start a process follows.
   adapter.usageRequests.length = 0;
   release = gate();
   const first = service.refreshUsage(groupId, "visible");
@@ -783,7 +783,7 @@ test("a turn during any read is never swallowed, including during the follow-up 
   void service.refreshUsage(groupId, "turn");
   gates[0]!.open();
   while (adapter.usageRequests.length < 2) await tick();
-  // 补读期间又来了 turn：读完再补。
+  // turn arriving during the follow-up read: another read follows once it finishes.
   void service.refreshUsage(groupId, "turn");
   gates[1]!.open();
   while (adapter.usageRequests.length < 3) await tick();

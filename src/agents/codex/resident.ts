@@ -9,7 +9,7 @@ type ResidentOptions = {
 const DEFAULT_STARTUP_TIMEOUT_MS = 120_000;
 
 /**
- * 不跑 turn 的共享 app-server。进程退出或初始化失败后保持停用，下一次请求再启动。
+ * Shared app-server that runs no turns. After the process exits or fails to initialize it stays stopped until the next request starts it.
  */
 export class ResidentAppServer {
   readonly #options: ResidentOptions;
@@ -21,7 +21,7 @@ export class ResidentAppServer {
     this.#options = options;
   }
 
-  /** 后台预热；失败只记日志，不能阻止 lanting 启动。 */
+  /** Warms up in the background; failures are only logged and must not stop lanting from starting. */
   start(): void {
     void this.#client().catch((error: unknown) => {
       console.error(`Codex 常驻 app-server 启动失败：${errorMessage(error)}`);

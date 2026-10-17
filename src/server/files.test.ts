@@ -70,7 +70,7 @@ test("directory identity respects the filesystem's case behavior", async (t) => 
   try {
     insensitive = await realpath(alternate) === await realpath(root);
   } catch {
-    // 大小写敏感卷上这是另一个尚不存在的目录。
+    // On a case-sensitive volume this is a different directory that doesn't exist yet.
   }
   if (!insensitive) {
     await mkdir(alternate);

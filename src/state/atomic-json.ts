@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
-/** 群聊记录和会话对应关系都含有对话内容，只允许属主读写。 */
+/** Chat records and session mappings both contain conversation content, so only the owner may read and write them. */
 export const PRIVATE_FILE_MODE = 0o600;
 export const PRIVATE_DIRECTORY_MODE = 0o700;
 
@@ -10,7 +10,7 @@ export async function ensurePrivateDirectory(directory: string): Promise<void> {
   await mkdir(directory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
 }
 
-/** 写临时文件 → fsync → rename 覆盖。崩溃时要么是旧内容，要么是完整的新内容。 */
+/** Write a temp file → fsync → rename over. After a crash the content is either the old version or the complete new one. */
 export async function writeJsonAtomically(filePath: string, value: unknown): Promise<void> {
   const directory = path.dirname(filePath);
   await ensurePrivateDirectory(directory);
@@ -31,12 +31,12 @@ export async function writeJsonAtomically(filePath: string, value: unknown): Pro
     await rename(temporaryPath, filePath);
     committed = true;
   } finally {
-    // 序列化、写入、fsync、close 或 rename 任一步失败，都不能在数据目录积累残片。
+    // If any of serialize, write, fsync, close or rename fails, no fragments may pile up in the data directory.
     if (!committed) await rm(temporaryPath, { force: true });
   }
 }
 
-/** 文件不存在时返回 null；内容损坏时抛错，由调用方决定是否保持未就绪。 */
+/** Returns null when the file doesn't exist; throws on corrupt content, leaving the caller to decide whether to stay not ready. */
 export async function readJsonIfPresent(filePath: string): Promise<unknown | null> {
   let source: string;
   try {

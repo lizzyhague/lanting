@@ -7,7 +7,7 @@ import test from "node:test";
 import type { AgentEvent, ApprovalAnswer, ApprovalAsk, SessionOptions } from "../types.ts";
 import { PiAdapter, splitModelId } from "./adapter.ts";
 
-/** 假的 `pi --mode rpc`：prompt 的正文决定这一轮怎么走。 */
+/** Fake `pi --mode rpc`: the prompt text decides how the round goes. */
 const FAKE_PI = `#!/usr/bin/env node
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -95,7 +95,7 @@ function handle(command) {
     case "abort":
       ok(command);
       if (waiting) {
-        // Pi 的 abort 让对话框按默认值结束，客户端收不到通知。
+        // Pi's abort ends the dialog with its default value, and the client receives no notification.
         waiting = null;
       }
       out({ type: "message_end", message: assistant("partial", { stopReason: "aborted" }) });
@@ -122,7 +122,7 @@ function prompt(command) {
     return;
   }
   if (text === "retry") {
-    // agent_end 之后还有自动重试，不能在第一个 agent_end 就结束。
+    // Automatic retries follow agent_end, so the round can't end at the first agent_end.
     say("", { stopReason: "error", errorMessage: "529 overloaded" });
     out({ type: "agent_end", messages: [], willRetry: true });
     out({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 10, errorMessage: "529 overloaded" });
@@ -352,7 +352,7 @@ test("interrupting aborts the turn and keeps the streamed text", async (t) => {
   assert.equal(session.alive, true);
 });
 
-/** 网页上一直不回答，直到被撤下。 */
+/** Never answered on the web page until withdrawn. */
 function pendingApprover(aborted: string[]): Approver {
   return (ask, signal) => new Promise((_resolve, reject) => {
     signal?.addEventListener("abort", () => {

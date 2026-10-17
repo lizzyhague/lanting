@@ -77,18 +77,18 @@ The user wrote the following in lanting's settings. It applies to every group.`;
 
 export type SystemPromptInput = {
   username: string;
-  /** 自己在本群的名字，和 lanting 包在自己发言外面的标签一致。 */
+  /** Own name in this group, matching the tag lanting wraps around its own messages. */
   self: string;
-  /** 除自己以外的 AI，按界面顺序。 */
+  /** AIs other than itself, in interface order. */
   others: readonly string[];
-  /** 群主在设置里填的群聊协作方式；空白时整节省略。 */
+  /** Group chat collaboration rules the group owner entered in settings; the whole section is omitted when blank. */
   collaboration?: string;
 };
 
-/** 单独一句说明“你是谁”；成员标签只列群主和其他 AI。 */
+/** A separate sentence states "who you are"; the member tags list only the group owner and the other AIs. */
 export function buildSystemPrompt(input: SystemPromptInput): string {
   const others = input.others.map((tag) => `- <${tag}>`).join("\n");
-  // 一次替换完，填进去的值里即使出现占位符也不会被再次替换。
+  // Replaced in one pass, so placeholders appearing in filled-in values aren't replaced again.
   const prompt = TEMPLATE
     .replace(/^\{other_members\}\n/mu, others ? "{other_members}\n" : "")
     .replace(/\{(username|self|other_members)\}/gu, (_, key: string) =>

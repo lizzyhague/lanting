@@ -16,13 +16,13 @@ export type PiAdapterOptions = {
   executable: string;
 };
 
-/** abort 之后等这么久这一轮还没 settle，就直接关掉 Pi 进程。 */
+/** If the round hasn't settled this long after abort, the Pi process is closed outright. */
 const INTERRUPT_TIMEOUT_MS = 10_000;
 
 /**
- * 审批由 pi-minimal-permission-system 扩展负责，它只管 read、edit、write、bash，
- * 规则写在 Pi 自己的用户配置里。always-approve 不用扩展的 yolo，而是由 lanting
- * 替群主回答“允许”，所以规则里的 deny 仍然生效。
+ * Approvals are handled by the pi-minimal-permission-system extension, which only covers read, edit, write and bash;
+ * its rules live in Pi's own user config. always-approve doesn't use the extension's yolo; instead lanting
+ * answers "allow" on behalf of the group owner, so deny rules still apply.
  */
 export const PI_PERMISSIONS: readonly PermissionOption[] = [
   {
@@ -40,12 +40,12 @@ export const PI_PERMISSIONS: readonly PermissionOption[] = [
 
 const ALWAYS_APPROVE = "always-approve";
 
-/** Pi 的思考档位，顺序同 Pi 的 EXTENDED_THINKING_LEVELS。 */
+/** Pi's thinking levels, in the same order as Pi's EXTENDED_THINKING_LEVELS. */
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 export class PiAdapter implements AgentAdapter {
   readonly kind = "pi";
-  /** 每轮结束关掉 RPC 进程，下次用 session 文件恢复，与 Codex、Grok 一致。 */
+  /** Closes the RPC process after every round and resumes from the session file next time, same as Codex and Grok. */
   readonly closeAfterTurn = true;
   readonly features: AgentFeatures = {
     compact: (session) => asOwnSession(session).compact(),
@@ -59,7 +59,7 @@ export class PiAdapter implements AgentAdapter {
     this.#options = options;
   }
 
-  /** 启动一个不保存 session 的短命 RPC 进程查模型列表；Pi 只返回有凭据的模型。 */
+  /** Starts a short-lived RPC process that saves no session to query the model list; Pi only returns models with credentials. */
   #catalog(cwd: string): Promise<AgentCatalog> {
     return this.#catalogs.get("", async () => {
       const client = new PiRpcClient({
@@ -92,24 +92,24 @@ function asOwnSession(session: AgentSession): PiSession {
 
 type Turn = {
   channel: EventChannel<AgentEvent>;
-  /** 当前这段 assistant 正文；工具调用或新的 assistant 消息出现时转成过程信息。 */
+  /** The current assistant text segment; becomes progress info when a tool call or new assistant message appears. */
   segment: string;
-  /** 最后一条完成的 assistant 消息，agent_settled 时以它为准。 */
+  /** The last completed assistant message, which wins at agent_settled. */
   last: Record<string, unknown> | null;
-  /** 有一条 assistant 消息开始了还没结束。 */
+  /** An assistant message has started and not yet ended. */
   streaming: boolean;
-  /** 群主已经要求打断；之后结束的这一轮按 interrupted 处理。 */
+  /** The group owner has asked to interrupt; the round that ends afterwards counts as interrupted. */
   interrupted: boolean;
 };
 
 /**
- * 每个原生会话一个独立的 `pi --mode rpc` 子进程（独立进程组）。
- * nativeId 是 Pi 的 session 文件路径，恢复时用 switch_session 加载。
+ * One separate `pi --mode rpc` subprocess (in its own process group) per native session.
+ * nativeId is the path of Pi's session file, loaded with switch_session on resume.
  */
 class PiSession implements AgentSession {
   readonly #client: PiRpcClient;
   readonly #options: SessionOptions;
-  /** 网页上还没回答的审批，按 Pi 的 UI 请求 id。 */
+  /** Approvals not yet answered on the web page, keyed by Pi's UI request id. */
   readonly #approvals = new Map<string, AbortController>();
   #sessionFile = "";
   #turn: Turn | null = null;
@@ -134,7 +134,7 @@ class PiSession implements AgentSession {
     options: SessionOptions,
     adapter: PiAdapterOptions,
   ): Promise<PiSession> {
-    // 群聊 system prompt 不存进 Pi 的 session 文件，新建和恢复都要传。
+    // The group chat system prompt isn't stored in Pi's session file, so it is passed on both create and resume.
     const client = new PiRpcClient({
       executable: adapter.executable,
       args: ["--append-system-prompt", options.systemPrompt],
@@ -182,10 +182,10 @@ class PiSession implements AgentSession {
     if (this.#turn) throw new Error("Pi 还在处理上一轮。");
     const turn: Turn = { channel: new EventChannel<AgentEvent>(), segment: "", last: null, streaming: false, interrupted: false };
     this.#turn = turn;
-    // 事件监听先于 prompt 装好；prompt 成功只表示已接受，这一轮在 agent_settled 才结束。
+    // Event listeners are installed before prompt; prompt succeeding only means it was accepted, and the round ends at agent_settled.
     void this.#client.prompt(text).then(
       (result) => {
-        // handled：Pi 当作扩展命令处理掉了，不会有 run，也不会有 agent_settled。
+        // handled: Pi consumed it as an extension command, so there will be no run and no agent_settled.
         if (result.disposition === "handled" && this.#turn === turn) {
           this.#finish({ type: "end", outcome: "completed", text: "" });
         }
@@ -245,7 +245,7 @@ class PiSession implements AgentSession {
     turn.channel.push({ type: "activity", activity: { kind: "note", text } });
   }
 
-  /** 把已经流出的正文收进过程信息，正文从下一段重新开始。 */
+  /** Moves the text streamed so far into progress info; the text starts over with the next segment. */
   #flushSegment(turn: Turn): void {
     if (turn.segment.trim()) this.#note(turn, turn.segment);
     turn.segment = "";
@@ -320,7 +320,7 @@ class PiSession implements AgentSession {
       return;
     }
     if (method === "select" || method === "input" || method === "editor") {
-      // lanting 只接 confirm；其他对话框不回答的话 Pi 会一直等。
+      // lanting only handles confirm; other dialogs left unanswered would make Pi wait forever.
       this.#client.respondUi(id, { cancelled: true });
       const turn = this.#turn;
       if (turn) {
@@ -366,7 +366,7 @@ class PiSession implements AgentSession {
     );
   }
 
-  /** 撤下网页上的审批，并告诉仍在运行的 Pi 这些对话框取消了。 */
+  /** Withdraw the approvals on the web page and tell the still-running Pi those dialogs were cancelled. */
   #cancelApprovals(): void {
     for (const [id, controller] of this.#approvals) {
       this.#approvals.delete(id);
@@ -376,21 +376,21 @@ class PiSession implements AgentSession {
   }
 }
 
-/** get_state 里当前模型，格式和成员设置相同：`provider/modelId`。 */
+/** Current model from get_state, in the same format as member settings: `provider/modelId`. */
 function currentModelId(state: Record<string, unknown>): string | null {
   const model = objectField(state.model);
   if (typeof model.provider !== "string" || !model.provider || typeof model.id !== "string" || !model.id) return null;
   return `${model.provider}/${model.id}`;
 }
 
-/** lanting 里的模型 id 是 `provider/modelId`；modelId 本身可能还带斜杠。 */
+/** Model ids in lanting are `provider/modelId`; modelId itself may contain slashes. */
 export function splitModelId(id: string): { provider: string; modelId: string } {
   const slash = id.indexOf("/");
   if (slash <= 0 || slash === id.length - 1) throw new Error(`Pi 模型 id 格式不对：${id}`);
   return { provider: id.slice(0, slash), modelId: id.slice(slash + 1) };
 }
 
-/** get_available_models 的模型对象转成成员面板的选项。 */
+/** Converts a get_available_models model object into a member panel option. */
 export function modelOptions(models: Record<string, unknown>[]): ModelOption[] {
   return models.flatMap((model) => {
     if (typeof model.provider !== "string" || !model.provider || typeof model.id !== "string" || !model.id) return [];
@@ -404,7 +404,7 @@ export function modelOptions(models: Record<string, unknown>[]): ModelOption[] {
   });
 }
 
-/** 照 Pi 的 getSupportedThinkingLevels：thinkingLevelMap 里为 null 的档位不支持，xhigh、max 要明确列出。 */
+/** Follows Pi's getSupportedThinkingLevels: levels that are null in thinkingLevelMap are unsupported, and xhigh and max must be listed explicitly. */
 function supportedThinkingLevels(model: Record<string, unknown>): string[] {
   if (model.reasoning !== true) return ["off"];
   const map = objectField(model.thinkingLevelMap);
@@ -428,7 +428,7 @@ function toolActivity(event: PiEvent): { kind: "tool"; toolName: string; detail:
   };
 }
 
-/** 最后一条 assistant 消息的正文；它还没结束（比如被打断）时用正在流出的这一段。 */
+/** Text of the last assistant message; if it hasn't ended (e.g. interrupted), the segment currently streaming is used. */
 function lastText(turn: Turn): string {
   if (turn.streaming || !turn.last) return turn.segment;
   const content = turn.last.content;
@@ -450,9 +450,9 @@ function objectField(value: unknown): Record<string, unknown> {
 }
 
 /**
- * 网页登录令牌 CLI 用不到，留着只会让每个工具子进程都能拿到网页端的控制权。
- * Claude 的长期 OAuth token 也不交给其他 CLI 及其工具子进程。
- * 权限扩展的 yolo 和非交互开关也不从环境继承，否则会绕过扩展的 deny 规则。
+ * The CLI has no use for the web login token; keeping it would only give every tool subprocess control of the web side.
+ * Claude's long-lived OAuth token isn't handed to other CLIs or their tool subprocesses either.
+ * The permission extension's yolo and non-interactive switches aren't inherited from the environment either, or they would bypass the extension's deny rules.
  */
 function childEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const child = { ...environment };

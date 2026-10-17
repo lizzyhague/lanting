@@ -53,7 +53,7 @@ test("group rows keep rename and pin actions outside selection and trash", () =>
 test("opening a cross-directory pin syncs the directory before subscribing", () => {
   const open = app.slice(
     app.indexOf("async function openListedGroup("),
-    app.indexOf("/** 当前的群被删了"),
+    app.indexOf("/** The current group was deleted"),
   );
   assert.match(open, /state\.directories\.includes\(group\.directory\)/u);
   assert.match(open, /elements\.directorySelect\.value = group\.directory/u);
@@ -61,7 +61,7 @@ test("opening a cross-directory pin syncs the directory before subscribing", () 
 });
 
 test("rename remembers the list row target instead of following the current group", () => {
-  const rename = app.slice(app.indexOf("let renamingGroupId"), app.indexOf("/* ---------- 杂项"));
+  const rename = app.slice(app.indexOf("let renamingGroupId"), app.indexOf("/* ---------- Misc"));
   assert.match(rename, /renamingGroupId = group\.id/u);
   assert.match(rename, /state\.groups\.get\(renamingGroupId\)/u);
   assert.match(rename, /request\("group\.rename", \{ groupId: group\.id, title \}\)/u);

@@ -20,8 +20,8 @@ import type { ApprovalAnswer, ApprovalAsk } from "../types.ts";
 import { createPreToolUseHook } from "./tool-policy.ts";
 
 /*
- * Claude Code 的底层运行时，搬自 Relayu `src/claude/session-runtime.ts`，去掉了 Relayu 自己的
- * 产品功能（伴、routine、rewind 等），只留启动、发消息、打断、compact、用量查询、关闭。
+ * Low-level Claude Code runtime, ported from Relayu `src/claude/session-runtime.ts`, minus Relayu's own
+ * product features (companion, routine, rewind, etc.), keeping only start, send, interrupt, compact, usage queries and close.
  */
 
 export type RuntimeEvent =
@@ -39,36 +39,36 @@ export type TurnOutcome =
 
 export type ClaudeRuntimeOptions = {
   sessionId: string;
-  /** 新会话用 sessionId 创建，老会话用 resume 接回。 */
+  /** New sessions are created with sessionId; existing ones are reattached with resume. */
   resume: boolean;
-  /** 只用来查询模型列表：不写会话文件，也不会发消息。 */
+  /** Only for querying the model list: writes no session file and sends no messages. */
   ephemeral?: boolean;
   cwd: string;
-  /** 追加在 Claude Code 预设系统提示词之后。 */
+  /** Appended after Claude Code's preset system prompt. */
   appendSystemPrompt: string;
   pathToClaudeCodeExecutable: string;
   permissionMode: PermissionMode;
-  /** null 表示不指定，跟随 Claude Code 的默认值。 */
+  /** null means unspecified, following Claude Code's default. */
   model: string | null;
   effort: EffortLevel | null;
   onEvent: (event: RuntimeEvent) => void;
   requestApproval: (ask: ApprovalAsk) => Promise<ApprovalAnswer>;
 };
 
-/** result 之后等 idle 的上限。实测 idle 紧随 result 到达；超时说明这个运行时已不可信。 */
+/** Upper bound on waiting for idle after result. In practice idle follows result immediately; a timeout means this runtime can no longer be trusted. */
 const IDLE_WATCHDOG_MS = 30_000;
-/** interrupt 的回执与随后的 idle 各自的等待上限。 */
+/** Separate wait limits for the interrupt acknowledgement and the idle that follows. */
 const INTERRUPT_TIMEOUT_MS = 10_000;
 
 /**
- * 群聊里 AI 有问题直接写在回复里，由群主决定下一步，所以不提供 AskUserQuestion。
+ * In the group chat an AI with a question writes it in its reply and the group owner decides what's next, so AskUserQuestion isn't offered.
  */
 const DISALLOWED_TOOLS = ["AskUserQuestion"];
 
 /**
- * 必须在继承完整 process.env 的基础上改，否则会丢掉 OAuth 与代理设置。
- * 网页登录令牌和长期 OAuth token 都剔除：CLI 用不到前者，后者交不交由各部署自己决定，
- * 本项目不替 Claude Code 选择认证方式。
+ * Must be built on top of the full inherited process.env, or OAuth and proxy settings are lost.
+ * Both the web login token and the long-lived OAuth token are removed: the CLI doesn't need the former, and whether to provide the latter is up to each deployment;
+ * this project doesn't choose Claude Code's auth method.
  */
 export function claudeCodeEnvironment(
   base: NodeJS.ProcessEnv = process.env,
@@ -88,7 +88,7 @@ export function claudeCodeEnvironment(
 type Turn = {
   result: SDKResultMessage | null;
   interrupted: boolean;
-  /** `/compact` 这一轮：没有收到压缩成功的信号时按失败结算。 */
+  /** A `/compact` round: settled as failed if no compaction success signal arrives. */
   expectCompaction: boolean;
   compactResult: "success" | "failed" | null;
   compactError: string | null;
@@ -96,8 +96,8 @@ type Turn = {
 };
 
 /**
- * 一个会话对应一个长驻 Query、一条永不关闭的输入队列和唯一一条读取循环。
- * 单轮的 result 不结束循环、不关闭队列，否则子进程会退出。
+ * One session maps to one long-lived Query, one never-closed input queue and exactly one read loop.
+ * A round's result neither ends the loop nor closes the queue, or the subprocess would exit.
  */
 export class ClaudeRuntime {
   readonly #options: ClaudeRuntimeOptions;
@@ -139,13 +139,13 @@ export class ClaudeRuntime {
     return this.#closePromise !== null;
   }
 
-  /** close() 之后为 false 表示进程树没能确认退出。 */
+  /** false after close() means the process tree couldn't be confirmed to have exited. */
   get exitConfirmed(): boolean {
     return this.#exitConfirmed;
   }
 
   async #begin(): Promise<void> {
-    // 必须在 query() 之前建好：spawn 回调一旦被调用，进程组 id 就由这个实例持有。
+    // Must exist before query(): once the spawn callback runs, this instance holds the process group id.
     const processGroup = new ProcessGroup();
     this.#processGroup = processGroup;
     const options: Options = {
@@ -155,14 +155,14 @@ export class ClaudeRuntime {
         : { sessionId: this.#options.sessionId }),
       ...(this.#options.ephemeral ? { persistSession: false } : {}),
       pathToClaudeCodeExecutable: this.#options.pathToClaudeCodeExecutable,
-      // 自己接管 spawn，才能让 CLI 连同它的工具子进程落在同一个独立进程组里。
+      // Taking over spawn ourselves puts the CLI and its tool subprocesses in one separate process group.
       spawnClaudeCodeProcess: processGroup.spawn,
       systemPrompt: { type: "preset", preset: "claude_code", append: this.#options.appendSystemPrompt },
       settingSources: ["user", "project"],
-      // 手机可能几分钟后才处理审批；SDK 内部期限显式关闭，超时由审批登记处负责。
+      // A phone may handle an approval minutes later; the SDK's internal deadline is explicitly disabled and the approval registry owns timeouts.
       settings: { dialogExpiry: "never" },
       permissionMode: this.#options.permissionMode,
-      // 只让 SDK 接受 bypassPermissions；读取秘密文件等仍由 PreToolUse 硬拒绝。
+      // Only lets the SDK accept bypassPermissions; reading secret files and the like is still hard-denied by PreToolUse.
       allowDangerouslySkipPermissions: true,
       disallowedTools: DISALLOWED_TOOLS,
       includePartialMessages: true,
@@ -183,20 +183,20 @@ export class ClaudeRuntime {
     const conversation = query({ prompt: this.#input.stream(), options });
     this.#query = conversation;
     this.#readLoop = this.#read(conversation);
-    // 长驻会话的启动门槛是 initializationResult()，不是对话流里的 system/init。
+    // A long-lived session's readiness gate is initializationResult(), not system/init in the conversation stream.
     await conversation.initializationResult();
-    // 照 Relayu：模型和思考强度不作为启动参数，就绪后再设，新开和恢复走同一条路径。
+    // As in Relayu: model and reasoning effort aren't launch arguments; they are set once ready, so new and resumed sessions take the same path.
     if (this.#options.model) await conversation.setModel(this.#options.model);
     if (this.#options.effort) await conversation.applyFlagSettings({ effortLevel: this.#options.effort });
   }
 
-  /** 账号实际可用的模型。 */
+  /** Models actually available to the account. */
   async listModels(): Promise<ModelInfo[]> {
     if (!this.#query) throw new Error("运行时尚未就绪。");
     return this.#query.supportedModels();
   }
 
-  /** 套餐额度：SDK 的实验性接口，字段可能变。 */
+  /** Plan quota: an experimental SDK API whose fields may change. */
   async getUsage(): Promise<SDKControlGetUsageResponse> {
     if (!this.#query) throw new Error("运行时尚未就绪。");
     return this.#query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET();
@@ -208,7 +208,7 @@ export class ClaudeRuntime {
   }
 
   async #canUseTool(toolName: string, input: Record<string, unknown>): Promise<PermissionResult> {
-    // 不在进行中的一轮里、或这一轮正在打断时，不再放行任何新的工具调用。
+    // Outside an active round, or while the round is being interrupted, no new tool calls are allowed.
     if (!this.#turn || this.#turn.interrupted) {
       return { behavior: "deny", message: "当前没有进行中的发言，已拒绝这次工具调用。" };
     }
@@ -223,8 +223,8 @@ export class ClaudeRuntime {
   }
 
   /**
-   * resolve 时消息已经交给 SDK 的输入队列。
-   * expectCompaction 用于 `/compact`：照 Relayu，把它当作一轮内部消息发进去。
+   * On resolve the message has been handed to the SDK's input queue.
+   * expectCompaction is for `/compact`: as in Relayu, it is sent as a round's internal message.
    */
   async startTurn(text: string, expectCompaction = false): Promise<void> {
     if (this.closed) throw new Error("运行时已关闭。");
@@ -251,8 +251,8 @@ export class ClaudeRuntime {
   }
 
   /**
-   * 回执里 still_queued 非空说明排队消息仍会执行，只能关闭整个运行时；
-   * 回执或随后的 idle 超时同样关闭。
+   * A non-empty still_queued in the acknowledgement means queued messages will still run, so the whole runtime must be closed;
+   * a timeout on the acknowledgement or the following idle closes it too.
    */
   async interrupt(): Promise<"interrupted" | "closed"> {
     const conversation = this.#query;
@@ -273,8 +273,8 @@ export class ClaudeRuntime {
   }
 
   /**
-   * 关闭并确认旧进程连同它 spawn 的子进程真正退出。本方法不会 reject：
-   * 确认失败时把 exitConfirmed 置 false，只记日志。
+   * Closes and confirms the old process and the children it spawned have really exited. This method never rejects:
+   * if confirmation fails it sets exitConfirmed to false and only logs.
    */
   close(reason: string): Promise<void> {
     if (this.#closePromise) return this.#closePromise;
@@ -284,9 +284,9 @@ export class ClaudeRuntime {
       try {
         this.#query?.close();
       } catch {
-        // 已经退出的进程再关一次不算错误。
+        // Closing an already-exited process again isn't an error.
       }
-      // 读取循环结束只说明 stdout 到了 EOF，不等于进程已经退出，更管不到它的子进程。
+      // The read loop ending only means stdout hit EOF; it doesn't mean the process exited, let alone its children.
       await this.#readLoop.catch(() => undefined);
       this.#exitConfirmed = processGroup === null || await processGroup.terminate();
       if (!this.#exitConfirmed) console.error(`Claude Code 进程未确认退出（${this.#options.sessionId}）。`);
@@ -305,7 +305,7 @@ export class ClaudeRuntime {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Claude Code 运行时读取失败。";
-      // stderr 尾部只进服务端日志，可能带绝对路径，不送往浏览器。
+      // The stderr tail goes only to server logs; it may contain absolute paths, so it isn't sent to the browser.
       const stderrTail = this.#closePromise ? "" : this.#processGroup?.stderrTail.trim();
       if (stderrTail) console.error(`Claude Code stderr（${this.#options.sessionId}）：${stderrTail}`);
       this.#forcedOutcome = { status: "failed", message };
@@ -345,7 +345,7 @@ export class ClaudeRuntime {
       return;
     }
     if (message.type === "system" && message.subtype === "session_state_changed") {
-      // 恢复运行时时会收到上一轮遗留的 idle：没有本轮 result 就必须忽略。
+      // Restoring the runtime delivers an idle left over from the previous round: without this round's result it must be ignored.
       if (message.state === "idle" && this.#turn?.result) {
         this.#finishTurn(outcomeOf(this.#turn.result, this.#turn.interrupted));
       }
@@ -353,7 +353,7 @@ export class ClaudeRuntime {
     }
     if (message.type === "result" && this.#turn) {
       this.#turn.result = message;
-      // result 不代表会话已空闲；继续等 idle。看门狗只是兜底。
+      // result doesn't mean the session is idle; keep waiting for idle. The watchdog is only a fallback.
       this.#clearWatchdog();
       this.#idleWatchdog = setTimeout(() => {
         const text = "本轮结束后没有等到会话回到空闲状态。";
@@ -396,7 +396,7 @@ export class ClaudeRuntime {
     this.#options.onEvent({
       type: "turn.ended",
       outcome: turn.interrupted && final.status !== "failed" ? { status: "interrupted" } : final,
-      // SDK 偶尔不发 Claude 的文字回答，只把它留在 result 里，由调用方兜底。
+      // The SDK occasionally doesn't send Claude's text answer and leaves it only in result; the caller falls back to it.
       resultText: result?.subtype === "success" ? result.result : "",
     });
   }
@@ -419,7 +419,7 @@ export class ClaudeRuntime {
   }
 }
 
-/** 输入队列：单轮 result 不能关闭它，否则子进程退出。 */
+/** Input queue: a round's result must not close it, or the subprocess exits. */
 class InputQueue {
   #items: Array<{ message: SDKUserMessage; handOver: () => void; fail: (error: unknown) => void }> = [];
   #notify: (() => void) | null = null;
@@ -441,7 +441,7 @@ class InputQueue {
     this.#notify?.();
   }
 
-  /** 全程只能有一条读取循环；第二条循环会各拿到一半消息，症状是随机丢消息。 */
+  /** Only one read loop may ever exist; a second one would get half the messages each, showing up as randomly lost messages. */
   async *stream(): AsyncGenerator<SDKUserMessage> {
     if (this.#started) throw new Error("输入队列只能被迭代一次。");
     this.#started = true;
@@ -462,7 +462,7 @@ class InputQueue {
   }
 }
 
-/** 显式失败优先；短会话里 result 仍可能是 success，所以要看压缩自己的信号。 */
+/** Explicit failure wins; in short sessions result may still be success, so compaction's own signal must be checked. */
 function compactionOutcome(turn: Turn): TurnOutcome {
   if (turn.compactResult === "failed") {
     return { status: "failed", message: turn.compactError || "Claude Code 未能压缩上下文。" };

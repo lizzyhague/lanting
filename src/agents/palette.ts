@@ -1,4 +1,4 @@
-/** AI 主色的唯一来源；顺序也是首次预填时的取色顺序。label 只给读屏用，界面上不显示。 */
+/** The single source of AI primary colors; the order is also the order colors are picked for initial prefill. label is for screen readers only and isn't shown. */
 export const PALETTE = [
   { id: "orange", label: "橙", color: "#d97757" },
   { id: "mint", label: "薄荷绿", color: "#a7f3d0" },

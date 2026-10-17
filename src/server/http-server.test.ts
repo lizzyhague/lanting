@@ -261,7 +261,7 @@ test("websocket requires login and answers connection.ready", async (t) => {
     return messages.shift();
   };
 
-  // connection.ready 之前的全局事件要暂存，排在响应之后发出。
+  // Global events before connection.ready are buffered and sent after the response.
   hub.handle({ target: "global", payload: { type: "hello" } });
   socket.send(JSON.stringify({ type: "connection.ready", requestId: "r1" }));
   assert.deepEqual(await next(), { type: "response", requestId: "r1", ok: true, data: {} });

@@ -1,7 +1,7 @@
 /*
- * 点名顺序的规则。发言顺序就是按钮按下的先后，界面上不显示顺序。
+ * Call order rules. Speaking order is the order the buttons were pressed; the UI doesn't show the order.
  *
- * - 去掉一个，其余的顺序不变；重新点名的排到最后。
+ * - Removing one keeps the others' order; a member called again goes to the end.
  */
 
 export function toggleMember(order, member, checked) {

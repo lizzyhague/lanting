@@ -3,8 +3,8 @@ import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 import { inflateSync } from "node:zlib";
 
-// 样式表以外不能引用 CSS 变量的颜色：页面头部、PWA 清单和图标。
-// 页面底色在配色模块里由公式混出，这里按同一公式算出实际色值再比对。
+// Outside the stylesheet, colors can't reference CSS variables: the page head, PWA manifest and icons.
+// The page background is mixed by a formula in the color module; here the same formula computes the actual value to compare.
 
 const styles = await readFile(new URL("./styles.css", import.meta.url), "utf8");
 const root = styles.slice(0, styles.indexOf("\n}"));
@@ -30,7 +30,7 @@ function mix(a, percent, b) {
 }
 
 function pageBackground() {
-  // 公式写死在这里；配色模块的公式变了，这两条断言会先失败，提醒同步修改本测试。
+  // The formula is hard-coded here; if the color module's formula changes, these two assertions fail first as a reminder to update this test.
   assert.equal(declaration("--tint"), "color-mix(in srgb, var(--theme) var(--mix-tint), var(--neutral))");
   assert.equal(declaration("--surface-page"), "color-mix(in srgb, var(--tint) var(--mix-surface-page), black)");
   const percent = (name) => Number.parseFloat(declaration(name));
@@ -51,7 +51,7 @@ async function exists(url) {
   }
 }
 
-/** 解码 8 位、非隔行的 RGB / RGBA PNG，返回取像素的函数。 */
+/** Decodes an 8-bit, non-interlaced RGB / RGBA PNG and returns a pixel lookup function. */
 function decodePng(buffer) {
   let offset = 8;
   let width = 0;
@@ -128,7 +128,7 @@ test("the app icon tile is the shared dark tile in svg, renderer and PNGs", asyn
   const manifest = JSON.parse(await text("manifest.webmanifest"));
   for (const icon of manifest.icons) {
     const png = decodePng(await readFile(new URL(`.${icon.src}`, import.meta.url)));
-    // 顶边正中靠下一点：在圆角之内，也在图形之外，只会是底板。
+    // Slightly below the center of the top edge: inside the rounded corner and outside the glyph, so it can only be the backplate.
     const sample = png.pixel(png.width >> 1, Math.round(png.width * 0.08));
     assert.deepEqual(sample, { color: ICON_TILE, alpha: 255 }, icon.src);
   }

@@ -15,7 +15,7 @@ const TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
-// 比较真实目录身份，兼容 macOS 上同时存在的大小写敏感与不敏感卷。
+// Compares real directory identity, supporting both case-sensitive and case-insensitive volumes coexisting on macOS.
 async function insideRoot(root: string, candidate: string): Promise<boolean> {
   const rootInfo = await stat(root);
   let parent = path.dirname(candidate);
@@ -54,7 +54,7 @@ export async function openViewableFile(roots: readonly string[], input: string):
   try {
     const resolved = await realpath(input);
     const allowed = await insideAnyRoot(roots, resolved);
-    // 白名单后缀的软链接也不能借目标文件的其他后缀绕过类型限制。
+    // A symlink with an allowed extension can't use its target's different extension to bypass the type restriction either.
     if (!allowed || TYPES[path.extname(resolved).toLowerCase()] !== contentType) return null;
     handle = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     const info = await handle.stat();

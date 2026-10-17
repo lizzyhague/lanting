@@ -3,9 +3,9 @@ import { AGENT_NAME_PATTERN, MAX_AGENTS, MAX_COLLABORATION_LENGTH } from "../sta
 export const MAX_BROWSER_MESSAGE_BYTES = 2_097_152;
 const MAX_MESSAGE_TEXT_LENGTH = 524_288;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
-/** 模型、思考强度、权限的 id 由各家 CLI 给出，这里只限制长度。 */
+/** Model, reasoning effort and permission ids come from each CLI; only their length is limited here. */
 const MAX_SETTING_LENGTH = 200;
-/** 一次多选操作最多处理的群数。 */
+/** Maximum number of groups one bulk operation handles. */
 const MAX_BATCH_GROUPS = 1_000;
 
 export type BrowserRequest =
@@ -144,7 +144,7 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         order: requireTagList(value.order, "点名", requestId),
       };
     case "round.start": {
-      // 带附件时消息可以为空。
+      // With attachments the message may be empty.
       const attachmentIds = value.attachmentIds === undefined ? [] : value.attachmentIds;
       if (!Array.isArray(attachmentIds) || attachmentIds.length > 100) {
         throw new ProtocolError("invalid_field", "附件格式不对或过多。", requestId);
@@ -234,7 +234,7 @@ export function parseBrowserRequest(source: string): BrowserRequest {
       };
     }
     case "settings.username":
-      // 空字符串也要交给后端，按规格给出“不能为空”的说明。
+      // Empty strings also go to the backend, which gives the "can't be empty" explanation per the spec.
       if (typeof value.username !== "string" || value.username.length > 200) {
         throw new ProtocolError("invalid_field", "用户名格式不对。", requestId);
       }
@@ -345,7 +345,7 @@ function requireAgentId(value: unknown, requestId: string): string {
   return requireUuid(value, "AI 内部 ID", requestId);
 }
 
-/** 具体名字、种类和颜色规则由设置存储校验，以便错误能落到对应字段。 */
+/** Specific name, kind and color rules are validated by the settings store, so errors land on the right field. */
 function looseString(value: unknown, label: string, requestId: string, maxLength: number): string {
   if (typeof value !== "string" || value.length > maxLength) {
     throw new ProtocolError("invalid_field", `${label}格式不对或过长。`, requestId);
@@ -363,7 +363,7 @@ function looseNullableString(
   return looseString(value, label, requestId, maxLength);
 }
 
-/** null 表示跟随 CLI 的默认值；空字符串不接受。 */
+/** null means follow the CLI's default; empty strings aren't accepted. */
 function nullableSetting(value: unknown, label: string, requestId: string): string | null {
   if (value === null) return null;
   if (typeof value !== "string" || !value || value.length > MAX_SETTING_LENGTH) {

@@ -13,8 +13,8 @@ import {
 const MAX_RESPONSE_BYTES = 1_048_576;
 
 /**
- * ai-remote-upload 的薄客户端，搬自 Relayu `src/attachments/shared-upload-client.ts`。
- * 存储、票据、租约和清理逻辑全部由 ai-remote-upload 持有。
+ * Thin client for ai-remote-upload, ported from Relayu `src/attachments/shared-upload-client.ts`.
+ * Storage, tickets, leases and cleanup are all owned by ai-remote-upload.
  */
 export class SharedUploadClient {
   readonly #socketPath: string;

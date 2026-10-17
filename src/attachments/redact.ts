@@ -1,13 +1,13 @@
 /**
- * 把附件的存储路径换成原文件名再给浏览器看：ai-remote-upload 规定路径不进浏览器。
- * AI 的回复和工具调用里可能原样带出路径，这里统一替换。
+ * Replaces attachment storage paths with the original filenames before the browser sees them: ai-remote-upload requires paths to stay out of the browser.
+ * AI replies and tool calls may echo paths verbatim, so they are all replaced here.
  */
 export class PathRedactor {
   readonly #pairs: [string, string][];
   readonly #longest: number;
 
   constructor(paths: ReadonlyMap<string, string>) {
-    // 长的先换，免得一条路径是另一条的前缀时只换掉一半。
+    // Longer ones first, so a path that is a prefix of another isn't half-replaced.
     this.#pairs = [...paths].filter(([path]) => path.length > 0).sort((a, b) => b[0].length - a[0].length);
     this.#longest = this.#pairs.reduce((max, [path]) => Math.max(max, path.length), 0);
   }
@@ -22,7 +22,7 @@ export class PathRedactor {
     return result;
   }
 
-  /** 对象里的所有字符串都替换，用于工具调用等过程信息。 */
+  /** Replaces every string in the object; used for progress info such as tool calls. */
   redactDeep<T>(value: T): T {
     if (this.empty) return value;
     if (typeof value === "string") return this.redact(value) as T;
@@ -33,7 +33,7 @@ export class PathRedactor {
     return value;
   }
 
-  /** 流式文字用：路径可能被拆在两段增量里，所以每段末尾留一截，等后文到了再替换。 */
+  /** For streaming text: a path may be split across two deltas, so the end of each delta is held back until the following text arrives. */
   stream(): { push(delta: string): string; flush(): string } {
     let pending = "";
     return {
@@ -41,7 +41,7 @@ export class PathRedactor {
         if (this.empty) return delta;
         pending += delta;
         let cut = Math.max(0, pending.length - (this.#longest - 1));
-        // 留下的那一截里可能是路径的开头；已经完整出现、但跨过切点的路径整条留到下次。
+        // The held-back tail may contain the start of a path; a path that appeared in full but crosses the cut is held back whole until next time.
         for (const [path] of this.#pairs) {
           let index = pending.indexOf(path);
           while (index !== -1) {

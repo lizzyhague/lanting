@@ -2,10 +2,10 @@ import type { AgentKind } from "./kinds.ts";
 import type { AgentAdapter, AgentCatalog, AgentEvent, AgentSession, SessionOptions } from "./types.ts";
 import type { AgentFeatureId, AgentFeatures, UsagePart, UsageRequest } from "../features/index.ts";
 
-/** 剧本里的一步：普通事件，或者向群主申请审批（结果作为 activity 发出）。 */
+/** One step of a script: a plain event, or an approval request to the group owner (the result is emitted as activity). */
 export type FakeStep = AgentEvent | { type: "ask"; toolName: string; detail?: string };
 
-/** 每次 send 的剧本：按消息决定发出哪些事件。返回 "hang" 表示一直挂着，直到被打断。 */
+/** Script for each send: decides which events to emit based on the message. Returning "hang" keeps it hanging until interrupted. */
 export type Script = (message: string, call: number) => FakeStep[] | "hang" | Error;
 
 export type FakeCall = {
@@ -18,7 +18,7 @@ export type FakeAdapterOptions = {
   without?: readonly AgentFeatureId[];
 };
 
-/** 不调用任何 CLI 的假 AI，记录收到的每条消息。 */
+/** Fake AI that calls no CLI and records every message it receives. */
 export class FakeAdapter implements AgentAdapter {
   readonly kind: AgentKind;
   closeAfterTurn = false;
@@ -37,10 +37,10 @@ export class FakeAdapter implements AgentAdapter {
       { id: "yolo", label: "Yolo", description: "", danger: true },
     ],
   };
-  /** 每次压缩的会话 id；compactError 不为 null 时压缩失败。 */
+  /** Session id of each compaction; compaction fails when compactError isn't null. */
   readonly compacted: string[] = [];
   compactError: Error | null = null;
-  /** usage 的剧本；默认不碰会话，返回一段固定文字。 */
+  /** Script for usage; by default it doesn't touch the session and returns a fixed text. */
   usageScript: (request: UsageRequest) => Promise<UsagePart[] | null> = () =>
     Promise.resolve([{ text: `${this.kind} usage` }]);
   readonly usageRequests: UsageRequest[] = [];
@@ -72,7 +72,7 @@ export class FakeAdapter implements AgentAdapter {
     return Promise.resolve(session);
   }
 
-  /** 删掉的原生会话 id；deleteError 不为 null 时删除失败。 */
+  /** Deleted native session ids; deletion fails when deleteError isn't null. */
   readonly deleted: string[] = [];
   deleteError: Error | null = null;
 

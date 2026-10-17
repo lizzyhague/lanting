@@ -5,7 +5,7 @@ import test from "node:test";
 const styles = await readFile(new URL("./styles.css", import.meta.url), "utf8");
 
 test("visible colors are declared in the color module", () => {
-  // 配色模块 = 开头的 :root（深色）+ 紧随其后、都以 :root[data-theme="light"] 开头的浅色规则。
+  // Color module = the leading :root (dark) + the light rules right after it, each starting with :root[data-theme="light"].
   const rootEnd = styles.indexOf("\n}");
   assert.notEqual(rootEnd, -1);
   const light = ':root[data-theme="light"]';

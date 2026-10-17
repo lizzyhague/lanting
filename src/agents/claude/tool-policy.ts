@@ -5,7 +5,7 @@ import path from "node:path";
 import type { HookCallback } from "@anthropic-ai/claude-agent-sdk";
 
 
-/** 无条件放行的只读工具。 */
+/** Read-only tools allowed unconditionally. */
 export const READ_ONLY_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"] as const;
 const READ_ONLY_TOOL_SET = new Set<string>(READ_ONLY_TOOLS);
 
@@ -33,7 +33,7 @@ export function credentialsFilePath(): string {
   return path.join(claudeConfigDirectory(), ".credentials.json");
 }
 
-/** 本机明确使用或常见的登录凭证、私钥文件；只挡这些具体文件，不扩大到整个目录。 */
+/** Login credential and private key files used on this machine or commonly seen; only these specific files are blocked, not whole directories. */
 function protectedFilePaths(): Set<string> {
   const home = homedir();
   return new Set([
@@ -50,8 +50,8 @@ function protectedFilePaths(): Set<string> {
 }
 
 /**
- * 判定顺序固定：敏感文件与令牌硬拒绝 → 只读工具放行 → 其余交给群主逐次确认。
- * 后面的规则不能绕过前面的拒绝。
+ * Fixed decision order: hard-deny sensitive files and tokens → allow read-only tools → everything else goes to the group owner for confirmation each time.
+ * Later rules can't bypass an earlier denial.
  */
 export async function decideToolUse(policy: ToolPolicyInput): Promise<ToolDecision> {
   if (
@@ -68,9 +68,9 @@ export async function decideToolUse(policy: ToolPolicyInput): Promise<ToolDecisi
 }
 
 /**
- * `permissionMode: "default"` 会自行放行 pwd 这类低风险命令，根本不调用 canUseTool。
- * 因此这里对每次调用明确返回 deny 或 ask：允许的判断留给
- * canUseTool，那里还要检查调用是否属于进行中的一轮，hook 不能提前 allow 绕过它。
+ * `permissionMode: "default"` auto-allows low-risk commands like pwd without calling canUseTool at all.
+ * So this returns an explicit deny or ask for every call: the allow decision is left to
+ * canUseTool, which also checks the call belongs to the active round; the hook can't allow early and bypass it.
  */
 export function createPreToolUseHook(
   context: {
@@ -120,13 +120,13 @@ async function targetsSensitiveFile(
   const protectedPaths = protectedFilePaths();
   const pathCandidates = collectPathValues(input);
 
-  // Glob 的 pattern 自身也可以明确点名秘密文件；Grep 的 pattern 是内容模式，
-  // 不能因为它提到“.env”就扩大为文件路径禁令。
+  // A Glob pattern can itself name a secret file explicitly; a Grep pattern is a content pattern,
+  // so mentioning ".env" must not turn into a file path ban.
   if (toolName === "Glob" && typeof input.pattern === "string") {
     pathCandidates.push(input.pattern);
   }
-  // Bash 的 command 不是结构化路径；检查整段文字，不能只按空白切词，
-  // 否则 `open(".env")`、`cat <.env` 之类会漏掉。
+  // A Bash command isn't a structured path; check the whole text rather than splitting on whitespace,
+  // or things like `open(".env")` and `cat <.env` would slip through.
   if (typeof input.command === "string" && commandNamesSensitiveFile(input.command, protectedPaths)) {
     return true;
   }
@@ -145,7 +145,7 @@ async function targetsSensitiveFile(
       const resolved = path.normalize(await realpath(absolute));
       if (protectedPaths.has(resolved) || hasSensitiveFileName(resolved)) return true;
     } catch {
-      // 不存在或含通配符的路径已由上面的明确文件名规则覆盖，无需放宽拒绝范围。
+      // Nonexistent or wildcard paths are already covered by the explicit filename rules above; no need to widen the denial.
     }
   }
   return false;
@@ -161,8 +161,8 @@ function collectPathValues(value: unknown, key = ""): string[] {
 }
 
 /**
- * 会把文件内容取出来的命令。命中这一类时，只看**引号外**的部分：
- * `grep -n "^\.env" .gitignore` 找的是模式，不是那个文件。
+ * Commands that extract file contents. When one of these matches, only the part **outside quotes** is checked:
+ * `grep -n "^\.env" .gitignore` is searching for a pattern, not reading that file.
  */
 const READING_COMMANDS = new Set([
   "cat", "bat", "tac", "nl", "head", "tail", "less", "more", "most", "od", "xxd", "hexdump",
@@ -172,12 +172,12 @@ const READING_COMMANDS = new Set([
   "openssl", "xargs", "readlink", "realpath", "stat",
 ]);
 
-/** 解释器可以在字符串里读文件，所以对这一类要连引号内一起看。 */
+/** Interpreters can read files inside strings, so for these the quoted parts are checked too. */
 const INTERPRETERS = new Set([
   "node", "python", "python3", "perl", "ruby", "php", "sh", "bash", "zsh", "deno", "bun", "eval",
 ]);
 
-/** 不改变"这条命令在干什么"的前缀词，跳过它们再判断真正的命令名。 */
+/** Prefix words that don't change "what this command does"; skip them before judging the real command name. */
 const TRANSPARENT_PREFIXES = new Set(["sudo", "command", "time", "nice", "nohup", "env", "exec"]);
 
 function commandNamesSensitiveFile(command: string, protectedPaths: Set<string>): boolean {
@@ -189,7 +189,7 @@ function commandNamesSensitiveFile(command: string, protectedPaths: Set<string>)
       continue;
     }
     const bare = stripQuotedSpans(segment);
-    // `< 秘密文件` 是读取，不管前面那个命令叫什么。
+    // `< secret file` is a read, whatever the preceding command is called.
     if (/<\s*[^\s<|;&]*\S/u.test(bare) && namesSensitiveTarget(readRedirectTargets(bare), protectedPaths)) {
       return true;
     }
@@ -201,8 +201,8 @@ function commandNamesSensitiveFile(command: string, protectedPaths: Set<string>)
 }
 
 /**
- * 把整个环境打印出来的命令。运行时继承了服务的环境，令牌就在里面。
- * 只挡整体打印：`env FOO=1 cmd` 借 env 运行别的程序、`printenv PATH` 取单个变量都不算。
+ * Commands that print the whole environment. The runtime inherits the service's environment, token included.
+ * Only full dumps are blocked: `env FOO=1 cmd` running another program via env and `printenv PATH` fetching one variable don't count.
  */
 function commandDumpsEnvironment(command: string): boolean {
   return splitCommandSegments(stripHeredocBodies(command)).some((segment) => {
@@ -232,7 +232,7 @@ function commandDumpsEnvironment(command: string): boolean {
   });
 }
 
-/** `env` 后面只有选项和变量赋值、没有要运行的程序时，它就是在打印环境。 */
+/** When `env` is followed only by options and variable assignments, with no program to run, it is printing the environment. */
 function envRunsNoCommand(args: string[]): boolean {
   let skipValue = false;
   for (const arg of args) {
@@ -251,7 +251,7 @@ function envRunsNoCommand(args: string[]): boolean {
   return true;
 }
 
-/** 命令文本里是否点名了受保护的文件。只判文本，不判意图。 */
+/** Whether the command text names a protected file. Judges the text only, not the intent. */
 function namesSensitiveTarget(text: string, protectedPaths: Set<string>): boolean {
   if (/(?:^|[\s'"`=<>()[\]{},;:|&\\/])\.env(?:\.[^\s'"`<>()[\]{},;:|&\\/]*)?(?=$|[\s'"`<>()[\]{},;:|&\\/])/u.test(text)) {
     return true;
@@ -272,8 +272,8 @@ function namesSensitiveTarget(text: string, protectedPaths: Set<string>): boolea
 }
 
 /**
- * 去掉 heredoc 的正文。写文档、写代码时正文里常常提到这些文件名，那是在写，不是在读；
- * `cat > note.md <<'EOF'` 的 `cat` 也不该因为正文提到而被当成读取。
+ * Strips heredoc bodies. Docs and code being written often mention these filenames; that is writing, not reading,
+ * and the `cat` in `cat > note.md <<'EOF'` shouldn't count as a read because the body mentions them.
  */
 function stripHeredocBodies(command: string): string {
   const lines = command.split("\n");
@@ -291,7 +291,7 @@ function stripHeredocBodies(command: string): string {
   return kept.join("\n");
 }
 
-/** 按管道、分号、逻辑运算符和子 shell 边界切开，每段各自判断自己的命令名。 */
+/** Splits on pipes, semicolons, logical operators and subshell boundaries; each segment judges its own command name. */
 function splitCommandSegments(command: string): string[] {
   return command
     .split(/\|\||&&|[|;\n]|\$\(|`/u)
@@ -299,7 +299,7 @@ function splitCommandSegments(command: string): string[] {
     .filter(Boolean);
 }
 
-/** 跳过前置变量赋值和 sudo 这类透明前缀，取真正的命令名。 */
+/** Skips leading variable assignments and transparent prefixes like sudo to get the real command name. */
 function leadingCommandName(segment: string): string | null {
   for (const word of segment.split(/\s+/u)) {
     if (!word) continue;
@@ -312,12 +312,12 @@ function leadingCommandName(segment: string): string | null {
   return null;
 }
 
-/** `<` 之后紧跟的那个词，也就是被当成输入读进来的文件。 */
+/** The word right after `<`, i.e. the file read in as input. */
 function readRedirectTargets(segment: string): string {
   return [...segment.matchAll(/<\s*([^\s<|;&]+)/gu)].map((match) => match[1]).join(" ");
 }
 
-/** 去掉成对引号里的内容，只留引号外的部分。 */
+/** Removes the contents of paired quotes, keeping only what's outside them. */
 function stripQuotedSpans(segment: string): string {
   return segment.replaceAll(/'[^']*'|"[^"]*"/gu, " ");
 }

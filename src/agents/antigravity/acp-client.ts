@@ -4,13 +4,13 @@ import { EventEmitter } from "node:events";
 import { groupExists } from "../../platform/process-group.ts";
 
 /**
- * Antigravity ACP Server（`agy_acp_server.par`）的子进程客户端。stdin/stdout 交换 LF 分隔的
- * JSON-RPC 2.0，stderr 只是诊断。
+ * Subprocess client for the Antigravity ACP Server (`agy_acp_server.par`). stdin/stdout carry LF-delimited
+ * JSON-RPC 2.0; stderr is diagnostics only.
  *
- * 照 Cursor 的 ACP 客户端；启动参数、恢复方法和错误不同，所以单独一份，不与 Cursor、Grok 共用。
- * 不发 `authenticate`：使用 ACP Server 已有的登录状态；Server 返回的认证错误由上层处理。
+ * Modeled on the Cursor ACP client; launch arguments, resume method and errors differ, so it is a separate copy not shared with Cursor or Grok.
+ * Doesn't send `authenticate`: it uses the ACP Server's existing login; auth errors returned by the Server are handled upstream.
  *
- * 不用 node:readline 拆行：它把 U+2028、U+2029 也当换行，而它们在 JSON 字符串里是合法字符。
+ * Doesn't split lines with node:readline: it also treats U+2028 and U+2029 as line breaks, which are valid in JSON strings.
  */
 
 export type AntigravityAcpClientOptions = {
@@ -43,10 +43,10 @@ export type AntigravityPromptContent =
 
 export type AntigravityExit = { code: number | null; signal: NodeJS.Signals | null; error?: string };
 
-/** ACP 的 auth_required：没有登录，或登录已经失效。 */
+/** ACP auth_required: not logged in, or the login has expired. */
 export const AUTH_REQUIRED_CODE = -32000;
 
-/** Server 对请求回了 JSON-RPC 错误；保留错误码，供上层分辨没登录等情况。 */
+/** The Server answered a request with a JSON-RPC error; the code is kept so upstream can tell cases like not logged in. */
 export class AntigravityRpcError extends Error {
   readonly code: number | null;
   readonly data: unknown;
@@ -68,22 +68,22 @@ type Pending = {
 };
 
 /**
- * 不带 `--uid=` 时 Server 启动后会尝试切换到 nobody 用户组，找不到就以 SIGABRT 退出。
+ * Without `--uid=` the Server tries to switch to the nobody group after starting and exits with SIGABRT if it can't find it.
  */
 const SERVER_ARGS = ["--uid="];
 
-/** 关闭 stdin 后等 Server 自己退出的时间（实测不到 1 秒），过了就杀整个进程组。 */
+/** How long to wait for the Server to exit on its own after stdin closes (under 1 second in practice); after that the whole process group is killed. */
 const CLOSE_WAIT_MS = 3_000;
 const TERM_WAIT_MS = 2_000;
 const KILL_WAIT_MS = 1_000;
 const STDERR_TAIL_LIMIT = 8_192;
 
 /**
- * 事件：
- * - `update`：`session/update` 通知（AntigravityUpdate）
- * - `permission`：`session/request_permission`（AntigravityPermissionRequest），要用 respondPermission 回复
- * - `diagnostic`：stderr、不是 JSON 的 stdout、对不上请求的响应、不认识的通知，只用于日志
- * - `exit`：进程已退出（AntigravityExit）
+ * Events:
+ * - `update`: `session/update` notification (AntigravityUpdate)
+ * - `permission`: `session/request_permission` (AntigravityPermissionRequest), answered with respondPermission
+ * - `diagnostic`: stderr, non-JSON stdout, responses matching no request, unknown notifications; for logs only
+ * - `exit`: the process has exited (AntigravityExit)
  */
 export class AntigravityAcpClient extends EventEmitter {
   readonly #process: ChildProcessWithoutNullStreams;
@@ -101,7 +101,7 @@ export class AntigravityAcpClient extends EventEmitter {
       cwd: options.cwd,
       env: options.env ?? process.env,
       stdio: ["pipe", "pipe", "pipe"],
-      // 独立进程组：关闭时向负 pid 发信号，带走 localharness_external 和它启动的 shell 等子进程。
+      // Separate process group: on close, signal the negative pid to take down localharness_external and the shells it started.
       detached: true,
       windowsHide: true,
     }) as ChildProcessWithoutNullStreams;
@@ -117,11 +117,11 @@ export class AntigravityAcpClient extends EventEmitter {
       const text = chunk.trim();
       if (text) this.emit("diagnostic", `Antigravity stderr：${text}`);
     });
-    // 子进程退出过程中管道出错是正常的，不能让未处理的 error 把后端带走。
+    // Pipe errors while the child exits are normal; an unhandled error must not take down the backend.
     this.#process.stdin.on("error", () => {});
     this.#process.stdout.on("error", () => {});
     this.#process.stderr.on("error", () => {});
-    // 启动失败（比如路径不对）时只有 error 事件，没有 exit。
+    // A failed launch (e.g. wrong path) emits only an error event, no exit.
     this.#process.on("error", (error) => {
       this.#onExit({ code: null, signal: null, error: `无法启动 Antigravity：${error.message}` });
       markExited();
@@ -132,7 +132,7 @@ export class AntigravityAcpClient extends EventEmitter {
     });
   }
 
-  /** 进程组 id，也是 Server 进程的 pid；启动失败时为 undefined。 */
+  /** Process group id, which is also the Server's pid; undefined if launch failed. */
   get pid(): number | undefined {
     return this.#process.pid;
   }
@@ -141,12 +141,12 @@ export class AntigravityAcpClient extends EventEmitter {
     return this.#exitInfo === null;
   }
 
-  /** 有上限的 stderr 尾部，只用于服务端日志。 */
+  /** Bounded tail of stderr, for server logs only. */
   get stderrTail(): string {
     return this.#stderrTail;
   }
 
-  /** 不向 Antigravity 声明 fs / terminal 能力，文件和命令都由它自己执行。 */
+  /** Doesn't declare fs / terminal capabilities to Antigravity; it runs files and commands itself. */
   async initialize(): Promise<Record<string, unknown>> {
     return objectOf(await this.request("initialize", {
       protocolVersion: 1,
@@ -166,7 +166,7 @@ export class AntigravityAcpClient extends EventEmitter {
     return result.sessionId;
   }
 
-  /** 用 resume 而不用 load：resume 不重放历史，上下文照样保留。 */
+  /** Uses resume rather than load: resume doesn't replay history, and context is still kept. */
   async sessionResume(sessionId: string, cwd: string): Promise<Record<string, unknown>> {
     return objectOf(await this.request("session/resume", { sessionId, cwd, mcpServers: [] }));
   }
@@ -185,7 +185,7 @@ export class AntigravityAcpClient extends EventEmitter {
     })) as { stopReason?: string };
   }
 
-  /** 通知，没有响应；进行中的 `session/prompt` 会以 stopReason `cancelled` 返回。 */
+  /** A notification with no response; an in-flight `session/prompt` returns with stopReason `cancelled`. */
   sessionCancel(sessionId: string): void {
     this.notify("session/cancel", { sessionId });
   }
@@ -210,9 +210,9 @@ export class AntigravityAcpClient extends EventEmitter {
   }
 
   /**
-   * 先关 stdin 让 Server 自己收尾，等不到退出再 SIGTERM、SIGKILL 整个进程组。
-   * SIGTERM 会让 Server 在 stderr 打出 Fatal Python error，正常关闭走不到这一步。
-   * 返回时进程已经退出（或从未启动）。
+   * Close stdin first so the Server can wind down itself; if it doesn't exit, SIGTERM then SIGKILL the whole process group.
+   * SIGTERM makes the Server print a Fatal Python error on stderr; a normal shutdown never gets that far.
+   * On return the process has exited (or never started).
    */
   async close(): Promise<void> {
     if (!this.#closed) {
@@ -229,14 +229,14 @@ export class AntigravityAcpClient extends EventEmitter {
         await this.#exited;
       }
     }
-    // Server 自己退出了，它启动的工具子进程仍可能留在组里。
+    // The Server exited on its own, but tool subprocesses it started may still be in the group.
     if (groupExists(pid)) {
       try {
         process.kill(-pid, "SIGKILL");
       } catch {
-        // 组已经空了。
+        // The group is already empty.
       }
-      // 孤儿进程要等 init 回收才从进程组里消失。
+      // Orphaned processes only leave the process group once init reaps them.
       for (let waited = 0; groupExists(pid) && waited < KILL_WAIT_MS; waited += 20) {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
@@ -365,7 +365,7 @@ export class AntigravityAcpClient extends EventEmitter {
       try {
         this.#process.kill(signal);
       } catch {
-        // 进程已经不在了。
+        // The process is already gone.
       }
     }
   }

@@ -22,7 +22,7 @@ export type BrowserConnectionServices = {
   groups: GroupService;
 };
 
-/** 处理请求时可以抛出的业务错误，code 原样回给浏览器。 */
+/** Business errors that request handling may throw; code is returned to the browser as-is. */
 export class RequestError extends Error {
   readonly code: string;
   readonly details: Record<string, string> | undefined;
@@ -39,7 +39,7 @@ export class BrowserConnection implements EventSink {
   readonly #socket: BrowserSocket;
   readonly #services: BrowserConnectionServices;
   readonly #subscriptions = new Set<string>();
-  /** 连接建立后、页面发 connection.ready 之前的全局事件先暂存，之后按原顺序冲刷。 */
+  /** Global events after the connection opens but before the page sends connection.ready are buffered, then flushed in their original order. */
   #globalBuffered: BrowserEvent[] | null = [];
   #disposed = false;
 
@@ -119,11 +119,11 @@ export class BrowserConnection implements EventSink {
         return;
       }
       case "group.subscribe": {
-        // 快照和登记之间没有 await：之后的群事件一定排在快照之后。
+        // No await between the snapshot and registration: later group events always come after the snapshot.
         const snapshot = groups.snapshot(request.groupId);
         this.#subscriptions.add(request.groupId);
         this.#respondOk(request.requestId, snapshot);
-        // 回复快照之后再读 usage，usage.updated 一定排在快照之后。
+        // usage is read after replying with the snapshot, so usage.updated always comes after the snapshot.
         void groups.refreshUsage(request.groupId, "view");
         return;
       }
@@ -179,7 +179,7 @@ export class BrowserConnection implements EventSink {
         return;
       }
       case "group.usage.refresh": {
-        // 结果走 usage.updated；usage 关着时 refreshUsage 什么也不做。
+        // The result goes out as usage.updated; refreshUsage does nothing when usage is off.
         void groups.refreshUsage(request.groupId, "visible");
         this.#respondOk(request.requestId, {});
         return;

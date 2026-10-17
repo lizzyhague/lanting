@@ -1,6 +1,6 @@
 /*
- * 经典脚本，在 <head> 里先于样式同步执行：页面画出来之前定好深色还是浅色，避免先闪一下深色。
- * 选择只存在当前浏览器；“跟随系统”时不存值，系统外观变化会立即切换。
+ * Classic script, run synchronously in <head> before the styles: decide dark or light before the page paints, avoiding a flash of dark.
+ * The choice is stored only in the current browser; "follow system" stores nothing, and system appearance changes apply immediately.
  */
 (function () {
   var KEY = "lanting.theme";
@@ -30,7 +30,7 @@
     if (typeof media.addEventListener === "function") media.addEventListener("change", apply);
     else if (typeof media.addListener === "function") media.addListener(apply);
   }
-  // 同一浏览器的其他标签页改了选择时跟着变。
+  // Follow changes made in other tabs of the same browser.
   window.addEventListener("storage", function (event) {
     if (event.key !== KEY && event.key !== null) return;
     choice = read();
@@ -47,7 +47,7 @@
         if (choice === "system") localStorage.removeItem(KEY);
         else localStorage.setItem(KEY, choice);
       } catch (error) {
-        // 浏览器禁用本地存储时，只对当前页面生效。
+        // If the browser disables local storage, it applies to the current page only.
       }
       apply();
     },

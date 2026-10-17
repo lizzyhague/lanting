@@ -1,4 +1,4 @@
-/* 经典脚本：app.js 是模块脚本，旧浏览器加载不了时，这里给出明确提示，而不是让按钮一直无反应。 */
+/* Classic script: app.js is a module script; when an old browser can't load it, this shows a clear message instead of leaving buttons unresponsive. */
 (function () {
   var form = document.getElementById("token-form");
   var status = document.getElementById("login-status");
@@ -31,19 +31,19 @@
 }());
 
 /*
- * 页面更新由普通导航完成。SW 只管理离线副本，不因接管页面而自动重载。
- * 保留经典脚本注册，即使 app.js 无法启动也能维护离线支持。
+ * Page updates happen through normal navigation. The SW only manages the offline copy and doesn't reload pages when it takes control.
+ * Registration stays in the classic script so offline support is maintained even if app.js fails to start.
  */
 (function () {
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", function () {
     navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch(function () {
-      // 无法注册不影响联网使用。
+      // Failing to register doesn't affect online use.
     });
   });
 }());
 
-/* 内部滚动列表不依赖浏览器是否提供原生下拉刷新。 */
+/* Inner scrolling lists don't rely on whether the browser provides native pull-to-refresh. */
 (function () {
   if (!("ontouchstart" in window)) return;
   var start = null;
@@ -69,7 +69,7 @@
     if (target.closest("input, textarea, button, a, select, dialog, [contenteditable], pre")) return;
     var surface = target.closest(".timeline, .group-list, .group-header, .login-view");
     if (!surface || surface.scrollTop > 0 || window.scrollY > 0) return;
-    // 嵌套滚动区（例如长问题卡）先处理自己的滚动。
+    // Nested scroll areas (e.g. long question cards) handle their own scrolling first.
     for (var node = target; node && node !== surface; node = node.parentElement) {
       if (node.scrollHeight > node.clientHeight && /auto|scroll/.test(getComputedStyle(node).overflowY)) return;
     }

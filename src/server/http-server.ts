@@ -21,12 +21,12 @@ export type WebServerOptions = {
   token: string;
   services: BrowserConnectionServices;
   fileRoots?: string[];
-  /** 启动恢复尚未完成时返回 starting。 */
+  /** Returns starting while startup recovery hasn't finished. */
   readyState?: () => "starting" | "ok";
   heartbeatIntervalMs?: number;
   allowedOrigins?: string[];
   webRoot?: string;
-  /** ai-remote-upload 的客户端；没有时上传入口返回 503。 */
+  /** ai-remote-upload client; without it the upload endpoint returns 503. */
   uploads?: Pick<SharedUploadClient, "upload">;
 };
 
@@ -34,8 +34,8 @@ const DEFAULT_WEB_ROOT = fileURLToPath(new URL("../../public/", import.meta.url)
 const MAX_OUTBOUND_BUFFER_BYTES = 16 * 1_048_576;
 
 /*
- * 这是一张白名单，不是目录服务——新增前端文件必须在这里登记，否则一律 404，
- * 而且要重启服务才生效。
+ * This is an allowlist, not a directory server: new frontend files must be registered here or they all return 404,
+ * and the service must be restarted for it to take effect.
  */
 const STATIC_FILES: Record<string, { file: string; contentType: string }> = {
   "/view": { file: "view.html", contentType: "text/html; charset=utf-8" },
@@ -108,7 +108,7 @@ export class WebServer {
     });
 
     this.#http.on("upgrade", (request, socket, head) => {
-      // 这个监听是同步回调，抛错没人接会让进程退出；解析不了的请求目标按非 /ws 处理。
+      // This listener is a synchronous callback; an uncaught throw would exit the process. An unparsable request target is treated as non-/ws.
       const pathname = URL.parse(request.url ?? "/", "http://127.0.0.1")?.pathname;
       if (pathname !== "/ws") {
         socket.destroy();
@@ -191,7 +191,7 @@ export class WebServer {
         sendJson(response, 401, { error: { message: "请先登录。" } });
         return;
       }
-      // 已鉴权 HTTP 请求会续期 cookie。
+      // Authenticated HTTP requests renew the cookie.
       response.setHeader("set-cookie", this.#auth.header(cookie));
     }
     if (pathname === "/attachments/upload") {
@@ -323,7 +323,7 @@ export class WebServer {
     sendJson(response, 200, { authenticated: true });
   }
 
-  /** 照 Relayu：浏览器带着票据把文件传到这里，原样流式转交 ai-remote-upload，不先读进内存。 */
+  /** As in Relayu: the browser sends the file here with a ticket, and it is streamed as-is to ai-remote-upload without first reading it into memory. */
   async #receiveUpload(request: IncomingMessage, response: ServerResponse): Promise<void> {
     if (request.method !== "POST") {
       response.setHeader("allow", "POST");
@@ -409,8 +409,8 @@ export class WebServer {
       }
       connection.receiveText(rawDataToString(data));
     });
-    // ws 遇到超长帧、非法 UTF-8 等协议错误时会自己关闭连接，再发 error；
-    // 没有监听器的 error 会让整个进程退出，所以这里只记日志。
+    // On protocol errors such as oversized frames or invalid UTF-8, ws closes the connection itself and then emits error;
+    // an error with no listener would exit the whole process, so this only logs.
     webSocket.on("error", (error) => {
       console.error(`WebSocket 连接出错，已断开：${error.message}`);
     });
@@ -439,7 +439,7 @@ function sendUploadError(response: ServerResponse, error: unknown): void {
   const normalized = error instanceof SharedUploadError
     ? error
     : new SharedUploadError("upload_failed", "附件上传失败。", 500);
-  // 上传没读完就回错误时，让浏览器别再继续发。
+  // When responding with an error before the upload is fully read, tell the browser to stop sending.
   response.setHeader("connection", "close");
   sendJson(response, normalized.status, { error: { code: normalized.code, message: normalized.message } });
 }

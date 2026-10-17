@@ -13,7 +13,7 @@ import {
   type CursorUpdate,
 } from "./acp-client.ts";
 
-/** 假的 `agent acp`：按 LF 读 JSON-RPC，行为由请求方法决定。 */
+/** Fake `agent acp`: reads LF-delimited JSON-RPC; behavior depends on the request method. */
 const FAKE_CURSOR = `#!/usr/bin/env node
 import { spawn } from "node:child_process";
 const out = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
@@ -45,7 +45,7 @@ if (process.env.FAKE_IGNORE_EOF === "1") {
 }
 function handle(message) {
   if (message.method === undefined) {
-    // 客户端对服务端请求的回复。
+    // The client's reply to a server request.
     answers.push(message);
     return;
   }
@@ -68,7 +68,7 @@ function handle(message) {
       update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: params.prompt[0].text } });
       return reply(id, { stopReason: "end_turn" });
     case "split": {
-      // 一条记录分三次写出，正文里带 U+2028、U+2029 和 CRLF 结尾。
+      // One record written in three pieces, with U+2028, U+2029 in the text and a CRLF ending.
       const text = JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "s-1", update: { text: "a\\u2028b\\u2029c" } } });
       process.stdout.write(text.slice(0, 10));
       setTimeout(() => process.stdout.write(text.slice(10, 30)), 20);
@@ -234,7 +234,7 @@ test("reports non-JSON stdout, stderr, stray responses and errors", async (t) =>
   assert.ok(diagnostics.some((text) => text.includes("Cursor stdout 不是 JSON：not json")));
   assert.ok(diagnostics.some((text) => text.includes("Cursor stdout 不是 JSON 对象：[1,2]")));
   assert.ok(diagnostics.some((text) => text.includes("Cursor 响应对不上请求") && text.includes("4242")));
-  // stderr 和 stdout 是两条管道，到达顺序不保证。
+  // stderr and stdout are two pipes; arrival order isn't guaranteed.
   while (!diagnostics.some((text) => text.includes("Cursor stderr：something on stderr"))) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }

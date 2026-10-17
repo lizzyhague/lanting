@@ -14,9 +14,9 @@ import {
 } from "./adapter.ts";
 
 /**
- * 假的 ACP Server：prompt 的正文决定这一轮怎么走；会话记录存在 cwd 里，跨进程可以 resume。
- * cwd 里有 `login-on-new` 时，session/new 像凭据失效那样打出授权地址后一直等；
- * 有 `auth-required` 时，session/new 回 auth_required。
+ * Fake ACP Server: the prompt text decides how the round goes; session records are stored in cwd, so they can be resumed across processes.
+ * With `login-on-new` in cwd, session/new prints an authorization URL as if credentials expired, then waits forever;
+ * with `auth-required`, session/new returns auth_required.
  */
 const FAKE_SERVER = `#!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -88,7 +88,7 @@ function handle(message) {
       mode = params.modeId;
       return reply(id, {});
     case "session/cancel":
-      // 未决的审批由客户端回成 cancelled，这一轮在那时结束。
+      // Pending approvals are answered cancelled by the client, and the round ends then.
       if (waiting.size === 0 && promptId !== null) end("cancelled");
       return;
     case "session/prompt": return prompt(id, params.prompt[0].text);
@@ -132,7 +132,7 @@ function prompt(id, text) {
     return;
   }
   if (command === "retry") {
-    // 第一次工作目录选错、执行失败，模型重试，同一条命令再审批一次。
+    // The first time the working directory is wrong and execution fails; the model retries and the same command needs approval again.
     execute("t-1", "/nonexistent/skills", (first) => {
       update({ sessionUpdate: "tool_call_update", toolCallId: "t-1", status: "failed" });
       execute("t-2", process.cwd(), (second) => {
@@ -358,7 +358,7 @@ test("interrupt withdraws the approval and ends the turn as interrupted", async 
   assert.equal(approvals[0]!.signal?.aborted, true);
   const events = await turn;
   assert.deepEqual(endOf(events), { type: "end", outcome: "interrupted", text: "partial" });
-  // 迟到的网页答复不再写回。
+  // A late web answer is no longer written back.
   approvals[0]!.resolve({ decision: "allow", message: "" });
   assert.equal(endOf(await drain(session, "after")).outcome, "completed");
   await session.close();
@@ -387,7 +387,7 @@ test("does not report the SIGTERM stderr as the failure reason", async (t) => {
     if (event.type === "text") started = true;
   });
   await waitFor(() => started);
-  // 假 Server 不理 stdin EOF，要等到 SIGTERM 才退出，退出前在 stderr 打出 Fatal Python error。
+  // The fake Server ignores stdin EOF and only exits on SIGTERM, printing a Fatal Python error on stderr first.
   await session.close();
   const end = endOf(await turn);
   assert.equal(end.outcome, "failed");

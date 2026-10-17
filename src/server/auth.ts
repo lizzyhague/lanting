@@ -8,7 +8,7 @@ export function secretsEqual(left: string, right: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-/** 更换访问令牌会让所有已签发的 cookie 立即失效，不需要内存会话表。 */
+/** Changing the access token invalidates all issued cookies immediately, with no in-memory session table needed. */
 export class CookieAuth {
   readonly #key: Buffer;
 
@@ -38,7 +38,7 @@ export class CookieAuth {
   }
 
   header(value: string): string {
-    // 主流浏览器会限制持久 cookie 的最长寿命；已鉴权 HTTP 请求会续期。
+    // Major browsers cap the lifetime of persistent cookies; authenticated HTTP requests renew it.
     return `${COOKIE_NAME}=${value}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=34560000`;
   }
 }

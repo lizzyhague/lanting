@@ -2,7 +2,7 @@ import { AGENT_MODULES } from "./index.ts";
 import { isAgentKind, type AgentKind } from "./kinds.ts";
 import type { AgentAdapter } from "./types.ts";
 
-/** lanting 支持的全部 CLI 种类，不受当前 config 是否配置影响。 */
+/** All CLI kinds lanting supports, regardless of whether the current config sets them up. */
 export const SUPPORTED_AGENT_KINDS: readonly { kind: AgentKind; displayName: string }[] =
   AGENT_MODULES.map(({ kind, displayName }) => ({ kind, displayName }));
 
@@ -10,7 +10,7 @@ export function kindDisplayName(kind: AgentKind): string {
   return AGENT_MODULES.find((module) => module.kind === kind)?.displayName ?? kind;
 }
 
-/** 当前 config 已登记的 CLI 适配器。 */
+/** CLI adapters registered in the current config. */
 export class AgentRegistry {
   readonly #adapters = new Map<AgentKind, AgentAdapter>();
 

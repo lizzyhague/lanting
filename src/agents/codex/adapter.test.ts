@@ -7,7 +7,7 @@ import test from "node:test";
 import type { AgentEvent, ApprovalAsk, SessionOptions } from "../types.ts";
 import { CodexAdapter } from "./adapter.ts";
 
-/** 假的 codex app-server：一轮里先说一句过渡的话、跑一条要审批的命令，再给最终回答。 */
+/** Fake codex app-server: in one round it says an interim line, runs a command needing approval, then gives the final answer. */
 const FAKE_APP_SERVER = `#!/usr/bin/env node
 import { appendFileSync, existsSync, unlinkSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -76,7 +76,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     turn += 1;
     const turnId = "turn-" + turn;
     send({ id: m.id, result: { turn: { id: turnId } } });
-    // 用量通知不属于这一轮也要记下。
+    // Usage notifications are recorded even when they don't belong to this round.
     send({ method: "thread/tokenUsage/updated", params: { threadId: "thread-1", turnId: "other",
       tokenUsage: { last: { totalTokens: 2500 }, total: { totalTokens: 9000 }, modelContextWindow: 10000 } } });
     send({ method: "item/completed", params: { threadId: "thread-1", turnId, item: { type: "agentMessage", id: "u", text: "ok" } } });
@@ -256,7 +256,7 @@ test("Codex usage reads quota from the resident server and context from the turn
   const session = await adapter.startSession(options);
   await collect(session.send("usage"));
   await session.close();
-  // 进程关掉以后上下文仍然保留；同时来的两次查询共用一个请求。
+  // Context survives after the process closes; two simultaneous queries share one request.
   const before = (await readFile(quotaReads, "utf8")).length;
   const [first, second] = await Promise.all([usage(request), usage(request)]);
   assert.deepEqual(first, [{ text: "上下文约 25.0%" }, ...quota]);

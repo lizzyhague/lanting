@@ -37,10 +37,10 @@ export type NewEntry = Omit<TranscriptEntry, "seq" | "at">;
 type GroupRecord = { group: Group; transcript: TranscriptEntry[]; queue: Promise<void> };
 
 /**
- * 群和群聊记录。每个群一个目录：group.json 存群的数据，transcript.json 存群聊记录。
+ * Groups and chat records. One directory per group: group.json holds the group's data and transcript.json its chat record.
  *
- * 全部内容常驻内存，读是同步的；写按群排队，先写盘成功再换掉内存里的值，
- * 写盘失败时内存保持旧值。
+ * Everything stays in memory and reads are synchronous; writes are queued per group, and the in-memory value is replaced only after the disk write succeeds,
+ * so on a failed write memory keeps the old value.
  */
 export class GroupStore {
   readonly #root: string;
@@ -50,7 +50,7 @@ export class GroupStore {
     this.#root = root;
   }
 
-  /** 任何一个群的文件损坏都直接抛错，绝不用空状态覆盖原文件。 */
+  /** Any corrupt group file throws immediately; the original files are never overwritten with an empty state. */
   static async open(dataDirectory: string): Promise<GroupStore> {
     const store = new GroupStore(path.join(dataDirectory, "groups"));
     await ensurePrivateDirectory(store.#root);
@@ -116,7 +116,7 @@ export class GroupStore {
     return structuredClone(group);
   }
 
-  /** 在副本上修改，写盘成功后才生效。 */
+  /** Modifies a copy, which takes effect only after the disk write succeeds. */
   update(id: string, mutate: (group: Group) => void): Promise<Group> {
     return this.#enqueue(id, async (record) => {
       const next = structuredClone(record.group);
@@ -144,7 +144,7 @@ export class GroupStore {
       };
       const next = [...record.transcript, full];
       const nextGroup = { ...record.group, updatedAt: now };
-      // 和 Relayu 一样，消息一进入记录就刷新最近活动时间。
+      // As in Relayu, the last activity time is refreshed as soon as a message enters the record.
       await this.#writeGroup(nextGroup);
       record.group = nextGroup;
       await this.#writeTranscript(id, next);
@@ -153,7 +153,7 @@ export class GroupStore {
     });
   }
 
-  /** 删掉群目录（群的数据和群聊记录），之后这个群就不存在了。 */
+  /** Deletes the group directory (the group's data and chat record); after that the group no longer exists. */
   remove(id: string): Promise<void> {
     return this.#enqueue(id, async () => {
       await rm(path.join(this.#root, id), { recursive: true, force: true });
@@ -259,7 +259,7 @@ function parseGroup(value: unknown, id: string): Group {
     updatedAt,
     pinned: group.pinned === true,
     archived: group.archived === true,
-    // 缺字段的旧群按关闭处理；成员里没有的也按关闭处理。
+    // Older groups missing the field are treated as off; so are members not in the group.
     usageAgent: typeof group.usageAgent === "string" && members.includes(group.usageAgent)
       ? group.usageAgent
       : null,

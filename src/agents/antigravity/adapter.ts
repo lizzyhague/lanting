@@ -21,12 +21,12 @@ export type AntigravityAdapterOptions = {
   executable: string;
 };
 
-/** session/cancel 之后等这么久这一轮还没结束，就直接关掉 Antigravity 进程。 */
+/** If the round hasn't ended this long after session/cancel, the Antigravity process is closed outright. */
 const INTERRUPT_TIMEOUT_MS = 10_000;
 
 /**
- * always-approve 不用 Server 自带的 `auto_edit`、`yolo` 模式，而是由 lanting 对每个审批选一次性允许；
- * 不选 `allow_always`，免得把授权写进 Antigravity 的会话附属文件。
+ * always-approve doesn't use the Server's own `auto_edit` or `yolo` modes; instead lanting picks a one-time allow for each approval.
+ * `allow_always` isn't chosen, so the grant isn't written into Antigravity's session side files.
  */
 export const ANTIGRAVITY_PERMISSIONS: readonly PermissionOption[] = [
   {
@@ -44,20 +44,20 @@ export const ANTIGRAVITY_PERMISSIONS: readonly PermissionOption[] = [
 
 const ALWAYS_APPROVE = "always-approve";
 
-/** 审批交给 lanting，Server 的权限模式固定为 default。 */
+/** Approvals go to lanting; the Server's permission mode is fixed to default. */
 const DEFAULT_MODE = "default";
 
 /**
- * 凭据失效、不能静默刷新时，Server 不报错，而是在 stderr 打出这一行授权地址，再等浏览器回调最多 5 分钟。
- * 回调要回到服务器本机，网页上的群主完成不了，看到这一行就结束这一轮。
+ * When credentials expire and can't be refreshed silently, the Server doesn't error; it prints this authorization URL line on stderr and waits up to 5 minutes for a browser callback.
+ * The callback must reach the server machine itself, which the group owner on the web page can't complete, so the round ends when this line appears.
  */
 const LOGIN_PROMPT = "Open the following link to authenticate the ACP server";
 
 export const LOGIN_REQUIRED_MESSAGE = "Antigravity 需要重新登录：请在服务器上完成 ACP Server 登录，见部署文档。";
 
 /**
- * `_meta` 里的系统提示词会被忽略，工作目录里的 `AGENTS.md` 也不会自动进上下文，
- * 群聊规则只能作为新会话第一条 user 消息的开头发一次；恢复会话时规则已经在会话历史里，不再发。
+ * The system prompt in `_meta` is ignored and `AGENTS.md` in the working directory isn't loaded into context automatically,
+ * so the group chat rules can only be sent once, at the start of a new session's first user message; on resume they are already in the session history and aren't sent again.
  */
 export function firstMessage(systemPrompt: string, text: string): string {
   return [
@@ -71,13 +71,13 @@ export function firstMessage(systemPrompt: string, text: string): string {
 
 export class AntigravityAdapter implements AgentAdapter {
   readonly kind = "antigravity";
-  /** 每轮结束关掉 ACP 进程，下次用 session id 恢复，与 Codex、Grok、Pi、Cursor 一致。 */
+  /** Closes the ACP process after every round and resumes by session id next time, same as Codex, Grok, Pi and Cursor. */
   readonly closeAfterTurn = true;
   /**
-   * 不实现 models：模型列表只在 `session/new` 的返回里，取一次就会留下一个空会话；
-   * 模型选择也不跨进程保留，每次恢复都要用 `session/set_config_option` 重设。
-   * 不实现 usage：Server 每轮会发 `usage_update`（上下文已用量和上限），首版没有接。
-   * 不实现 deleteSession、compact：ACP Server 没有删除会话和压缩接口。
+   * models isn't implemented: the model list only comes in the `session/new` response, so fetching it leaves an empty session behind;
+   * the model choice also doesn't persist across processes and must be reset with `session/set_config_option` on every resume.
+   * usage isn't implemented: the Server sends `usage_update` (context used and limit) every round, but the first version doesn't use it.
+   * deleteSession and compact aren't implemented: the ACP Server has no delete-session or compaction API.
    */
   readonly features: AgentFeatures = {
     permissions: async () => [...ANTIGRAVITY_PERMISSIONS],
@@ -99,25 +99,25 @@ export class AntigravityAdapter implements AgentAdapter {
 
 type Turn = {
   channel: EventChannel<AgentEvent>;
-  /** 当前这一段 agent_message；下一个工具调用出现时转成过程信息。 */
+  /** The current agent_message segment; becomes progress info when the next tool call appears. */
   segment: string;
-  /** 群主已经要求打断；之后结束的这一轮按 interrupted 处理。 */
+  /** The group owner has asked to interrupt; the round that ends afterwards counts as interrupted. */
   interrupted: boolean;
 };
 
 /**
- * 每个原生会话一个独立的 ACP Server 子进程（独立进程组）。
- * 明文回复以这一轮最后一段 agent_message 为准，之前的过渡文字转成过程信息。
+ * One separate ACP Server subprocess (in its own process group) per native session.
+ * The plain reply is the round's last agent_message; earlier interim text becomes progress info.
  */
 class AntigravitySession implements AgentSession {
   readonly #client: AntigravityAcpClient;
   readonly #options: SessionOptions;
-  /** 网页上还没回答的审批，按 Server 的 JSON-RPC id。 */
+  /** Approvals not yet answered on the web page, keyed by the Server's JSON-RPC id. */
   readonly #approvals = new Map<number | string, AbortController>();
   #sessionId = "";
-  /** 新会话还没把群聊规则发出去。 */
+  /** The new session hasn't sent the group chat rules yet. */
   #rulesPending = false;
-  /** Server 已经在等浏览器登录；进程随即关掉。 */
+  /** The Server is already waiting for a browser login; the process is closed right away. */
   #loginRequired = false;
   #turn: Turn | null = null;
 
@@ -153,7 +153,7 @@ class AntigravitySession implements AgentSession {
     try {
       await client.initialize();
       if (sessionId) {
-        // resume 不重放历史，上下文照样保留。
+        // resume doesn't replay history, and context is still kept.
         await client.sessionResume(sessionId, options.cwd);
         session.#sessionId = sessionId;
       } else {
@@ -241,7 +241,7 @@ class AntigravitySession implements AgentSession {
     turn.channel.end();
   }
 
-  /** 不等那 5 分钟：结束这一轮，关掉进程；开会话时由 open 改写成登录提示。 */
+  /** Don't wait the 5 minutes: end the round and close the process; open rewrites it as a login notice when opening a session. */
   #onLoginRequired(): void {
     this.#loginRequired = true;
     const turn = this.#turn;
@@ -268,7 +268,7 @@ class AntigravitySession implements AgentSession {
     }
   }
 
-  /** 同一轮里同一条命令可能连着审批两次（模型选错工作目录后重试），每次都独立处理。 */
+  /** The same command may need approval twice in a row within a round (the model retries after picking the wrong directory); each is handled independently. */
   #onPermission(request: AntigravityPermissionRequest): void {
     const turn = this.#turn;
     if (request.sessionId !== this.#sessionId || !turn || turn.interrupted) {
@@ -283,7 +283,7 @@ class AntigravitySession implements AgentSession {
     this.#approvals.set(request.rpcId, controller);
     const tool = toolActivity(request.toolCall);
     const settle = (outcome: AntigravityPermissionOutcome) => {
-      // 已经撤下的审批由撤下的一方回过 cancelled，迟到的网页答复不再写回。
+      // A withdrawn approval was already answered cancelled by whoever withdrew it; a late web answer is no longer written back.
       if (this.#approvals.get(request.rpcId) !== controller) return;
       this.#approvals.delete(request.rpcId);
       this.#client.respondPermission(request.rpcId, outcome);
@@ -297,7 +297,7 @@ class AntigravitySession implements AgentSession {
     );
   }
 
-  /** 撤下网页上的审批，并告诉仍在运行的 Server 这些请求取消了。 */
+  /** Withdraw the approvals on the web page and tell the still-running Server those requests were cancelled. */
   #cancelApprovals(): void {
     for (const [rpcId, controller] of this.#approvals) {
       this.#approvals.delete(rpcId);
@@ -308,8 +308,8 @@ class AntigravitySession implements AgentSession {
 }
 
 /**
- * 只按 kind 选一次性的允许或拒绝，不按 optionId 写死：执行类有三项，编辑类只有两项。
- * 不选 allow_always。
+ * Picks the one-time allow or reject by kind only, without hard-coding optionId: execute has three options, edit has only two.
+ * Never picks allow_always.
  */
 function permissionOutcome(request: AntigravityPermissionRequest, answer: ApprovalAnswer): AntigravityPermissionOutcome {
   const kind = answer.decision === "allow" ? "allow_once" : "reject_once";
@@ -322,8 +322,8 @@ function isAuthRequired(error: unknown): boolean {
 }
 
 /**
- * 把 ACP 的 tool_call 缩成一行过程信息。执行类的标题就是命令，工具名统一写成 bash，命令放进细节；
- * 编辑、读取类的标题是 "Run create_file?" 这类说明，路径在 rawInput 或 locations 里。
+ * Condenses an ACP tool_call into one line of progress info. For execute, the title is the command, the tool name is always bash, and the command goes into the details;
+ * for edit and read, the title is a description like "Run create_file?" and the path is in rawInput or locations.
  */
 export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool"; toolName: string; detail: string } {
   const toolKind = typeof toolCall.kind === "string" ? toolCall.kind : "";
@@ -344,7 +344,7 @@ export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool";
   };
 }
 
-/** 执行类审批带着命令的工作目录。模型可能填成工作区之外的目录，如实显示，不另外拦截。 */
+/** Execute approvals carry the command's working directory. The model may fill in a directory outside the workspace; it is shown as-is, not blocked separately. */
 function workingDirectory(toolCall: Record<string, unknown>): string {
   const cwd = objectField(toolCall.rawInput).Cwd;
   return typeof cwd === "string" && cwd.trim() ? `工作目录：${cwd.trim()}` : "";
@@ -361,9 +361,9 @@ function objectField(value: unknown): Record<string, unknown> {
 }
 
 /**
- * 网页登录令牌 CLI 用不到，留着只会让每个工具子进程都能拿到网页端的控制权。
- * Claude 的长期 OAuth token 也不交给其他 CLI 及其工具子进程。
- * 去掉 TERM、BROWSER：有它们时 Server 可能尝试打开浏览器或在 stdout 打印网页内容，探测时也都去掉了。
+ * The CLI has no use for the web login token; keeping it would only give every tool subprocess control of the web side.
+ * Claude's long-lived OAuth token isn't handed to other CLIs or their tool subprocesses either.
+ * TERM and BROWSER are removed: with them the Server may try to open a browser or print web content to stdout; probing removes them too.
  */
 function childEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const child = { ...environment };

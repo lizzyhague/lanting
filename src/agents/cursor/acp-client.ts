@@ -4,12 +4,12 @@ import { EventEmitter } from "node:events";
 import { groupExists } from "../../platform/process-group.ts";
 
 /**
- * Cursor `agent acp` 的子进程客户端。stdin/stdout 交换 LF 分隔的 JSON-RPC 2.0，stderr 只是诊断。
+ * Subprocess client for Cursor `agent acp`. stdin/stdout carry LF-delimited JSON-RPC 2.0; stderr is diagnostics only.
  *
- * 协议部分照 Grok 的 ACP 客户端，进程管理和拆行照 Pi 的 RPC 客户端；两家的启动、认证、
- * 恢复方法和扩展请求不同，所以单独一份，不与 Grok 共用。
+ * The protocol part follows Grok's ACP client, process management and line splitting follow Pi's RPC client; the two differ in launch, auth,
+ * resume method and extension requests, so it is a separate copy not shared with Grok.
  *
- * 不用 node:readline 拆行：它把 U+2028、U+2029 也当换行，而它们在 JSON 字符串里是合法字符。
+ * Doesn't split lines with node:readline: it also treats U+2028 and U+2029 as line breaks, which are valid in JSON strings.
  */
 
 export type CursorAcpClientOptions = {
@@ -36,13 +36,13 @@ export type CursorPermissionOutcome =
   | { outcome: "cancelled" }
   | { outcome: "selected"; optionId: string };
 
-/** Cursor 停下来等用户的扩展请求。客户端已经回了 cancelled，事件只用于让上层告诉群主。 */
+/** Extension request where Cursor stops to wait for the user. The client has already answered cancelled; the event only lets upstream tell the group owner. */
 export type CursorBlockingRequest = {
   method: string;
   params: Record<string, unknown>;
 };
 
-/** Cursor 的扩展通知，不是正文。 */
+/** Cursor extension notification, not reply text. */
 export type CursorNotice = {
   method: string;
   params: Record<string, unknown>;
@@ -62,24 +62,24 @@ type Pending = {
   reject: (error: Error) => void;
 };
 
-/** 会阻塞当前轮、要等用户答复的扩展请求；lanting 一律回 cancelled。 */
+/** Extension requests that block the current round waiting for the user; lanting always answers cancelled. */
 const BLOCKING_METHODS = new Set(["cursor/ask_question", "cursor/create_plan"]);
 const NOTICE_METHODS = new Set(["cursor/update_todos", "cursor/task", "cursor/generate_image"]);
 
-/** 关闭 stdin 后等 Cursor 自己退出的时间，过了就杀整个进程组。 */
+/** How long to wait for Cursor to exit on its own after stdin closes; after that the whole process group is killed. */
 const CLOSE_WAIT_MS = 3_000;
 const TERM_WAIT_MS = 2_000;
 const KILL_WAIT_MS = 1_000;
 const STDERR_TAIL_LIMIT = 8_192;
 
 /**
- * 事件：
- * - `update`：`session/update` 通知（CursorUpdate），包括 `session/load` 时的历史重放
- * - `permission`：`session/request_permission`（CursorPermissionRequest），要用 respondPermission 回复
- * - `blocking`：已回 cancelled 的阻塞扩展请求（CursorBlockingRequest）
- * - `notice`：Cursor 的扩展通知（CursorNotice）
- * - `diagnostic`：stderr、不是 JSON 的 stdout、对不上请求的响应、不认识的通知，只用于日志
- * - `exit`：进程已退出（CursorExit）
+ * Events:
+ * - `update`: `session/update` notification (CursorUpdate), including history replay during `session/load`
+ * - `permission`: `session/request_permission` (CursorPermissionRequest), answered with respondPermission
+ * - `blocking`: a blocking extension request already answered cancelled (CursorBlockingRequest)
+ * - `notice`: Cursor extension notification (CursorNotice)
+ * - `diagnostic`: stderr, non-JSON stdout, responses matching no request, unknown notifications; for logs only
+ * - `exit`: the process has exited (CursorExit)
  */
 export class CursorAcpClient extends EventEmitter {
   readonly #process: ChildProcessWithoutNullStreams;
@@ -97,7 +97,7 @@ export class CursorAcpClient extends EventEmitter {
       cwd: options.cwd,
       env: options.env ?? process.env,
       stdio: ["pipe", "pipe", "pipe"],
-      // 独立进程组：关闭时向负 pid 发信号，带走 Cursor 启动的 shell 等子进程。
+      // Separate process group: on close, signal the negative pid to take down the shells and other children Cursor started.
       detached: true,
       windowsHide: true,
     }) as ChildProcessWithoutNullStreams;
@@ -113,11 +113,11 @@ export class CursorAcpClient extends EventEmitter {
       const text = chunk.trim();
       if (text) this.emit("diagnostic", `Cursor stderr：${text}`);
     });
-    // 子进程退出过程中管道出错是正常的，不能让未处理的 error 把后端带走。
+    // Pipe errors while the child exits are normal; an unhandled error must not take down the backend.
     this.#process.stdin.on("error", () => {});
     this.#process.stdout.on("error", () => {});
     this.#process.stderr.on("error", () => {});
-    // 启动失败（比如路径不对）时只有 error 事件，没有 exit。
+    // A failed launch (e.g. wrong path) emits only an error event, no exit.
     this.#process.on("error", (error) => {
       this.#onExit({ code: null, signal: null, error: `无法启动 Cursor：${error.message}` });
       markExited();
@@ -128,7 +128,7 @@ export class CursorAcpClient extends EventEmitter {
     });
   }
 
-  /** 进程组 id，也是 Cursor 进程的 pid；启动失败时为 undefined。 */
+  /** Process group id, which is also Cursor's pid; undefined if launch failed. */
   get pid(): number | undefined {
     return this.#process.pid;
   }
@@ -137,12 +137,12 @@ export class CursorAcpClient extends EventEmitter {
     return this.#exitInfo === null;
   }
 
-  /** 有上限的 stderr 尾部，只用于服务端日志。 */
+  /** Bounded tail of stderr, for server logs only. */
   get stderrTail(): string {
     return this.#stderrTail;
   }
 
-  /** 不向 Cursor 声明 fs / terminal 能力，文件和命令都由它自己执行。 */
+  /** Doesn't declare fs / terminal capabilities to Cursor; it runs files and commands itself. */
   async initialize(): Promise<Record<string, unknown>> {
     return objectOf(await this.request("initialize", {
       protocolVersion: 1,
@@ -154,7 +154,7 @@ export class CursorAcpClient extends EventEmitter {
     }));
   }
 
-  /** 使用 `agent login` 留下的登录状态。 */
+  /** Uses the login state left by `agent login`. */
   async authenticate(): Promise<void> {
     await this.request("authenticate", { methodId: "cursor_login" });
   }
@@ -167,7 +167,7 @@ export class CursorAcpClient extends EventEmitter {
     return result.sessionId;
   }
 
-  /** 返回前 Cursor 会把历史以 `session/update` 重放一遍，由调用方决定是否忽略。 */
+  /** Before returning, Cursor replays the history as `session/update`; the caller decides whether to ignore it. */
   async sessionLoad(sessionId: string, cwd: string): Promise<Record<string, unknown>> {
     return objectOf(await this.request("session/load", { sessionId, cwd, mcpServers: [] }));
   }
@@ -186,7 +186,7 @@ export class CursorAcpClient extends EventEmitter {
     })) as { stopReason?: string };
   }
 
-  /** 通知，没有响应；进行中的 `session/prompt` 会以 stopReason `cancelled` 返回。 */
+  /** A notification with no response; an in-flight `session/prompt` returns with stopReason `cancelled`. */
   sessionCancel(sessionId: string): void {
     this.notify("session/cancel", { sessionId });
   }
@@ -211,8 +211,8 @@ export class CursorAcpClient extends EventEmitter {
   }
 
   /**
-   * 先关 stdin 让 Cursor 自己收尾，等不到退出再 SIGTERM、SIGKILL 整个进程组。
-   * 返回时进程已经退出（或从未启动）。
+   * Close stdin first so Cursor can wind down itself; if it doesn't exit, SIGTERM then SIGKILL the whole process group.
+   * On return the process has exited (or never started).
    */
   async close(): Promise<void> {
     if (!this.#closed) {
@@ -229,14 +229,14 @@ export class CursorAcpClient extends EventEmitter {
         await this.#exited;
       }
     }
-    // Cursor 自己退出了，它启动的工具子进程仍可能留在组里。
+    // Cursor exited on its own, but tool subprocesses it started may still be in the group.
     if (groupExists(pid)) {
       try {
         process.kill(-pid, "SIGKILL");
       } catch {
-        // 组已经空了。
+        // The group is already empty.
       }
-      // 孤儿进程要等 init 回收才从进程组里消失。
+      // Orphaned processes only leave the process group once init reaps them.
       for (let waited = 0; groupExists(pid) && waited < KILL_WAIT_MS; waited += 20) {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
@@ -292,7 +292,7 @@ export class CursorAcpClient extends EventEmitter {
       return;
     }
     if (BLOCKING_METHODS.has(method)) {
-      // 先回复再通知上层，保证上层出错也不会让这一轮悬挂。
+      // Reply first, then notify upstream, so an upstream error can't leave the round hanging.
       this.#write({ jsonrpc: "2.0", id, result: { outcome: "cancelled" } });
       this.emit("blocking", { method, params } satisfies CursorBlockingRequest);
       return;
@@ -374,7 +374,7 @@ export class CursorAcpClient extends EventEmitter {
       try {
         this.#process.kill(signal);
       } catch {
-        // 进程已经不在了。
+        // The process is already gone.
       }
     }
   }

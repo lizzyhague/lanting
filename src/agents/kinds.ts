@@ -1,6 +1,6 @@
 import { AGENT_MODULES } from "./index.ts";
 
-/** lanting 支持的 CLI 种类；顺序也是设置页下拉里的固定顺序。 */
+/** CLI kinds lanting supports; the order is also the fixed order of the settings page dropdown. */
 export const AGENT_KINDS: readonly string[] = AGENT_MODULES.map((module) => module.kind);
 
 export type AgentKind = string;

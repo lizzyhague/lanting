@@ -2,19 +2,19 @@ import type { AgentKind } from "./kinds.ts";
 import type { AgentFeatures } from "../features/index.ts";
 
 /**
- * AI 接入的统一接口。群核心只认这里的类型，不关心对面是哪家 CLI。
- * 接入新的 CLI 种类，在 agents/index.ts 登记模块；需要 CLI 配合的功能在 features/index.ts 定义。
+ * Shared interface for AI integrations. The group core only knows these types and doesn't care which CLI is on the other side.
+ * To add a new CLI kind, register its module in agents/index.ts; features that need CLI support are defined in features/index.ts.
  *
- * 原生会话名不改：群主只在 lanting 里找群，永久删除时原生会话一起删掉。
+ * Native session names aren't changed: the group owner only looks for groups in lanting, and native sessions are deleted along with a permanent delete.
  */
 
 /**
- * 一个 AI 在某个群里的模型、思考强度和权限。null 表示不指定，跟随 CLI 自己的默认值。
- * 取值都是各家适配在 AgentCatalog 里给出的 id，群核心不解释它们的含义。
+ * An AI's model, reasoning effort and permission in a given group. null means unspecified, following the CLI's own default.
+ * Values are ids each adapter provides in AgentCatalog; the group core doesn't interpret them.
  */
 export type AgentSettings = {
   model: string | null;
-  /** 只在指定了模型时才有意义，必须是那个模型支持的档位之一。 */
+  /** Only meaningful when a model is specified; must be one of the levels that model supports. */
   effort: string | null;
   permission: string | null;
 };
@@ -29,7 +29,7 @@ export type ModelOption = {
   id: string;
   label: string;
   description: string;
-  /** 这个模型支持的思考强度；空数组表示不能选。 */
+  /** Reasoning efforts this model supports; an empty array means none can be chosen. */
   efforts: string[];
 };
 
@@ -37,11 +37,11 @@ export type PermissionOption = {
   id: string;
   label: string;
   description: string;
-  /** 放开限制较多的档位，网页上提醒一下。 */
+  /** A more permissive level; the web page shows a warning. */
   danger?: boolean;
 };
 
-/** 成员面板里能选的模型和权限，由各家适配向自己的 CLI 查询。 */
+/** Models and permissions selectable in the member panel, queried by each adapter from its own CLI. */
 export type AgentCatalog = {
   models: ModelOption[];
   permissions: PermissionOption[];
@@ -49,37 +49,37 @@ export type AgentCatalog = {
 
 export type ApprovalAsk = {
   toolName: string;
-  /** 一行摘要，比如命令或文件路径。 */
+  /** One-line summary, such as a command or file path. */
   detail: string;
 };
 
 export type ApprovalAnswer = {
   decision: "allow" | "deny";
-  /** 拒绝时交给 AI 的说明。 */
+  /** Explanation given to the AI on rejection. */
   message: string;
 };
 
 export type SessionOptions = {
   cwd: string;
-  /** 追加在 CLI 自己的系统提示词之后，内容见 group/system-prompt.ts。 */
+  /** Appended after the CLI's own system prompt; see group/system-prompt.ts for the content. */
   systemPrompt: string;
-  /** 开会话或恢复会话时应用；之后设置变了，群核心会关掉会话再用新设置恢复。 */
+  /** Applied when opening or resuming a session; if settings change later, the group core closes the session and resumes it with the new settings. */
   settings: AgentSettings;
   /**
-   * AI 要调用需要确认的工具时调用，由群主在网页上批准或拒绝。
-   * CLI 自己收回请求时，适配用 signal 撤下网页上的审批。
+   * Called when the AI wants to use a tool that needs confirmation; the group owner approves or rejects it on the web page.
+   * When the CLI withdraws the request itself, the adapter uses signal to remove the approval from the web page.
    */
   requestApproval: (ask: ApprovalAsk, signal?: AbortSignal) => Promise<ApprovalAnswer>;
 };
 
 export type AgentEvent =
-  /** 回复正文的增量，只用于页面上的流式显示。 */
+  /** Reply text delta, used only for streaming display on the page. */
   | { type: "text"; delta: string }
-  /** 思考、工具调用等过程信息：只显示给群主，不进群聊记录，不发给其他 AI。 */
+  /** Progress info such as thinking and tool calls: shown only to the group owner, kept out of the chat record and not sent to other AIs. */
   | { type: "activity"; activity: Record<string, unknown> }
   /**
-   * 这次发言结束，必须是最后一个事件。text 是完整的明文回复，以它为准写进群聊记录。
-   * 迭代没有给出 end 就结束或抛错，群核心按 failed 处理。
+   * This reply has ended; must be the last event. text is the complete plain reply and is what gets written to the chat record.
+   * If iteration finishes or throws without an end, the group core treats it as failed.
    */
   | {
     type: "end";
@@ -89,29 +89,29 @@ export type AgentEvent =
   };
 
 export interface AgentSession {
-  /** CLI 自己的会话 id。有的 CLI 要等第一条消息之后才知道，之前为 null。 */
+  /** The CLI's own session id. Some CLIs only know it after the first message; null until then. */
   readonly nativeId: string | null;
-  /** CLI 进程已经退出时为 false；群核心会丢掉它，下次用原生会话 id 恢复。 */
+  /** false once the CLI process has exited; the group core drops it and resumes with the native session id next time. */
   readonly alive: boolean;
-  /** 把一条 user 消息送进原生会话，同一会话同一时间只会有一个 send 在进行。 */
+  /** Sends a user message into the native session; only one send runs per session at a time. */
   send(text: string): AsyncIterable<AgentEvent>;
-  /** 打断正在进行的发言；send 的迭代随后应以 interrupted 结束。 */
+  /** Interrupts the reply in progress; send's iteration should then end with interrupted. */
   interrupt(): Promise<void>;
   close(): Promise<void>;
 }
 
 export interface AgentAdapter {
-  /** 这个适配器接入的 CLI 种类。 */
+  /** The CLI kind this adapter integrates. */
   readonly kind: AgentKind;
   /**
-   * 为 true 时每次发言结束就关掉 CLI 进程，下次点名再恢复会话；
-   * 为 false 时进程留着复用，空闲一段时间后才关。照各家参照项目的做法选。
+   * When true the CLI process is closed after every reply and the session resumed on the next call;
+   * when false the process stays for reuse and closes only after being idle for a while. Chosen to match each CLI's reference project.
    */
   readonly closeAfterTurn: boolean;
   readonly features: AgentFeatures;
-  /** 后端开始监听后启动适配器持有的常驻资源；不能阻塞服务启动。 */
+  /** Starts resident resources the adapter holds once the backend is listening; must not block service startup. */
   start?(): void;
-  /** 后端退出时关闭适配器持有的常驻资源。 */
+  /** Closes resident resources the adapter holds when the backend exits. */
   close?(): Promise<void>;
   startSession(options: SessionOptions): Promise<AgentSession>;
   resumeSession(nativeId: string, options: SessionOptions): Promise<AgentSession>;

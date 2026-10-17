@@ -43,46 +43,46 @@ const TITLE_LENGTH = 60;
 const DEFAULT_TITLE = "新群";
 
 type UploadClient = Pick<SharedUploadClient, "createTicket" | "createLease" | "renewLease" | "releaseLease">;
-/** 回收站保留 30 天，从移入时起算；常量只放这一处，页面拿到的是推出来的到期时间。 */
+/** Trash keeps groups for 30 days from when they were moved in; the constant lives only here, and the page receives the derived expiry time. */
 export const TRASH_RETENTION_MS = 30 * 24 * 60 * 60_000;
-/** 到期扫描的间隔。启动时先扫一次，补上停机期间到期的群。 */
+/** Interval of the expiry scan. One scan runs at startup to catch groups that expired while the service was down. */
 const TRASH_SWEEP_INTERVAL_MS = 24 * 60 * 60_000;
 
 export type GroupSummary = {
   id: string;
   title: string;
-  /** 工作目录在项目根目录下的名字。 */
+  /** Name of the working directory under the project root. */
   directory: string;
   members: string[];
   callOrder: string[];
-  /** 每个冻结标签的主色。 */
+  /** Primary color of each frozen tag. */
   colors: Record<string, PaletteId>;
-  /** 每个成员在这个群里的模型、思考强度和权限。 */
+  /** Each member's model, reasoning effort and permission in this group. */
   settings: Record<string, AgentSettings>;
-  /** 每个成员的 CLI 支持的子功能。 */
+  /** Sub-features supported by each member's CLI. */
   features: Record<string, AgentFeatureId[]>;
-  /** CLI 没有接入当前服务的成员。 */
+  /** Members whose CLI isn't connected to the current service. */
   unavailable: string[];
   createdAt: string;
   updatedAt: number;
-  /** 是否固定显示在最近群会话顶部。 */
+  /** Whether the group is pinned to the top of recent groups. */
   pinned: boolean;
-  /** 是否已从最近群会话移到归档。 */
+  /** Whether the group has been moved from recent groups to the archive. */
   archived: boolean;
-  /** 标题栏 usage 行显示哪个成员；null 表示关闭。 */
+  /** Which member the title bar's usage row shows; null means off. */
   usageAgent: string | null;
   busy: boolean;
-  /** 当前忙碌阶段及对应成员；阶段刚开始或成员交接时 agent 为 null。 */
+  /** Current busy phase and its member; agent is null right as a phase starts or during a handoff between members. */
   busyStatus: { kind: "speaking" | "compacting"; agent: string | null } | null;
-  /** 移入回收站的时间；不在回收站时为 null。 */
+  /** When the group was moved to trash; null when it isn't in trash. */
   trashedAt: string | null;
-  /** 到期自动永久删除的时间，由 trashedAt 推出。 */
+  /** When the group is permanently deleted on expiry, derived from trashedAt. */
   purgeAt: string | null;
-  /** 正在永久删除（或删到一半，等重试）。 */
+  /** Permanent deletion in progress (or half done, awaiting retry). */
   deleting: boolean;
 };
 
-/** 发给浏览器的群聊记录：附件去掉路径。 */
+/** Chat record sent to the browser: attachments without paths. */
 export type PublicEntry = Omit<TranscriptEntry, "attachments"> & {
   attachments?: Omit<StoredAttachment, "path">[];
 };
@@ -93,30 +93,30 @@ export type GroupSnapshot = {
   round: RoundSnapshot | null;
   compaction: CompactionSnapshot | null;
   approvals: PublicApproval[];
-  /** 当前 usageAgent 最近一次读到的 usage；还没有结果或已关闭时为 null。 */
+  /** The latest usage read for the current usageAgent; null when there is no result yet or it is off. */
   usage: PublicUsage | null;
 };
 
-/** remainingMs：发出时还剩多少毫秒自动拒绝。网页按自己的时钟倒数，不受设备和服务器时钟偏差影响。 */
+/** remainingMs: milliseconds left before auto-rejection at send time. The web page counts down by its own clock, unaffected by skew between device and server clocks. */
 export type PublicApproval = ApprovalRequest & { remainingMs: number };
 
 export type PublicUsage =
   | { status: "not_started" }
   | { status: "ok"; parts: UsagePart[] }
-  /** 读取失败。 */
+  /** The read failed. */
   | { status: "unavailable" };
 
 export type UsageReason = "view" | "turn" | "visible";
 
-/** 一个成员在途的 usage 读取。next 是读完以后要补的一次，同时只留一次。 */
+/** A member's in-flight usage read. next is the one follow-up read to run after it; only one is kept at a time. */
 type UsageTask = {
   done: Promise<void>;
-  /** 正在进行的这次能不能拉起进程。 */
+  /** Whether the current read may start a process. */
   open: boolean;
   next: { open: boolean; turn: boolean } | null;
 };
 
-/** 多选操作逐个处理，一个失败不影响其他的。 */
+/** Bulk operations are processed one by one; one failure doesn't affect the others. */
 export type BatchResult = {
   done: string[];
   failed: { groupId: string; message: string }[];
@@ -132,13 +132,13 @@ export type ServiceEvent =
   | { scope: "global"; payload: { type: "settings.updated"; settings: PublicSettings } }
   | { scope: "group"; groupId: string; payload: PublicGroupEvent | ApprovalEvent };
 
-/** 群事件发给浏览器前，群聊记录里的附件去掉路径。 */
+/** Before group events go to the browser, paths are stripped from attachments in the chat record. */
 export type PublicGroupEvent =
   | Exclude<GroupEvent, { type: "entry.appended" | "agent.settled" }>
   | { type: "entry.appended"; groupId: string; entry: PublicEntry }
   | { type: "usage.updated"; groupId: string; agent: string; usage: PublicUsage };
 
-/** 浏览器连接用到的群操作。把存储、调度、审批和 AI 登记表收在一处。 */
+/** Group operations used by browser connections. Gathers storage, scheduling, approvals and the AI registry in one place. */
 export class GroupService {
   readonly #projectRoot: string;
   readonly #store: GroupStore;
@@ -147,9 +147,9 @@ export class GroupService {
   readonly #settings: SettingsStore;
   readonly #uploads: UploadClient | null;
   readonly #listeners = new Set<(event: ServiceEvent) => void>();
-  /** 正在移入回收站或永久删除的群，这期间不能开始新的一轮或压缩。 */
+  /** Groups being moved to trash or permanently deleted; no new round or compaction can start meanwhile. */
   readonly #locked = new Set<string>();
-  /** usage 缓存，键是 "群 id\0成员"。 */
+  /** usage cache, keyed by "group id\0member". */
   readonly #usage = new Map<string, PublicUsage>();
   readonly #usageTasks = new Map<string, UsageTask>();
   #sweeper: NodeJS.Timeout | null = null;
@@ -160,7 +160,7 @@ export class GroupService {
     runtime: GroupRuntime;
     agents: AgentRegistry;
     settings: SettingsStore;
-    /** ai-remote-upload 的客户端；没有时不能发附件。 */
+    /** ai-remote-upload client; attachments can't be sent without it. */
     uploads?: UploadClient | null;
   }) {
     this.#projectRoot = options.projectRoot;
@@ -208,7 +208,7 @@ export class GroupService {
     }));
   }
 
-  /** 改用户名只影响以后新开的群。 */
+  /** Changing the username only affects groups created afterwards. */
   async setUsername(username: string): Promise<PublicSettings> {
     const problem = usernameProblem(username, this.#settings.get().agents.map((agent) => agent.name));
     if (problem) throw new GroupError("invalid_username", problem, { field: "username" });
@@ -218,7 +218,7 @@ export class GroupService {
     return this.#emitSettings();
   }
 
-  /** 群聊协作方式在每个 AI 下次开会话时生效，已经开着的会话不受影响。 */
+  /** Group chat collaboration rules take effect the next time each AI opens a session; sessions already open aren't affected. */
   async setCollaboration(collaboration: string): Promise<PublicSettings> {
     await this.#settings.update((next) => {
       next.collaboration = collaboration;
@@ -226,13 +226,13 @@ export class GroupService {
     return this.#emitSettings();
   }
 
-  /** 设置页里这个 AI 能选的模型和权限，按项目根目录查。 */
+  /** Models and permissions this AI can choose on the settings page, looked up from the project root. */
   async settingsCatalog(agentId: string): Promise<AgentCatalog> {
     const agent = this.#settingsAgent(this.#settings.get(), agentId);
     return this.#catalogOf(this.#adapterForSettings(agent), this.#projectRoot);
   }
 
-  /** 每个 AI 的默认设置，新开的群复制一份；已经开的群不受影响。 */
+  /** Each AI's default settings, copied into newly created groups; existing groups aren't affected. */
   async setDefaultSettings(agentId: string, settings: AgentSettings): Promise<PublicSettings> {
     const agent = this.#settingsAgent(this.#settings.get(), agentId);
     const kind = agent.kind;
@@ -346,7 +346,7 @@ export class GroupService {
     }));
     const tags = members.map((member) => member.tag);
     const title = input.title.trim().slice(0, MAX_TITLE_LENGTH) || DEFAULT_TITLE;
-    // 用户名和每个 AI 的身份、设置从同一份快照复制，之后改设置不影响这个群。
+    // The username and each AI's identity and settings are copied from one snapshot; later settings changes don't affect this group.
     const group = await this.#store.create({
       title,
       cwd,
@@ -356,7 +356,7 @@ export class GroupService {
     });
     const summary = this.#summary(group);
     this.#emit({ scope: "global", payload: { type: "group.created", group: summary } });
-    // 记住这次勾了哪些 AI，下次新建时照这个勾，换设备也一样。
+    // Remember which AIs were checked this time and check them again on the next create, across devices too.
     await this.#settings.update((next) => {
       next.createMembers = [...memberIds];
     });
@@ -377,7 +377,7 @@ export class GroupService {
     };
   }
 
-  /** 点名每次变化都存到后端，换设备也能接着用。 */
+  /** Every call order change is saved to the backend so it carries over to other devices. */
   async setCallOrder(groupId: string, order: string[]): Promise<GroupSummary> {
     const group = this.#requireActive(groupId);
     if (new Set(order).size !== order.length) throw new GroupError("invalid_order", "点名里有重复的 AI。");
@@ -393,7 +393,7 @@ export class GroupService {
     return summary;
   }
 
-  /** 成员面板里这个 AI 能选的模型和权限。 */
+  /** Models and permissions this AI can choose in the member panel. */
   async catalog(groupId: string, agent: string): Promise<AgentCatalog> {
     const group = this.#requireActive(groupId);
     this.#requireMember(group, agent);
@@ -401,8 +401,8 @@ export class GroupService {
   }
 
   /**
-   * 改这个群里某个 AI 的设置，按它的 CLI 给出的列表校验。
-   * 随时都能改，这个 AI 下次发言或压缩时生效。
+   * Changes an AI's settings in this group, validated against the lists its CLI provides.
+   * Can be changed at any time; takes effect on this AI's next reply or compaction.
    */
   async setAgentSettings(groupId: string, agent: string, settings: AgentSettings): Promise<GroupSummary> {
     const group = this.#requireActive(groupId);
@@ -419,13 +419,13 @@ export class GroupService {
     return summary;
   }
 
-  /** 压缩在后台进行，结果写进群聊记录。 */
+  /** Compaction runs in the background and its result is written to the chat record. */
   compact(groupId: string, agents: string[]): void {
     this.#requireActive(groupId);
     void this.#runtime.compact(groupId, agents).done;
   }
 
-  /** 只改 lanting 里的群名，原生会话名不动。随时都能改。 */
+  /** Only renames the group in lanting; native session names are left alone. Can be changed at any time. */
   async rename(groupId: string, title: string): Promise<GroupSummary> {
     this.#requireActive(groupId);
     const trimmed = title.trim();
@@ -442,7 +442,7 @@ export class GroupService {
     return summary;
   }
 
-  /** 钉住只改变列表分组，不算群内活动，因此不刷新 updatedAt。 */
+  /** Pinning only changes list grouping and isn't group activity, so updatedAt isn't refreshed. */
   async setPinned(groupId: string, pinned: boolean): Promise<GroupSummary> {
     const group = this.#requireActive(groupId);
     if (group.pinned === pinned) return this.#summary(group);
@@ -454,7 +454,7 @@ export class GroupService {
     return summary;
   }
 
-  /** usage 行显示哪个成员，存在群上，换设备也一样。只改显示，不刷新 updatedAt。 */
+  /** Which member the usage row shows, stored on the group so it is the same across devices. Display only; updatedAt isn't refreshed. */
   async setUsageAgent(groupId: string, agent: string | null): Promise<GroupSummary> {
     let group = this.#requireActive(groupId);
     if (agent !== null) {
@@ -475,10 +475,10 @@ export class GroupService {
   }
 
   /**
-   * 读当前 usageAgent 的 usage，结果写进缓存并发 usage.updated。同一成员的读取合并：
-   * - 在途的不能拉进程时来了 view，读完补一次能拉进程的；
-   * - 在途期间来了 turn，读完补一次，补读期间又来了就再补，直到读取期间没有新的 turn；
-   * - 补读同时只留一次，等待期间来的请求并进去。
+   * Reads usage for the current usageAgent, writes it to the cache and sends usage.updated. Reads for the same member are merged:
+   * - if view arrives while an in-flight read can't start a process, one more read that can follows;
+   * - if turn arrives while a read is in flight, one more read follows, repeating until no new turn arrives during a read;
+   * - only one follow-up read is kept at a time; requests arriving while it waits are merged into it.
    */
   refreshUsage(groupId: string, reason: UsageReason): Promise<void> {
     if (!this.#usageReadable(groupId)) return Promise.resolve();
@@ -527,7 +527,7 @@ export class GroupService {
       console.error(`读取 ${agent} 的 usage 失败：${error instanceof Error ? error.message : String(error)}`);
       usage = { status: "unavailable" };
     }
-    // 晚到的结果：群已经删了、锁了或进了回收站就丢掉。usageAgent 换了人不影响，结果仍属于这个成员。
+    // Late result: discard it if the group was deleted, locked or moved to trash. A change of usageAgent doesn't matter; the result still belongs to this member.
     if (!this.#usageReadable(groupId)) return;
     this.#usage.set(usageKey(groupId, agent), usage);
     this.#emit({ scope: "group", groupId, payload: { type: "usage.updated", groupId, agent, usage } });
@@ -544,7 +544,7 @@ export class GroupService {
     return kind !== undefined && this.#agents.has(kind) && typeof this.#agents.get(kind).features.usage === "function";
   }
 
-  /** 归档只改 lanting 的记录；群必须空闲，并关掉它的会话进程。 */
+  /** Archiving only changes lanting's records; the group must be idle, and its session processes are closed. */
   archive(groupIds: string[]): Promise<BatchResult> {
     return this.#batch(groupIds, async (groupId) => {
       const group = this.#requireGroup(groupId);
@@ -584,7 +584,7 @@ export class GroupService {
     });
   }
 
-  /** 移入回收站：只打标记，可以恢复。群必须空闲；关掉它的会话进程。 */
+  /** Moving to trash only sets a flag and can be undone. The group must be idle; its session processes are closed. */
   trash(groupIds: string[]): Promise<BatchResult> {
     return this.#batch(groupIds, async (groupId) => {
       const group = this.#requireGroup(groupId);
@@ -622,7 +622,7 @@ export class GroupService {
     });
   }
 
-  /** 永久删除回收站里的群，连同各 AI 的原生会话。 */
+  /** Permanently deletes a group in trash, together with each AI's native sessions. */
   purge(groupIds: string[]): Promise<BatchResult> {
     return this.#batch(groupIds, async (groupId) => {
       const group = this.#requireGroup(groupId);
@@ -632,7 +632,7 @@ export class GroupService {
   }
 
   /**
-   * 续做删到一半的群，再永久删除到期的群。一个群失败只记日志，留在回收站，下一次扫描重试。
+   * Resumes half-deleted groups, then permanently deletes expired ones. A failing group is only logged and stays in trash for the next scan to retry.
    */
   async sweepTrash(now = Date.now()): Promise<void> {
     for (const group of this.#store.list()) {
@@ -659,8 +659,8 @@ export class GroupService {
   }
 
   /**
-   * 照 Relayu：先关进程、记下 deletingAt，再逐个删原生会话（删掉一个就清掉它的 id），
-   * 全部删完才删 lanting 自己的数据。中途失败时保留 deletingAt，之后重试只删剩下的。
+   * As in Relayu: close processes and record deletingAt first, then delete native sessions one by one (clearing each id once deleted),
+   * and only delete lanting's own data after all are gone. On failure deletingAt is kept, and later retries delete only what's left.
    */
   async #purge(groupId: string): Promise<void> {
     if (this.#locked.has(groupId)) throw new GroupError("busy", "这个群正在删除。");
@@ -734,7 +734,7 @@ export class GroupService {
     return result;
   }
 
-  /** 浏览器上传附件前先要一张一次性的票据，绑定到这个群。 */
+  /** Before uploading an attachment the browser requests a one-time ticket bound to this group. */
   async createAttachmentTicket(groupId: string, file: {
     originalName: string;
     declaredMime: string;
@@ -749,8 +749,8 @@ export class GroupService {
   }
 
   /**
-   * 带附件时先向 ai-remote-upload 申请这一轮的租约，拿到路径再开始；租约每 5 分钟续一次，
-   * 这一轮结束就释放。
+   * With attachments, first request a lease for this round from ai-remote-upload and start once the paths are obtained; the lease is renewed every 5 minutes
+   * and released when the round ends.
    */
   async startRound(
     groupId: string,
@@ -801,7 +801,7 @@ export class GroupService {
     return { roundId: started.roundId };
   }
 
-  /** runtime 接受首轮后，用第一行正文替换占位标题；改名失败不反过来把这一轮报成发送失败。 */
+  /** After runtime accepts the first round, the placeholder title is replaced with the first line of text; a failed rename doesn't turn the round into a send failure. */
   async #startRuntimeRound(
     groupId: string,
     text: string,
@@ -848,7 +848,7 @@ export class GroupService {
     return group;
   }
 
-  /** 已归档、在回收站里或正在整理的群不能作为当前群使用。 */
+  /** Groups that are archived, in trash or being cleaned up can't be used as the current group. */
   #requireActive(groupId: string): Group {
     const group = this.#requireGroup(groupId);
     if (group.archived) {
@@ -865,14 +865,14 @@ export class GroupService {
     return this.#uploads;
   }
 
-  /** 浏览器能看到的所有附件路径都替换为原文件名，包括审批卡片和重连快照。 */
+  /** Every attachment path the browser can see is replaced with the original filename, including approval cards and reconnect snapshots. */
   #attachmentRedactor(groupId: string): PathRedactor {
     return new PathRedactor(new Map(this.#store.transcript(groupId).flatMap((entry) =>
       (entry.attachments ?? []).map((attachment) => [attachment.path, attachment.originalName] as const)
     )));
   }
 
-  /** 按 CLI 给出的列表校验设置。思考强度要先选模型，取值限于那个模型支持的档位。 */
+  /** Validates settings against the lists the CLI provides. Reasoning effort requires a model first and is limited to the levels that model supports. */
   #checkSettings(
     agent: string,
     adapter: AgentAdapter,
@@ -1001,7 +1001,7 @@ export class GroupService {
   }
 }
 
-/** 附件绑定到群：项目取工作目录名，会话取群 id。 */
+/** Attachments are bound to a group: the project is the working directory name and the session is the group id. */
 function binding(group: Group): AttachmentBinding {
   return { caller: UPLOAD_CALLER, projectId: path.basename(group.cwd), sessionId: group.id };
 }

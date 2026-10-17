@@ -1,7 +1,7 @@
 /*
- * HTML 每次回源；带内容版本的脚本和样式可以长期缓存。
- * 前端改动不需要手工升级这个名字：只有 SW 缓存格式改变时才换名字。
- * 会话、鉴权和文件内容不进入缓存。没有 push 或后台提醒。
+ * HTML always goes to the network; scripts and styles with content versions can be cached long-term.
+ * Frontend changes don't require bumping this name by hand: it only changes when the SW cache format changes.
+ * Sessions, auth and file contents are never cached. No push or background notifications.
  */
 const CACHE_NAME = "lanting-shell-v1";
 const ASSET_PATH = /^\/assets\/[a-f0-9]{64}\/[a-zA-Z0-9_.-]+\.(?:js|css)$/;
@@ -21,7 +21,7 @@ self.addEventListener("install", (event) => {
   }));
 });
 
-// 不强制接管已打开的旧页面；它们也能通过普通导航加载新的版本地址。
+// Already-open old pages aren't forcibly taken over; they can load the new versioned URLs through normal navigation.
 self.addEventListener("activate", (event) => {
   event.waitUntil(caches.keys().then((keys) => Promise.all(
     keys.filter((key) => key.startsWith("lanting-shell-") && key !== CACHE_NAME).map((key) => caches.delete(key)),
@@ -56,7 +56,7 @@ async function saveOfflinePage(response) {
     const resource = await versionedAsset(new Request(new URL(asset, self.location.origin)));
     if (!resource.ok || !await cache.match(asset)) throw new Error("Offline resources are incomplete");
   }));
-  // 最后才切换离线 HTML：任何脚本下载失败都保留上一次完整页面。
+  // Switch the offline HTML last: if any script download fails, the last complete page is kept.
   await cache.put("/", response);
 }
 

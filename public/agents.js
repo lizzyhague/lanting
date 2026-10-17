@@ -60,20 +60,20 @@ export function kindSupports(agentKinds, kind, feature) {
   return agentKinds.find((entry) => entry.kind === kind)?.features.includes(feature) ?? false;
 }
 
-/** AI usage 能选的成员：CLI 已接入并且支持 usage。 */
+/** Members selectable for AI usage: the CLI is connected and supports usage. */
 export function usageCandidates(group) {
   return group.members.filter((member) =>
     !group.unavailable.includes(member) && memberSupports(group, member, "usage")
   );
 }
 
-/** usage 行要显示的成员；关闭、成员不支持或未接入时为 null。 */
+/** The member shown in the usage row; null when off, unsupported, or not connected. */
 export function visibleUsageAgent(group) {
   const agent = group?.usageAgent ?? null;
   return agent && usageCandidates(group).includes(agent) ? agent : null;
 }
 
-/** 这个成员最后一条正常完成或被打断的发言时间；出错的发言和压缩都不算。 */
+/** Time of this member's last reply that completed normally or was interrupted; failed replies and compactions don't count. */
 export function lastReplyAt(transcript, agent) {
   for (let index = transcript.length - 1; index >= 0; index -= 1) {
     const entry = transcript[index];
@@ -85,7 +85,7 @@ export function lastReplyAt(transcript, agent) {
   return null;
 }
 
-/** 输出格式照 Relayu 的 formatTime（MM-DD HH:mm），时区用浏览器本地时区。 */
+/** Output format follows Relayu's formatTime (MM-DD HH:mm), in the browser's local time zone. */
 export function formatLocalTime(timestamp) {
   if (!timestamp) return "";
   const date = new Date(timestamp);
@@ -95,8 +95,8 @@ export function formatLocalTime(timestamp) {
 }
 
 /**
- * usage 行的各段文字。还没有原生会话时整行只有“未启动”；
- * 读取失败或还没有结果时显示“额度查询不可用”；其余情况最后接最后回复时间。
+ * Text segments of the usage row. With no native session yet the whole row is just "not started";
+ * when the read fails or has no result yet it shows "usage unavailable"; otherwise it ends with the last reply time.
  */
 export function usageTexts(usage, lastReply) {
   if (usage?.status === "not_started") return ["未启动"];

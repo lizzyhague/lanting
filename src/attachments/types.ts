@@ -2,7 +2,7 @@ export const MAX_UPLOAD_BYTES = 25 * 1_048_576;
 export const MAX_MESSAGE_ATTACHMENTS = 100;
 export const ATTACHMENT_LEASE_RENEW_INTERVAL_MS = 5 * 60_000;
 
-/** ai-remote-upload 里 lanting 的调用方名。整个群共用，附件才能发给群里任意一个 AI。 */
+/** lanting's caller name in ai-remote-upload. Shared by the whole group, so attachments can be sent to any AI in the group. */
 export const UPLOAD_CALLER = "lanting";
 
 export type AttachmentBinding = {
@@ -23,7 +23,7 @@ export type PublicAttachment = AttachmentBinding & {
   expiresAtMs: number;
 };
 
-/** 只允许留在 lanting 后端；绝不能进入浏览器协议或公开日志。 */
+/** Must stay in the lanting backend only; never in the browser protocol or public logs. */
 export type ResolvedAttachment = PublicAttachment & { path: string };
 
 export type UploadTicket = {

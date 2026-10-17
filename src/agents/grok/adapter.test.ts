@@ -7,7 +7,7 @@ import test from "node:test";
 import type { AgentEvent, ApprovalAsk, SessionOptions } from "../types.ts";
 import { GrokAdapter, toolActivity } from "./adapter.ts";
 
-/** 假的 `grok agent stdio`：一轮里先说一句过渡的话、调一个要审批的工具，再给最终回答。 */
+/** Fake `grok agent stdio`: in one round it says an interim line, calls a tool needing approval, then gives the final answer. */
 const FAKE_GROK = `#!/usr/bin/env node
 import { createInterface } from "node:readline";
 const send = (message) => console.log(JSON.stringify({ jsonrpc: "2.0", ...message }));

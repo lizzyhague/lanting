@@ -7,7 +7,7 @@ import test from "node:test";
 import type { AgentEvent, AgentSession, ApprovalAnswer, ApprovalAsk, SessionOptions } from "../types.ts";
 import { CURSOR_PERMISSIONS, CursorAdapter, firstMessage, toolActivity } from "./adapter.ts";
 
-/** 假的 `agent acp`：prompt 的正文决定这一轮怎么走；会话记录存在 cwd 里，跨进程可以 load。 */
+/** Fake `agent acp`: the prompt text decides how the round goes; session records are stored in cwd, so they can be loaded across processes. */
 const FAKE_CURSOR = `#!/usr/bin/env node
 import { readFileSync, writeFileSync } from "node:fs";
 const storePath = process.cwd() + "/sessions.json";
@@ -72,7 +72,7 @@ function handle(message) {
       mode = params.modeId;
       return reply(id, {});
     case "session/cancel":
-      // 未决的审批由客户端回成 cancelled，这一轮在那时结束。
+      // Pending approvals are answered cancelled by the client, and the round ends then.
       if (!waiting && promptId !== null) end("cancelled");
       return;
     case "session/prompt": return prompt(id, params.prompt[0].text);
@@ -195,7 +195,7 @@ test("sends the group rules once in a new session and not after resume", async (
   await session.close();
   assert.equal(session.alive, false);
 
-  // 恢复：Cursor 重放的历史不进本轮，规则不再拼接。
+  // Resume: history replayed by Cursor stays out of this round, and the rules aren't prepended again.
   const resumed = await adapter.resumeSession(nativeId, sessionOptions(cwd));
   t.after(() => resumed.close());
   assert.equal(resumed.nativeId, nativeId);
@@ -275,7 +275,7 @@ test("interrupt withdraws the approval and ends the turn as interrupted", async 
   assert.equal(approvals[0]!.signal?.aborted, true);
   const events = await turn;
   assert.deepEqual(endOf(events), { type: "end", outcome: "interrupted", text: "partial" });
-  // 迟到的网页答复不再写回。
+  // A late web answer is no longer written back.
   approvals[0]!.resolve({ decision: "allow", message: "" });
   assert.equal(endOf(await drain(session, "after")).outcome, "completed");
   await session.close();

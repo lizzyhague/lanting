@@ -4,21 +4,21 @@ import { EventEmitter } from "node:events";
 import { groupExists } from "../../platform/process-group.ts";
 
 /**
- * Pi `--mode rpc` 的子进程客户端。协议见 Pi 自带的 docs/rpc.md：stdin 写命令，
- * stdout 是 LF 分隔的 JSON 记录（命令响应、session event、扩展 UI 请求），stderr 只是诊断。
+ * Subprocess client for Pi `--mode rpc`. The protocol is in Pi's bundled docs/rpc.md: commands go to stdin,
+ * stdout carries LF-delimited JSON records (command responses, session events, extension UI requests), and stderr is diagnostics only.
  *
- * 不用 node:readline 拆行：它把 U+2028、U+2029 也当换行，而它们在 JSON 字符串里是合法字符。
+ * Doesn't split lines with node:readline: it also treats U+2028 and U+2029 as line breaks, which are valid in JSON strings.
  */
 
 export type PiRpcClientOptions = {
   executable: string;
-  /** 加在 `--mode rpc` 之后的启动参数。 */
+  /** Launch arguments added after `--mode rpc`. */
   args?: string[];
   cwd: string;
   env?: NodeJS.ProcessEnv;
 };
 
-/** 没有命令 id 的 stdout 记录，按 Pi 的原样交给适配。 */
+/** A stdout record without a command id, handed to the adapter exactly as Pi sent it. */
 export type PiEvent = Record<string, unknown> & { type: string };
 
 export type PiUiRequest = Record<string, unknown> & { id: string; method: string };
@@ -33,18 +33,18 @@ type Pending = {
   reject: (error: Error) => void;
 };
 
-/** 关闭 stdin 后等 Pi 自己退出的时间，过了就杀整个进程组。 */
+/** How long to wait for Pi to exit on its own after stdin closes; after that the whole process group is killed. */
 const CLOSE_WAIT_MS = 3_000;
 const TERM_WAIT_MS = 2_000;
 const KILL_WAIT_MS = 1_000;
 const STDERR_TAIL_LIMIT = 8_192;
 
 /**
- * 事件：
- * - `event`：session event（PiEvent）
- * - `ui`：扩展 UI 请求（PiUiRequest），对话框类的要用 respondUi 回复
- * - `diagnostic`：stderr、不是 JSON 的 stdout、对不上命令的响应，只用于日志
- * - `exit`：进程已退出（PiExit）
+ * Events:
+ * - `event`: session event (PiEvent)
+ * - `ui`: extension UI request (PiUiRequest); dialog types are answered with respondUi
+ * - `diagnostic`: stderr, non-JSON stdout, responses matching no command; for logs only
+ * - `exit`: the process has exited (PiExit)
  */
 export class PiRpcClient extends EventEmitter {
   readonly #process: ChildProcessWithoutNullStreams;
@@ -62,7 +62,7 @@ export class PiRpcClient extends EventEmitter {
       cwd: options.cwd,
       env: options.env ?? process.env,
       stdio: ["pipe", "pipe", "pipe"],
-      // 独立进程组：关闭时向负 pid 发信号，带走 Pi 启动的 bash 等子进程。
+      // Separate process group: on close, signal the negative pid to take down bash and other children Pi started.
       detached: true,
       windowsHide: true,
     }) as ChildProcessWithoutNullStreams;
@@ -78,11 +78,11 @@ export class PiRpcClient extends EventEmitter {
       const text = chunk.trim();
       if (text) this.emit("diagnostic", `Pi stderr：${text}`);
     });
-    // 子进程退出过程中管道出错是正常的，不能让未处理的 error 把后端带走。
+    // Pipe errors while the child exits are normal; an unhandled error must not take down the backend.
     this.#process.stdin.on("error", () => {});
     this.#process.stdout.on("error", () => {});
     this.#process.stderr.on("error", () => {});
-    // 启动失败（比如路径不对）时只有 error 事件，没有 exit。
+    // A failed launch (e.g. wrong path) emits only an error event, no exit.
     this.#process.on("error", (error) => {
       this.#onExit({ code: null, signal: null, error: `无法启动 Pi：${error.message}` });
       markExited();
@@ -93,7 +93,7 @@ export class PiRpcClient extends EventEmitter {
     });
   }
 
-  /** 进程组 id，也是 Pi 进程的 pid；启动失败时为 undefined。 */
+  /** Process group id, which is also Pi's pid; undefined if launch failed. */
   get pid(): number | undefined {
     return this.#process.pid;
   }
@@ -102,12 +102,12 @@ export class PiRpcClient extends EventEmitter {
     return this.#exitInfo === null;
   }
 
-  /** 有上限的 stderr 尾部，只用于服务端日志。 */
+  /** Bounded tail of stderr, for server logs only. */
   get stderrTail(): string {
     return this.#stderrTail;
   }
 
-  /** 发一条命令，等对应 id 的 response；success 为 false 时以 Pi 给的 error 拒绝。 */
+  /** Sends a command and waits for the response with the matching id; rejects with Pi's error when success is false. */
   request(type: string, fields: Record<string, unknown> = {}): Promise<unknown> {
     if (this.#closed || this.#exitInfo) {
       return Promise.reject(new Error(this.#exitInfo ? exitMessage(this.#exitInfo, this.#stderrTail) : "Pi 已经关闭。"));
@@ -119,7 +119,7 @@ export class PiRpcClient extends EventEmitter {
     });
   }
 
-  /** 成功只表示 Pi 接受了这条消息；这一轮的结果从 session event 读，直到 agent_settled。 */
+  /** Success only means Pi accepted the message; the round's result is read from session events until agent_settled. */
   async prompt(message: string): Promise<{ disposition?: string }> {
     return objectOf(await this.request("prompt", { message })) as { disposition?: string };
   }
@@ -150,24 +150,24 @@ export class PiRpcClient extends EventEmitter {
     return Array.isArray(levels) ? levels.filter((level): level is string => typeof level === "string") : [];
   }
 
-  /** 返回时压缩已经完成。 */
+  /** Compaction is complete on return. */
   async compact(): Promise<Record<string, unknown>> {
     return objectOf(await this.request("compact"));
   }
 
-  /** 加载一个 Pi session 文件。扩展可以拒绝切换，这时 cancelled 为 true。 */
+  /** Loads a Pi session file. Extensions may refuse the switch, in which case cancelled is true. */
   async switchSession(sessionPath: string): Promise<{ cancelled: boolean }> {
     return { cancelled: objectOf(await this.request("switch_session", { sessionPath })).cancelled === true };
   }
 
-  /** 回复扩展的对话框；id 必须是 Pi 在 extension_ui_request 里给的那个。Pi 不会为它发 response。 */
+  /** Answers an extension dialog; id must be the one Pi gave in extension_ui_request. Pi sends no response for it. */
   respondUi(id: string, response: PiUiResponse): void {
     this.#write({ type: "extension_ui_response", id, ...response });
   }
 
   /**
-   * 先关 stdin 让 Pi 自己收尾，等不到退出再 SIGTERM、SIGKILL 整个进程组。
-   * 返回时进程已经退出（或从未启动）。
+   * Close stdin first so Pi can wind down itself; if it doesn't exit, SIGTERM then SIGKILL the whole process group.
+   * On return the process has exited (or never started).
    */
   async close(): Promise<void> {
     if (!this.#closed) {
@@ -184,14 +184,14 @@ export class PiRpcClient extends EventEmitter {
         await this.#exited;
       }
     }
-    // Pi 自己退出了，它启动的工具子进程仍可能留在组里。
+    // Pi exited on its own, but tool subprocesses it started may still be in the group.
     if (groupExists(pid)) {
       try {
         process.kill(-pid, "SIGKILL");
       } catch {
-        // 组已经空了。
+        // The group is already empty.
       }
-      // 孤儿进程要等 init 回收才从进程组里消失。
+      // Orphaned processes only leave the process group once init reaps them.
       for (let waited = 0; groupExists(pid) && waited < KILL_WAIT_MS; waited += 20) {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
@@ -246,7 +246,7 @@ export class PiRpcClient extends EventEmitter {
     const id = typeof message.id === "string" ? message.id : null;
     const pending = id === null ? undefined : this.#pending.get(id);
     if (!pending || id === null) {
-      // 命令 JSON 本身解析失败时 Pi 回一条没有 id 的 parse 响应。
+      // When the command JSON itself fails to parse, Pi answers with a parse response that has no id.
       this.emit("diagnostic", `Pi 响应对不上命令：${line.slice(0, 500)}`);
       return;
     }
@@ -297,7 +297,7 @@ export class PiRpcClient extends EventEmitter {
       try {
         this.#process.kill(signal);
       } catch {
-        // 进程已经不在了。
+        // The process is already gone.
       }
     }
   }

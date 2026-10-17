@@ -1,7 +1,7 @@
 import { readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
-/** 新建群时可选的工作目录：项目根目录下第一层的非隐藏文件夹，按名字排序。 */
+/** Working directories selectable when creating a group: non-hidden top-level folders under the project root, sorted by name. */
 export async function listDirectories(projectRoot: string): Promise<string[]> {
   const entries = await readdir(projectRoot, { withFileTypes: true });
   const names: string[] = [];
@@ -17,8 +17,8 @@ export async function listDirectories(projectRoot: string): Promise<string[]> {
 }
 
 /**
- * 把浏览器选的目录名解析成绝对路径。只接受根目录下第一层的名字，
- * 解析符号链接后仍须落在根目录之内；不符合时返回 null。
+ * Resolves the directory name chosen in the browser to an absolute path. Only top-level names under the root are accepted,
+ * and after resolving symlinks the result must still be inside the root; otherwise returns null.
  */
 export async function resolveDirectory(projectRoot: string, name: string): Promise<string | null> {
   if (!name || name.startsWith(".") || name.includes("/") || name.includes("\\") || name.includes("\0")) {

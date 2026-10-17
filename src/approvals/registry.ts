@@ -5,18 +5,18 @@ import type { ApprovalAnswer, ApprovalAsk } from "../agents/types.ts";
 export type ApprovalRequest = ApprovalAsk & {
   approvalId: string;
   groupId: string;
-  /** 发起审批的 AI 的标签名。 */
+  /** Tag name of the AI requesting approval. */
   agent: string;
   createdAt: number;
   expiresAt: number;
 };
 
 export type ApprovalSettled = ApprovalRequest & ApprovalAnswer & {
-  /** user：群主回复；timeout：无人处理；cancelled：这一轮被打断或会话关闭。 */
+  /** user: the group owner answered; timeout: nobody handled it; cancelled: the round was interrupted or the session closed. */
   by: "user" | "timeout" | "cancelled";
 };
 
-/** 无人处理的审批在 120 秒后默认拒绝。 */
+/** Approvals nobody handles are rejected by default after 120 seconds. */
 export const APPROVAL_TIMEOUT_MS = 120_000;
 
 type Entry = {
@@ -26,8 +26,8 @@ type Entry = {
 };
 
 /**
- * 未决审批的登记处。同一条审批可能被多台设备同时回复，只有第一条有效回复生效。
- * 三家 CLI 的审批请求都先在各自的适配里转成 ApprovalAsk，再到这里统一登记。
+ * Registry of pending approvals. One approval may be answered by several devices at once; only the first valid answer takes effect.
+ * Approval requests from all three CLIs are first converted to ApprovalAsk in their adapters, then registered here uniformly.
  */
 export class ApprovalRegistry {
   readonly #entries = new Map<string, Entry>();
@@ -79,7 +79,7 @@ export class ApprovalRegistry {
     });
   }
 
-  /** 返回 false 表示这条审批已经处理过或不存在。 */
+  /** Returns false when this approval was already handled or doesn't exist. */
   respond(approvalId: string, decision: "allow" | "deny"): boolean {
     const entry = this.#entries.get(approvalId);
     if (!entry) return false;
@@ -90,7 +90,7 @@ export class ApprovalRegistry {
     return true;
   }
 
-  /** 打断或关闭时，把这个群（可限定某个 AI）的未决审批全部拒绝。 */
+  /** On interrupt or close, rejects all pending approvals for this group (optionally limited to one AI). */
   cancel(groupId: string, agent?: string): void {
     for (const entry of [...this.#entries.values()]) {
       if (entry.request.groupId !== groupId) continue;

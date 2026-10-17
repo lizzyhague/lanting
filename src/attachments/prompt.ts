@@ -1,4 +1,4 @@
-/** 群聊记录里存的附件：公开元数据加上路径。路径只留在后端，发给浏览器前要去掉。 */
+/** Attachments stored in the chat record: public metadata plus the path. The path stays on the backend and is stripped before sending to the browser. */
 export type StoredAttachment = {
   id: string;
   originalName: string;
@@ -20,8 +20,8 @@ const BLOCK_INTRO = [
 ].join("\n");
 
 /**
- * 给这一轮被点名的 AI：照三个 Remote 的做法，把路径写成一段说明交给 CLI，由 AI 自己用工具读。
- * JSON 元数据，不拼 shell。
+ * For the AIs called this round: as the three Remotes do, the paths are written as a note to the CLI, and the AI reads them with its own tools.
+ * Metadata is JSON; nothing is spliced into shell commands.
  */
 export function attachmentBlock(attachments: readonly StoredAttachment[]): string {
   const payload = JSON.stringify({
@@ -35,7 +35,7 @@ export function attachmentBlock(attachments: readonly StoredAttachment[]): strin
   return `${BLOCK_START}\n${BLOCK_INTRO}\n${payload}\n${BLOCK_END}`;
 }
 
-/** 给之后才被点名的 AI：只留一行说明，要不要读由它自己决定。格式见 system prompt。 */
+/** For AIs called later: only a one-line note is left, and each decides for itself whether to read it. See the system prompt for the format. */
 export function attachmentNote(username: string, attachment: StoredAttachment): string {
   return `${username} sent an attachment: ${attachment.originalName} (path: ${attachment.path})`;
 }

@@ -9,7 +9,7 @@ function body(start, end) {
 }
 
 test("unavailable selected members are removed from call order and saved once", () => {
-  const render = body("function renderCallPicks()", "/** 每次点名变化");
+  const render = body("function renderCallPicks()", "/** Every call order change");
   assert.match(render, /state\.callOrder\.filter\(\(member\) => !group\.unavailable\.includes\(member\)\)/u);
   assert.match(render, /availableOrder\.length !== state\.callOrder\.length/u);
   assert.match(render, /state\.callOrder = availableOrder/u);
@@ -30,13 +30,13 @@ test("member menus distinguish unavailable and unsupported while all sends every
 });
 
 test("member controls disable unavailable or unsupported actions with an explicit option", () => {
-  const member = body("function memberRow(", "/** 模型、思考强度");
+  const member = body("function memberRow(", "/** Model, reasoning effort and permission selects");
   assert.match(member, /压缩（未接入）/u);
   assert.match(member, /压缩（不支持）/u);
   assert.match(member, /memberSupports\(group, agent, "models"\)/u);
   assert.match(member, /memberSupports\(group, agent, "permissions"\)/u);
 
-  const controls = body("function settingControls(", "/** 第一项显示“默认”");
+  const controls = body("function settingControls(", "/** The first option shows \"default\"");
   assert.match(controls, /unavailable \? "（未接入）"/u);
   assert.match(controls, /supports\.model \? "默认" : "（不支持）"/u);
   assert.match(controls, /supports\.permission \? "默认" : "（不支持）"/u);
@@ -62,7 +62,7 @@ test("the usage menu lists usable members, marks the choice, and keeps an off it
 });
 
 test("header flowers toggle usage or explain why they cannot", () => {
-  const flower = body("function memberFlower(", "/** usage 行");
+  const flower = body("function memberFlower(", "/** Usage row");
   assert.match(flower, /aria-pressed", String\(group\.usageAgent === member\)/u);
   assert.match(flower, /\$\{member\} 未接入/u);
   assert.match(flower, /\$\{member\} 不支持 usage/u);

@@ -23,7 +23,7 @@ export async function main(): Promise<void> {
   const configPath = path.resolve(process.env.CONFIG_PATH ?? "config.json");
   const config = await loadConfig(configPath);
   const adapters: AgentAdapter[] = [];
-  // 清单顺序就是界面上的排列顺序。
+  // The list order is the order shown in the interface.
   for (const module of AGENT_MODULES) {
     const section = config.agents[module.kind];
     if (section) adapters.push(await module.create(section, `agents.${module.kind}`));
@@ -31,10 +31,10 @@ export async function main(): Promise<void> {
   const previewRoot = await ensurePreviewRoot();
   const dataDirectory = path.resolve(process.env.DATA_DIR ?? "data");
 
-  // 群数据读不动或校验不过时直接退出，绝不能用空状态覆盖原文件。
+  // Exit immediately if group data can't be read or fails validation; never overwrite the original files with an empty state.
   const store = await GroupStore.open(dataDirectory);
   const settings = await SettingsStore.open(dataDirectory, configuredKinds(config));
-  // socket 取 AI_REMOTE_UPLOAD_SOCKET，没设时用 ai-remote-upload 的默认位置。
+  // The socket comes from AI_REMOTE_UPLOAD_SOCKET, or ai-remote-upload's default location when unset.
   const uploads = new SharedUploadClient();
   const agents = new AgentRegistry(adapters);
   const runtime = new GroupRuntime({ store, agents, collaboration: () => settings.get().collaboration });

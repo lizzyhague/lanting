@@ -4,12 +4,12 @@
   background: var(--surface-page);
   color: var(--text);
 
-  /* 配色输入 */
+  /* Color inputs */
   --neutral: #0f0f10;
   --theme: #ececef;
   --theme-ink: #111214;
 
-  /* 共用混合比例 */
+  /* Shared mix ratios */
   --mix-tint: 3%;
   --mix-surface-sunken: 65%;
   --mix-surface-page: 100%;
@@ -35,7 +35,7 @@
   --mix-copy-success: 10%;
   --mix-divider-accent: 70%;
 
-  /* 推导角色 */
+  /* Derived roles */
   --tint: color-mix(in srgb, var(--theme) var(--mix-tint), var(--neutral));
   --surface-sunken: color-mix(in srgb, var(--tint) var(--mix-surface-sunken), black);
   --surface-page: color-mix(in srgb, var(--tint) var(--mix-surface-page), black);
@@ -68,7 +68,7 @@
   --shadow-md: 44px rgb(0 0 0 / 42%);
   --shadow-lg: 90px rgb(0 0 0 / 52%);
 
-  /* 选色时只切换这些值，规则保持不动。 */
+  /* Only these values change when picking colors; the rules stay the same. */
   --bubble-ai: color-mix(in srgb, var(--theme) var(--mix-bubble-ai), var(--surface-2));
   --permission-fill: color-mix(in srgb, var(--theme) var(--mix-permission), var(--surface-2));
   --copy-success-fill: color-mix(in srgb, var(--theme) var(--mix-copy-success), var(--surface-2));
@@ -88,8 +88,8 @@
   --sidebar-width: clamp(260px, 20vw, 304px);
 }
 
-/* 浅色模式：只覆盖配色输入、比例和方向相反的公式，深色的值不动。
-   data-theme 由 theme.js 在页面绘制前写入（跟随系统或手动选择）。 */
+/* Light mode: overrides only the color inputs, ratios and formulas that run the opposite way; dark values stay unchanged.
+   data-theme is written by theme.js before the page paints (following the system or a manual choice). */
 :root[data-theme="light"] {
   color-scheme: light;
 
@@ -117,7 +117,7 @@
   --mix-copy-success: 16%;
   --mix-bubble-user: 93%;
 
-  /* 往下凹的面混黑，往上浮的面混白；文字往墨色混。 */
+  /* Recessed surfaces mix toward black, raised surfaces toward white; text mixes toward ink. */
   --surface-sunken: color-mix(in srgb, var(--tint) var(--mix-surface-sunken), black);
   --surface-1: color-mix(in srgb, var(--tint) var(--mix-surface-1), black);
   --surface-2: color-mix(in srgb, var(--tint) var(--mix-surface-2), white);
@@ -139,7 +139,7 @@
   --shadow-lg: 90px rgb(0 0 0 / 14%);
 }
 
-/* 成员色混入正文色的比例，12 色逐个写明；不写会继承外层成员的比例。 */
+/* Ratio at which member colors mix into the body text color, spelled out for all 12 colors; otherwise the outer member's ratio is inherited. */
 :root[data-theme="light"] [data-palette="orange"] { --agent-mix: 0%; }
 :root[data-theme="light"] [data-palette="mint"] { --agent-mix: 40%; }
 :root[data-theme="light"] [data-palette="yellow"] { --agent-mix: 20%; }
@@ -153,7 +153,7 @@
 :root[data-theme="light"] [data-palette="magenta"] { --agent-mix: 20%; }
 :root[data-theme="light"] [data-palette="ocean"] { --agent-mix: 10%; }
 
-/* 个别成员色和底色同色相，气泡要单独加深；先在每个成员上清空，避免继承外层成员的值。 */
+/* Some member colors share a hue with the background, so their bubbles need extra darkening; reset on every member first to avoid inheriting the outer member's value. */
 :root[data-theme="light"] [data-agent] { --agent-bubble-mix: initial; }
 :root[data-theme="light"] [data-palette="yellow"] { --agent-bubble-mix: 20%; }
 
@@ -321,7 +321,7 @@ button.primary {
   color: var(--danger) !important;
 }
 
-/* 登录状态行默认是次要文字；错误为红色，启动和连接过程为黄色。 */
+/* The login status line is secondary text by default; red for errors, yellow while starting and connecting. */
 #login-status:not([data-tone="error"]):not([data-tone="progress"]) {
   color: var(--text-muted) !important;
 }
@@ -330,7 +330,7 @@ button.primary {
   color: var(--warning) !important;
 }
 
-/* ---------- 每个 AI 的主色 ---------- */
+/* ---------- Primary color of each AI ---------- */
 
 [data-agent] {
   --agent: var(--text-muted);
@@ -339,7 +339,7 @@ button.primary {
   --copy-success-fill: color-mix(in srgb, var(--agent) var(--mix-copy-success), var(--surface-2));
 }
 
-/* 12 色表里的颜色；浅色模式按 --agent-mix 混入正文色，深色模式原样使用。 */
+/* Colors from the 12-color table; light mode mixes them into the body text color by --agent-mix, dark mode uses them as-is. */
 [data-palette] {
   --agent: color-mix(in srgb, var(--text) var(--agent-mix, 0%), var(--agent-color));
 }
@@ -353,7 +353,7 @@ button.primary {
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='174 99 164 164'%3E%3Cpath d='M255 276 C236 248 207 222 202 181 C197 141 218 106 260 78 C286 105 301 141 295 179 C289 216 274 242 265 268 C262 276 259 280 255 276 Z' transform='rotate(45 249 179)'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
-/* ---------- 布局 ---------- */
+/* ---------- Layout ---------- */
 
 .app-view {
   height: 100dvh;
@@ -419,7 +419,7 @@ button.primary {
   border-radius: 6px;
 }
 
-/* 品牌字是矢量图形，颜色跟随文字色；高度按旁边的图标定。 */
+/* The wordmark is a vector glyph whose color follows the text color; its height matches the adjacent icon. */
 .brand-wordmark {
   display: block;
   width: auto;
@@ -451,7 +451,7 @@ button.primary {
   gap: 0.3rem;
 }
 
-/* 侧边栏的图标按钮共用这一套：方形、细边框、16px 线条图标。 */
+/* Shared by the sidebar's icon buttons: square, thin border, 16px line icons. */
 button.icon-button {
   width: 34px;
   min-width: 34px;
@@ -504,7 +504,7 @@ button.icon-button svg {
   width: 100%;
 }
 
-/* 目录框占掉剩下的宽度，和新建群按钮统一为紧凑高度。 */
+/* The directory box takes the remaining width and shares the compact height of the new group button. */
 .create-row {
   display: flex;
   align-items: center;
@@ -548,8 +548,8 @@ button.icon-button svg {
   font-size: 0.86rem;
 }
 
-/* 选中时和消息输入框一致：不用浏览器自带的选中框，外框换色并加到 1.5px。
-   多出的 0.5px 用内阴影画，不占位置，内容不跳。 */
+/* When selected, matches the message input: no browser focus ring; the border changes color and grows to 1.5px.
+   The extra 0.5px is drawn with an inset shadow so it takes no space and the content doesn't shift. */
 .create-form select:focus,
 .group-search input:focus {
   outline: 0;
@@ -712,7 +712,7 @@ button.icon-button svg {
 }
 
 
-/* 三格图标条：选中的那格浮起，其余只显示图标。 */
+/* Three-segment icon bar: the selected segment is raised, the others show only the icon. */
 .theme-options {
   display: flex;
   flex: none;
@@ -892,7 +892,7 @@ button.icon-button svg {
   margin: 0;
 }
 
-/* 设置里四块平行：标题同一种样式。 */
+/* The four parallel blocks in settings share one heading style. */
 .theme-label,
 .username-form label,
 .collaboration-heading h3,
@@ -902,7 +902,7 @@ button.icon-button svg {
   color: var(--text);
 }
 
-/* 设置里的状态行只在有内容时占位，块与块之间的间距才一致。 */
+/* Status lines in settings only take space when they have content, so the spacing between blocks stays even. */
 .settings-body .form-status {
   min-height: 0;
   margin: 0;
@@ -1266,7 +1266,7 @@ button[aria-invalid="true"] {
   border-top: 1.5px solid var(--divider-accent);
 }
 
-/* 右边距和间距跟列表标题一致，重命名、钉住分别对齐上面的回收站、选择。 */
+/* Right padding and gaps match the list heading; rename and pin align with trash and select above. */
 .group-item-actions {
   align-self: center;
   margin-right: 0.75rem;
@@ -1409,7 +1409,7 @@ button[aria-invalid="true"] {
   white-space: nowrap;
 }
 
-/* 只有兰花这一段横滑；至少能看见两朵。上下和首尾留出描边的空隙。 */
+/* Only the orchid segment scrolls horizontally; at least two are visible. Space is left above, below and at both ends for the outline. */
 .group-members {
   flex: 1 1 auto;
   min-width: 4.4rem;
@@ -1439,7 +1439,7 @@ button[aria-invalid="true"] {
   background: transparent;
 }
 
-/* 选中时沿叶子轮廓描一圈：外扩一段再挖掉内侧，中间留出空隙。 */
+/* When selected, an outline follows the leaf shape: expand outward, then cut away the inside, leaving a gap in between. */
 .member-flower::before {
   content: "";
   position: absolute;
@@ -1462,7 +1462,7 @@ button[aria-invalid="true"] {
   opacity: 1;
 }
 
-/* 照 Relayu 的 .session-metrics。 */
+/* Follows Relayu's .session-metrics. */
 .group-usage {
   display: block;
   max-width: 100%;
@@ -1508,7 +1508,7 @@ button[aria-invalid="true"] {
   display: none;
 }
 
-/* ---------- 时间线 ---------- */
+/* ---------- Timeline ---------- */
 
 .timeline {
   min-width: 0;
@@ -1651,7 +1651,7 @@ button[aria-invalid="true"] {
   font-size: 0.9rem;
 }
 
-/* ---------- 审批 ---------- */
+/* ---------- Approvals ---------- */
 
 .approval-list {
   width: 100%;
@@ -1758,7 +1758,7 @@ button[aria-invalid="true"] {
   color: var(--theme);
 }
 
-/* ---------- 输入区 ---------- */
+/* ---------- Composer ---------- */
 
 .composer {
   width: 100%;
@@ -1819,7 +1819,7 @@ button[aria-invalid="true"] {
   display: none;
 }
 
-/* 宽屏才显示发送快捷键提示。 */
+/* The send shortcut hint is shown only on wide screens. */
 .send-hint {
   flex: none;
   color: var(--text-muted);
@@ -1833,7 +1833,7 @@ button[aria-invalid="true"] {
   }
 }
 
-/* 新建群和点名共用的成员按钮：没选灰色，悬停或选中变正文色，选中再加粗、叶子变实心。 */
+/* Member button shared by group creation and the call order: gray when unselected, body text color on hover or selection; selected also bold with a filled leaf. */
 .agent-pick {
   min-height: 2rem;
   flex: none;
@@ -1968,7 +1968,7 @@ button[aria-invalid="true"] {
   }
 }
 
-/* ---------- Markdown（取自 Relayu） ---------- */
+/* ---------- Markdown (from Relayu) ---------- */
 
 .markdown-body {
   min-width: 0;
@@ -2119,9 +2119,9 @@ button[aria-invalid="true"] {
   text-align: left;
 }
 
-/* ---------- 窄屏：列表和群二选一 ---------- */
+/* ---------- Narrow screens: list or group, one at a time ---------- */
 
-/* ---------- 群里的提示 ---------- */
+/* ---------- Notices in a group ---------- */
 
 .timeline-notice {
   margin: 0 auto 1rem;
@@ -2137,7 +2137,7 @@ button[aria-invalid="true"] {
   font-size: 0.85rem;
 }
 
-/* ---------- + 菜单与成员面板 ---------- */
+/* ---------- + menu and member panel ---------- */
 
 .menu-anchor {
   position: relative;
@@ -2221,7 +2221,7 @@ button.plus-button {
   color: var(--text-muted);
 }
 
-/* 二级菜单顶部的返回项做成灰色小标题，和 relayu 弹出菜单的标题一致。 */
+/* The back item at the top of a submenu is a small gray heading, matching relayu's popup menu title. */
 .menu-back {
   padding: 0.45rem 0.75rem;
   color: var(--text-muted);
@@ -2377,7 +2377,7 @@ button.plus-button {
   }
 }
 
-/* 下拉刷新只在手势进行时显示；由页面实现，避免原生手势重复触发。 */
+/* Pull-to-refresh is shown only during the gesture; implemented by the page so the native gesture doesn't fire twice. */
 html.pull-refresh-enabled {
   overscroll-behavior-y: none;
 }
