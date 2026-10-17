@@ -7,6 +7,7 @@ import {
   type AgentCatalog,
   type AgentEvent,
   type AgentSession,
+  deniedMessage,
   localizedPermission,
   type ModelOption,
   type PermissionOption,
@@ -167,7 +168,7 @@ class PiSession implements AgentSession {
       }
       return session;
     } catch (error) {
-      if (client.stderrTail.trim()) console.error(`Pi stderr：${client.stderrTail.trim()}`);
+      if (client.stderrTail.trim()) console.error(`Pi stderr: ${client.stderrTail.trim()}`);
       await session.close();
       throw error;
     }
@@ -330,7 +331,11 @@ class PiSession implements AgentSession {
       if (turn) {
         turn.channel.push({
           type: "activity",
-          activity: { kind: "denied", toolName: stringField(request.title) || method, message: "lanting 不支持这类 Pi 扩展对话框。" },
+          activity: {
+            kind: "denied",
+            toolName: stringField(request.title) || method,
+            ...deniedMessage(localText("denied.piDialog")),
+          },
         });
       }
       return;

@@ -307,7 +307,7 @@ export class ClaudeRuntime {
       const message = error instanceof Error ? error.message : "Reading from the Claude Code runtime failed.";
       // The stderr tail goes only to server logs; it may contain absolute paths, so it isn't sent to the browser.
       const stderrTail = this.#closePromise ? "" : this.#processGroup?.stderrTail.trim();
-      if (stderrTail) console.error(`Claude Code stderr（${this.#options.sessionId}）：${stderrTail}`);
+      if (stderrTail) console.error(`Claude Code stderr (${this.#options.sessionId}): ${stderrTail}`);
       this.#forcedOutcome = { status: "failed", message };
       if (!this.#closePromise) void this.close(message);
     }
@@ -478,7 +478,7 @@ function outcomeOf(result: SDKResultMessage, interrupted: boolean): TurnOutcome 
       ? { status: "failed", message: result.result || "Claude could not finish the answer." }
       : { status: "completed" };
   }
-  if (result.errors.length > 0) return { status: "failed", message: result.errors.join("；") };
+  if (result.errors.length > 0) return { status: "failed", message: result.errors.join("; ") };
   const labels: Record<typeof result.subtype, string> = {
     error_during_execution: "Claude hit an error during execution.",
     error_max_turns: "The round reached the maximum number of turns.",

@@ -234,7 +234,8 @@ class ClaudeSession implements AgentSession {
       case "tool.denied":
         channel.push({
           type: "activity",
-          activity: { kind: "denied", toolName: event.toolName, message: event.message },
+          // The only denial reported this way is the secret-file policy; its message to the AI stays as is.
+          activity: { kind: "denied", toolName: event.toolName, message: event.message, messageText: localText("denied.secretFile") },
         });
         return;
       case "turn.ended": {

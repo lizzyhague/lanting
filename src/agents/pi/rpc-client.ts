@@ -76,7 +76,7 @@ export class PiRpcClient extends EventEmitter {
     this.#process.stderr.on("data", (chunk: string) => {
       this.#stderrTail = `${this.#stderrTail}${chunk}`.slice(-STDERR_TAIL_LIMIT);
       const text = chunk.trim();
-      if (text) this.emit("diagnostic", `Pi stderr：${text}`);
+      if (text) this.emit("diagnostic", `Pi stderr: ${text}`);
     });
     // Pipe errors while the child exits are normal; an unhandled error must not take down the backend.
     this.#process.stdin.on("error", () => {});

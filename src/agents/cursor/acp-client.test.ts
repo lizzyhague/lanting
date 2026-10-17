@@ -235,7 +235,7 @@ test("reports non-JSON stdout, stderr, stray responses and errors", async (t) =>
   assert.ok(diagnostics.some((text) => text.includes("Cursor stdout is not a JSON object: [1,2]")));
   assert.ok(diagnostics.some((text) => text.includes("Cursor response matches no request") && text.includes("4242")));
   // stderr and stdout are two pipes; arrival order isn't guaranteed.
-  while (!diagnostics.some((text) => text.includes("Cursor stderr：something on stderr"))) {
+  while (!diagnostics.some((text) => text.includes("Cursor stderr: something on stderr"))) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 });

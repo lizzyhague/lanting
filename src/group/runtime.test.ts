@@ -348,10 +348,14 @@ test("compaction runs agents in order, skips agents without a session, and only 
   // codex closes its process after every use, compaction included; claude's session is kept for reuse.
   assert.equal(adapters.codex!.sessions.at(-1)!.closed, true);
   assert.equal(adapters.claude!.sessions.length, 1);
-  assert.deepEqual(store.transcript(groupId).slice(-3).map((entry) => [entry.from, entry.text]), [
-    [{ role: "notice", agent: "codex" }, "已压缩 codex 的上下文。"],
-    [{ role: "notice", agent: "grok" }, "grok 还没有发过言，没有可压缩的上下文。"],
-    [{ role: "notice", agent: "claude" }, "已压缩 claude 的上下文。"],
+  assert.deepEqual(store.transcript(groupId).slice(-3).map((entry) => [entry.from, entry.text, entry.noticeText]), [
+    [{ role: "notice", agent: "codex" }, "Compacted codex's context.", { key: "notice.compacted", params: { agent: "codex" } }],
+    [
+      { role: "notice", agent: "grok" },
+      "grok hasn't replied yet, so there is no context to compact.",
+      { key: "notice.compactNoSession", params: { agent: "grok" } },
+    ],
+    [{ role: "notice", agent: "claude" }, "Compacted claude's context.", { key: "notice.compacted", params: { agent: "claude" } }],
   ]);
   assert.deepEqual(events.filter((event) => event.type.startsWith("compact.")).map((event) => event.type), [
     "compact.started",
@@ -371,7 +375,10 @@ test("a failed compaction is reported and the session is reopened next time", as
   await runtime.startRound(groupId, "q1", ["claude"]).done;
   adapters.claude!.compactError = new Error("context too small");
   await runtime.compact(groupId, ["claude"]).done;
-  assert.equal(store.transcript(groupId).at(-1)?.text, "claude 的上下文没有压缩成功：context too small");
+  assert.deepEqual(store.transcript(groupId).at(-1)?.noticeText, {
+    key: "notice.compactFailed",
+    params: { agent: "claude", error: "context too small" },
+  });
   assert.equal(adapters.claude!.sessions[0]!.closed, true);
   await runtime.startRound(groupId, "q2", ["claude"]).done;
   assert.equal(adapters.claude!.calls.at(-1)?.kind, "resume");
@@ -450,8 +457,8 @@ test("members sharing one CLI compact their own sessions", async (t) => {
 
   assert.deepEqual(adapter.compacted, ["codex-session-2", "codex-session-1"]);
   assert.deepEqual(store.transcript(groupId).slice(-2).map((entry) => entry.text), [
-    "已压缩 bob 的上下文。",
-    "已压缩 alice 的上下文。",
+    "Compacted bob's context.",
+    "Compacted alice's context.",
   ]);
 });
 
@@ -482,8 +489,8 @@ test("compaction records an unavailable kind and continues with later members", 
 
   await runtime.compact(groupId, ["alice", "helper"]).done;
   assert.deepEqual(store.transcript(groupId).slice(-2).map((entry) => entry.text), [
-    "alice 未接入，跳过。",
-    "已压缩 helper 的上下文。",
+    "alice isn't connected; skipped.",
+    "Compacted helper's context.",
   ]);
   assert.deepEqual(adapters.claude!.compacted, ["claude-session-1"]);
 });
@@ -500,8 +507,8 @@ test("compaction records an unsupported member and continues without opening its
 
   await runtime.compact(groupId, ["alice", "helper"]).done;
   assert.deepEqual(store.transcript(groupId).slice(-2).map((entry) => entry.text), [
-    "alice 不支持，跳过。",
-    "已压缩 helper 的上下文。",
+    "alice doesn't support compaction; skipped.",
+    "Compacted helper's context.",
   ]);
   assert.deepEqual(adapters.codex!.calls, []);
   assert.deepEqual(adapters.claude!.compacted, ["claude-session-1"]);

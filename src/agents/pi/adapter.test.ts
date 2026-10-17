@@ -397,7 +397,12 @@ test("unsupported dialogs are cancelled and notifications become notes", async (
   const events = await collect(session.send("dialogs"));
   assert.deepEqual(asks, []);
   assert.deepEqual(activities(events), [
-    { kind: "denied", toolName: "Pick one", message: "lanting 不支持这类 Pi 扩展对话框。" },
+    {
+      kind: "denied",
+      toolName: "Pick one",
+      message: "lanting doesn't support this kind of Pi extension dialog.",
+      messageText: { key: "denied.piDialog" },
+    },
     { kind: "note", text: "heads up" },
   ]);
   assert.deepEqual(events.at(-1), {

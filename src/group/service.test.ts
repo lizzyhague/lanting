@@ -369,9 +369,9 @@ test("pinning persists without changing recency and survives trash restore", asy
   assert.equal(service.groups().find((group) => group.id === groupId)?.pinned, true);
 });
 
-test("a new group uses a placeholder title and the first text line replaces it", async (t) => {
+test("a new group starts untitled and the first text line names it", async (t) => {
   const { service, store, events, groupId } = await setup(t);
-  assert.equal(store.get(groupId)?.title, "新群");
+  assert.equal(store.get(groupId)?.title, "");
 
   const firstLine = "一".repeat(61);
   const expected = `${"一".repeat(60)}…`;
@@ -395,9 +395,9 @@ test("existing titles and an attachment-only first message are not renamed later
   const attachmentId = "22222222-2222-4222-8222-222222222222";
   await attachmentOnly.service.startRound(attachmentOnly.groupId, "", ["claude"], [attachmentId]);
   await idle(attachmentOnly.service, attachmentOnly.groupId);
-  assert.equal(attachmentOnly.store.get(attachmentOnly.groupId)?.title, "新群");
+  assert.equal(attachmentOnly.store.get(attachmentOnly.groupId)?.title, "");
   await attachmentOnly.service.startRound(attachmentOnly.groupId, "后来有了正文", ["claude"]);
-  assert.equal(attachmentOnly.store.get(attachmentOnly.groupId)?.title, "新群");
+  assert.equal(attachmentOnly.store.get(attachmentOnly.groupId)?.title, "");
   await idle(attachmentOnly.service, attachmentOnly.groupId);
 });
 

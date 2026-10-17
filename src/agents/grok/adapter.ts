@@ -13,6 +13,7 @@ import {
   type AgentEvent,
   type AgentSession,
   type ApprovalAnswer,
+  deniedMessage,
   genericTool,
   localizedPermission,
   type ModelOption,
@@ -174,7 +175,7 @@ class GrokSession implements AgentSession {
       if (model) await session.#client.sessionSetModel(session.#sessionId, model, effort);
       return session;
     } catch (error) {
-      if (session.#stderrTail.trim()) console.error(`Grok stderr：${session.#stderrTail.trim()}`);
+      if (session.#stderrTail.trim()) console.error(`Grok stderr: ${session.#stderrTail.trim()}`);
       await session.close();
       throw error;
     }
@@ -287,7 +288,7 @@ class GrokSession implements AgentSession {
       this.#client.respondPermission(request.rpcId, { outcome: "cancelled" });
       this.#turn.channel.push({
         type: "activity",
-        activity: { kind: "denied", ...genericTool("tool.question"), message: "群聊里不直接向群主提问，问题请写在回复里。" },
+        activity: { kind: "denied", ...genericTool("tool.question"), ...deniedMessage(localText("denied.askInReply")) },
       });
       return;
     }

@@ -32,3 +32,27 @@ export function englishText(text: LocalText): string {
   if (!params) return template;
   return template.replace(/\{(\w+)\}/gu, (match, name: string) => Object.hasOwn(params, name) ? String(params[name]) : match);
 }
+
+export function isLocalText(value: unknown): value is LocalText {
+  if (typeof value !== "object" || value === null) return false;
+  const { key, params } = value as { key?: unknown; params?: unknown };
+  return typeof key === "string" && (params === undefined || (typeof params === "object" && params !== null &&
+    Object.values(params).every((item) => typeof item === "string" || typeof item === "number")));
+}
+
+/** An error whose message the browser shows in its own language; the message is the English form. */
+export class LocalizedError extends Error {
+  readonly text: LocalText;
+
+  constructor(text: LocalText) {
+    super(englishText(text));
+    this.name = "LocalizedError";
+    this.text = text;
+  }
+}
+
+/** The translatable text an error carries, if any (LocalizedError, GroupError and the like). */
+export function textOf(error: unknown): LocalText | undefined {
+  const text = error instanceof Error ? (error as { text?: unknown }).text : undefined;
+  return isLocalText(text) ? text : undefined;
+}

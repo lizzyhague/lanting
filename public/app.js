@@ -33,6 +33,11 @@ function localText(text, fallback) {
   return translated === text.key ? fallback : translated;
 }
 
+/** A new group has no title until its first message names it. */
+function groupTitle(group) {
+  return group.title || t("group.newTitle");
+}
+
 const RECONNECT_DELAY_MS = 3_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const DIRECTORY_KEY = "lanting.directory";
@@ -269,7 +274,7 @@ const selectionBar = createSelectionBar({
   views: GROUP_SELECTION_VIEWS,
   initialView: state.listView,
   getId: (group) => group.id,
-  getTitle: (group) => group.title,
+  getTitle: groupTitle,
   isSelectable: groupSelectable,
   isPinned: (group) => Boolean(group.pinned),
   getActionUnavailableReason: groupActionUnavailableReason,
@@ -728,7 +733,7 @@ function visibleGroups() {
       if (group.trashedAt) return false;
       return state.listView === "archived" ? group.archived === true : group.archived !== true;
     })
-    .filter((group) => !query || group.title.toLowerCase().includes(query))
+    .filter((group) => !query || groupTitle(group).toLowerCase().includes(query))
     .sort(compareGroupSummaries);
   if (state.listView !== "groups") return matching.filter((group) => group.directory === directory);
   return [
@@ -809,7 +814,7 @@ function groupItem(group, trash) {
     if (!selectable) open.title = t("list.busyNotSelectable");
     title.append(check);
   }
-  title.append(document.createTextNode(group.title));
+  title.append(document.createTextNode(groupTitle(group)));
   const meta = document.createElement("span");
   meta.className = "group-item-meta";
   meta.append(...group.members.map((member) => agentDot(member, group)));
@@ -843,7 +848,7 @@ function groupItem(group, trash) {
     const rename = document.createElement("button");
     rename.className = "group-rename-trigger quiet small icon-button";
     rename.type = "button";
-    rename.setAttribute("aria-label", t("list.renameGroup", { title: group.title }));
+    rename.setAttribute("aria-label", t("list.renameGroup", { title: groupTitle(group) }));
     rename.title = t("rename.title");
     rename.append(groupRenameIcon());
     rename.addEventListener("click", (event) => {
@@ -854,7 +859,7 @@ function groupItem(group, trash) {
     pin.className = "group-pin-trigger quiet small icon-button";
     pin.type = "button";
     pin.setAttribute("aria-pressed", String(Boolean(group.pinned)));
-    pin.setAttribute("aria-label", t(group.pinned ? "list.unpinGroup" : "list.pinGroup", { title: group.title }));
+    pin.setAttribute("aria-label", t(group.pinned ? "list.unpinGroup" : "list.pinGroup", { title: groupTitle(group) }));
     pin.title = t(group.pinned ? "list.unpin" : "list.pinHint");
     pin.append(groupPinIcon(Boolean(group.pinned)));
     pin.addEventListener("click", (event) => {
@@ -1214,7 +1219,7 @@ function brandWordmark() {
 
 function updateGroupTitle() {
   const privateTitle = mobileNavigationQuery.matches || state.sidebarCollapsed;
-  const title = privateTitle ? null : state.current?.group.title;
+  const title = privateTitle || !state.current ? null : groupTitle(state.current.group);
   if (title) elements.groupTitle.textContent = title;
   else elements.groupTitle.replaceChildren(brandWordmark());
 }
@@ -1255,7 +1260,7 @@ function entryElement(entry) {
     article.className = "timeline-notice";
     article.dataset.agent = entry.from.agent;
     paintAgent(article, memberColor(state.current?.group, entry.from.agent));
-    article.append(agentDot(entry.from.agent), document.createTextNode(entry.text));
+    article.append(agentDot(entry.from.agent), document.createTextNode(localText(entry.noticeText, entry.text)));
     return article;
   }
   if (entry.from.role === "host") {
@@ -1285,7 +1290,7 @@ function entryElement(entry) {
   if (entry.status === "failed") {
     const error = document.createElement("p");
     error.className = "entry-error";
-    error.textContent = entry.error || t("entry.failed");
+    error.textContent = localText(entry.errorText, entry.error) || t("entry.failed");
     article.append(error);
   }
   return article;
@@ -1344,7 +1349,10 @@ function activityItem(activity) {
     item.append(name);
     if (activity.detail) item.append(document.createTextNode(` ${activity.detail}`));
   } else if (activity.kind === "denied") {
-    item.textContent = t("activity.denied", { tool: activity.toolName === undefined ? "" : toolLabel(activity), message: activity.message ?? "" });
+    item.textContent = t("activity.denied", {
+      tool: activity.toolName === undefined ? "" : toolLabel(activity),
+      message: localText(activity.messageText, activity.message ?? ""),
+    });
   } else if (activity.kind === "note") {
     item.textContent = String(activity.text ?? "");
   } else {

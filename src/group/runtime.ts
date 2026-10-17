@@ -12,7 +12,7 @@ import { ApprovalRegistry } from "../approvals/registry.ts";
 import type { StoredAttachment } from "../attachments/prompt.ts";
 import { PathRedactor } from "../attachments/redact.ts";
 import type { UsagePart } from "../features/index.ts";
-import { englishText, localText, type LocalText } from "../i18n/text.ts";
+import { englishText, localText, textOf, type LocalText } from "../i18n/text.ts";
 import type { GroupStore } from "../state/group-store.ts";
 import { assembleMessage } from "./assemble.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
@@ -367,8 +367,12 @@ export class GroupRuntime {
         compaction.current = agent;
         this.#emit({ type: "compact.progress", groupId, agent });
         await this.#settle(groupId, agent, async () => {
-          const text = await this.#compactOne(groupId, agent);
-          const entry = await this.#store.append(groupId, { from: { role: "notice", agent }, text });
+          const notice = await this.#compactOne(groupId, agent);
+          const entry = await this.#store.append(groupId, {
+            from: { role: "notice", agent },
+            text: englishText(notice),
+            noticeText: notice,
+          });
           this.#emit({ type: "entry.appended", groupId, entry });
         });
       }
@@ -382,22 +386,22 @@ export class GroupRuntime {
   }
 
   /** Returns the notice written to the chat record. */
-  async #compactOne(groupId: string, agent: string): Promise<string> {
+  async #compactOne(groupId: string, agent: string): Promise<LocalText> {
     const group = this.#requireGroup(groupId);
     const state = group.agents[agent]!;
-    if (!this.#agents.has(state.kind)) return `${agent} 未接入，跳过。`;
+    if (!this.#agents.has(state.kind)) return localText("notice.compactNotConnected", { agent });
     const compact = this.#agents.get(state.kind).features.compact;
-    if (!compact) return `${agent} 不支持，跳过。`;
-    if (!group.agents[agent]?.nativeSessionId) return `${agent} 还没有发过言，没有可压缩的上下文。`;
+    if (!compact) return localText("notice.compactUnsupported", { agent });
+    if (!group.agents[agent]?.nativeSessionId) return localText("notice.compactNoSession", { agent });
     let session: AgentSession | null = null;
     let failed = false;
     try {
       session = await this.#session(group, agent);
       await compact(session);
-      return `已压缩 ${agent} 的上下文。`;
+      return localText("notice.compacted", { agent });
     } catch (error) {
       failed = true;
-      return `${agent} 的上下文没有压缩成功：${errorMessage(error)}`;
+      return localText("notice.compactFailed", { agent, error: errorMessage(error) });
     } finally {
       this.#touch(groupId, agent);
       if (session && (failed || this.#adapter(group, agent).closeAfterTurn)) {
@@ -465,9 +469,13 @@ export class GroupRuntime {
           break;
         }
       }
-      final ??= { type: "end", outcome: "failed", text: round.text, error: "AI 没有正常结束这次发言。" };
+      if (!final) {
+        const errorText = localText("entry.noEnd");
+        final = { type: "end", outcome: "failed", text: round.text, error: englishText(errorText), errorText };
+      }
     } catch (error) {
-      final = { type: "end", outcome: "failed", text: round.text, error: errorMessage(error) };
+      const errorText = textOf(error);
+      final = { type: "end", outcome: "failed", text: round.text, error: errorMessage(error), ...(errorText ? { errorText } : {}) };
     } finally {
       round.speaking = null;
       this.#approvals.cancel(groupId, agent);
@@ -479,6 +487,7 @@ export class GroupRuntime {
       text: redactor.redact(final.text),
       status: final.outcome,
       ...(final.error === undefined ? {} : { error: redactor.redact(final.error) }),
+      ...(final.errorText === undefined ? {} : { errorText: final.errorText }),
       ...(round.activities.length > 0 ? { activities: round.activities } : {}),
     });
     round.speakingAgent = null;

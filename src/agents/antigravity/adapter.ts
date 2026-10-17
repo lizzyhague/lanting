@@ -1,5 +1,5 @@
 import type { AgentFeatures } from "../../features/index.ts";
-import { localText } from "../../i18n/text.ts";
+import { englishText, localText, LocalizedError } from "../../i18n/text.ts";
 import { EventChannel } from "../event-channel.ts";
 import {
   type AgentAdapter,
@@ -57,7 +57,7 @@ const DEFAULT_MODE = "default";
  */
 const LOGIN_PROMPT = "Open the following link to authenticate the ACP server";
 
-export const LOGIN_REQUIRED_MESSAGE = "Antigravity 需要重新登录：请在服务器上完成 ACP Server 登录，见部署文档。";
+export const LOGIN_REQUIRED = localText("error.antigravityLogin");
 
 /**
  * The system prompt in `_meta` is ignored and `AGENTS.md` in the working directory isn't loaded into context automatically,
@@ -167,9 +167,9 @@ class AntigravitySession implements AgentSession {
       await client.sessionSetMode(session.#sessionId, DEFAULT_MODE);
       return session;
     } catch (error) {
-      if (client.stderrTail.trim()) console.error(`Antigravity stderr：${client.stderrTail.trim()}`);
+      if (client.stderrTail.trim()) console.error(`Antigravity stderr: ${client.stderrTail.trim()}`);
       await session.close();
-      throw session.#loginRequired || isAuthRequired(error) ? new Error(LOGIN_REQUIRED_MESSAGE) : error;
+      throw session.#loginRequired || isAuthRequired(error) ? new LocalizedError(LOGIN_REQUIRED) : error;
     }
   }
 
@@ -200,12 +200,14 @@ class AntigravitySession implements AgentSession {
         }
       },
       (error: unknown) => {
-        const message = isAuthRequired(error) ? LOGIN_REQUIRED_MESSAGE : error instanceof Error ? error.message : String(error);
+        const failure = isAuthRequired(error)
+          ? { error: englishText(LOGIN_REQUIRED), errorText: LOGIN_REQUIRED }
+          : { error: error instanceof Error ? error.message : String(error) };
         this.#finish({
           type: "end",
           outcome: turn.interrupted ? "interrupted" : "failed",
           text: turn.segment,
-          ...(turn.interrupted ? {} : { error: message }),
+          ...(turn.interrupted ? {} : failure),
         });
       },
     );
@@ -249,7 +251,9 @@ class AntigravitySession implements AgentSession {
   #onLoginRequired(): void {
     this.#loginRequired = true;
     const turn = this.#turn;
-    if (turn) this.#finish({ type: "end", outcome: "failed", text: turn.segment, error: LOGIN_REQUIRED_MESSAGE });
+    if (turn) {
+      this.#finish({ type: "end", outcome: "failed", text: turn.segment, error: englishText(LOGIN_REQUIRED), errorText: LOGIN_REQUIRED });
+    }
     void this.close();
   }
 

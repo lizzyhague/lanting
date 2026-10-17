@@ -523,4 +523,29 @@ window.lantingStrings = {
   "tool.question": { zh: "提问", en: "Question" },
   "tool.confirmPlan": { zh: "确认方案", en: "Confirm plan" },
   "tool.action": { zh: "操作", en: "Action" },
+
+  "group.newTitle": { zh: "新群", en: "New group" },
+  "entry.noEnd": { zh: "AI 没有正常结束这次发言。", en: "The AI didn't finish this reply properly." },
+  "notice.compacted": { zh: "已压缩 {agent} 的上下文。", en: "Compacted {agent}'s context." },
+  "notice.compactFailed": { zh: "{agent} 的上下文没有压缩成功：{error}", en: "Compacting {agent}'s context failed: {error}" },
+  "notice.compactNotConnected": { zh: "{agent} 未接入，跳过。", en: "{agent} isn't connected; skipped." },
+  "notice.compactUnsupported": { zh: "{agent} 不支持，跳过。", en: "{agent} doesn't support compaction; skipped." },
+  "notice.compactNoSession": {
+    zh: "{agent} 还没有发过言，没有可压缩的上下文。",
+    en: "{agent} hasn't replied yet, so there is no context to compact.",
+  },
+  "denied.askInReply": {
+    zh: "群聊里不直接向群主提问，问题请写在回复里。",
+    en: "In the group chat, AIs don't ask you questions directly; questions go in the reply.",
+  },
+  "denied.askInReplyOrConfirm": {
+    zh: "群聊里不直接向群主提问或请求确认，问题请写在回复里。",
+    en: "In the group chat, AIs don't ask you questions or for confirmation directly; questions go in the reply.",
+  },
+  "denied.piDialog": { zh: "lanting 不支持这类 Pi 扩展对话框。", en: "lanting doesn't support this kind of Pi extension dialog." },
+  "denied.secretFile": { zh: "本服务不会允许工具读取秘密文件或令牌。", en: "This service never lets tools read secret files or tokens." },
+  "error.antigravityLogin": {
+    zh: "Antigravity 需要重新登录：请在服务器上完成 ACP Server 登录，见部署文档。",
+    en: "Antigravity needs to sign in again: complete the ACP Server sign-in on the server; see the deployment docs.",
+  },
 };

@@ -4,12 +4,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { englishText } from "../../i18n/text.ts";
 import type { AgentEvent, AgentSession, ApprovalAnswer, ApprovalAsk, SessionOptions } from "../types.ts";
 import {
   ANTIGRAVITY_PERMISSIONS,
   AntigravityAdapter,
   firstMessage,
-  LOGIN_REQUIRED_MESSAGE,
+  LOGIN_REQUIRED,
   toolActivity,
 } from "./adapter.ts";
 
@@ -423,11 +424,12 @@ test("rewrites auth_required into the login hint", async (t) => {
     type: "end",
     outcome: "failed",
     text: "",
-    error: LOGIN_REQUIRED_MESSAGE,
+    error: englishText(LOGIN_REQUIRED),
+    errorText: LOGIN_REQUIRED,
   });
   await session.close();
   await writeFile(path.join(cwd, "auth-required"), "");
-  await assert.rejects(adapter.startSession(sessionOptions(cwd)), { message: LOGIN_REQUIRED_MESSAGE });
+  await assert.rejects(adapter.startSession(sessionOptions(cwd)), { message: englishText(LOGIN_REQUIRED), text: LOGIN_REQUIRED });
 });
 
 test("ends the turn at once when the server starts a browser login", async (t) => {
@@ -435,7 +437,13 @@ test("ends the turn at once when the server starts a browser login", async (t) =
   const session = await adapter.startSession(sessionOptions(cwd));
   t.after(() => session.close());
   const end = endOf(await drain(session, "login"));
-  assert.deepEqual(end, { type: "end", outcome: "failed", text: "thinking", error: LOGIN_REQUIRED_MESSAGE });
+  assert.deepEqual(end, {
+    type: "end",
+    outcome: "failed",
+    text: "thinking",
+    error: englishText(LOGIN_REQUIRED),
+    errorText: LOGIN_REQUIRED,
+  });
   await waitFor(() => !session.alive);
   await session.close();
 });
@@ -443,7 +451,7 @@ test("ends the turn at once when the server starts a browser login", async (t) =
 test("fails to open a session when the server starts a browser login", async (t) => {
   const { adapter, cwd } = await setup(t);
   await writeFile(path.join(cwd, "login-on-new"), "");
-  await assert.rejects(adapter.startSession(sessionOptions(cwd)), { message: LOGIN_REQUIRED_MESSAGE });
+  await assert.rejects(adapter.startSession(sessionOptions(cwd)), { message: englishText(LOGIN_REQUIRED), text: LOGIN_REQUIRED });
 });
 
 test("reports a missing executable when opening a session", async () => {

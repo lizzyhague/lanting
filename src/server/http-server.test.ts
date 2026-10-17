@@ -389,7 +389,7 @@ test("a browser can create a group, run a round, and answer an approval over the
   const { group } = await call("group.create", { directory: "demo", members: [claudeId], title: "" }) as {
     group: { id: string; title: string; directory: string; features: Record<string, string[]>; unavailable: string[] };
   };
-  assert.equal(group.title, "新群");
+  assert.equal(group.title, "");
   assert.equal(group.directory, "demo");
   assert.deepEqual(group.features.claude, ["compact", "deleteSession", "models", "permissions", "usage"]);
   assert.deepEqual(group.unavailable, []);

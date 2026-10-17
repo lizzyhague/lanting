@@ -7,6 +7,7 @@ import { isPaletteId, type PaletteId } from "../agents/palette.ts";
 import type { AgentSettings } from "../agents/types.ts";
 import type { StoredAttachment } from "../attachments/prompt.ts";
 import type { Activity, AgentState, Group, ReplyStatus, Speaker, TranscriptEntry } from "../group/types.ts";
+import { isLocalText, type LocalText } from "../i18n/text.ts";
 import { AGENT_NAME_PATTERN } from "./settings-store.ts";
 import {
   ensurePrivateDirectory,
@@ -291,6 +292,9 @@ function parseTranscript(value: unknown, id: string): TranscriptEntry[] {
     const status = entry.status;
     if (status !== undefined && !isReplyStatus(status)) fail(`invalid status in entry ${expected}`);
     if (entry.error !== undefined && typeof entry.error !== "string") fail(`invalid error in entry ${expected}`);
+    for (const key of ["errorText", "noticeText"] as const) {
+      if (entry[key] !== undefined && !isLocalText(entry[key])) fail(`invalid ${key} in entry ${expected}`);
+    }
     const activities = entry.activities;
     if (activities !== undefined && !(Array.isArray(activities) &&
         activities.every((item) => isObject(item) && typeof item.kind === "string"))) {
@@ -309,6 +313,8 @@ function parseTranscript(value: unknown, id: string): TranscriptEntry[] {
       text: entry.text as string,
       ...(status === undefined ? {} : { status: status as ReplyStatus }),
       ...(entry.error === undefined ? {} : { error: entry.error as string }),
+      ...(isLocalText(entry.errorText) ? { errorText: entry.errorText as LocalText } : {}),
+      ...(isLocalText(entry.noticeText) ? { noticeText: entry.noticeText as LocalText } : {}),
       ...(activities === undefined ? {} : { activities: activities as Activity[] }),
       ...(attachments === undefined ? {} : { attachments: attachments as StoredAttachment[] }),
       ...(recipients === undefined ? {} : { recipients: recipients as string[] }),

@@ -41,7 +41,8 @@ import { usernameProblem } from "./username.ts";
 
 const MAX_TITLE_LENGTH = 100;
 const TITLE_LENGTH = 60;
-const DEFAULT_TITLE = "新群";
+/** New groups have no title until the first message names them; the page shows a placeholder meanwhile. */
+const DEFAULT_TITLE = "";
 
 type UploadClient = Pick<SharedUploadClient, "createTicket" | "createLease" | "renewLease" | "releaseLease">;
 /** Trash keeps groups for 30 days from when they were moved in; the constant lives only here, and the page receives the derived expiry time. */

@@ -2,6 +2,7 @@ import type { AgentKind } from "../agents/kinds.ts";
 import type { PaletteId } from "../agents/palette.ts";
 import type { AgentSettings } from "../agents/types.ts";
 import type { StoredAttachment } from "../attachments/prompt.ts";
+import type { LocalText } from "../i18n/text.ts";
 
 export type AgentState = {
   /** CLI kind frozen when the group was created. */
@@ -65,7 +66,11 @@ export type TranscriptEntry = {
   text: string;
   /** Only present on AI replies. Only completed replies are forwarded to other AIs. */
   status?: ReplyStatus;
+  /** English; errorText, when present, is lanting's own wording, shown in the browser's language. */
   error?: string;
+  errorText?: LocalText;
+  /** On notices: lanting's own wording of text, shown in the browser's language. */
+  noticeText?: LocalText;
   /** Progress info for this reply (tool calls, etc.), visible only to the group owner and not forwarded to other AIs. */
   activities?: Activity[];
   /** Attachments on this message from the group owner. Paths stay on the backend only. */

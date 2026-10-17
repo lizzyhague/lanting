@@ -6,6 +6,7 @@ import {
   type AgentEvent,
   type AgentSession,
   type ApprovalAnswer,
+  deniedMessage,
   genericTool,
   localizedPermission,
   type PermissionOption,
@@ -154,7 +155,7 @@ class CursorSession implements AgentSession {
       await client.sessionSetMode(session.#sessionId, AGENT_MODE);
       return session;
     } catch (error) {
-      if (client.stderrTail.trim()) console.error(`Cursor stderr：${client.stderrTail.trim()}`);
+      if (client.stderrTail.trim()) console.error(`Cursor stderr: ${client.stderrTail.trim()}`);
       await session.close();
       throw error;
     }
@@ -285,7 +286,7 @@ class CursorSession implements AgentSession {
     const tool = genericTool(request.method === "cursor/create_plan" ? "tool.confirmPlan" : "tool.question");
     turn.channel.push({
       type: "activity",
-      activity: { kind: "denied", ...tool, message: "群聊里不直接向群主提问或请求确认，问题请写在回复里。" },
+      activity: { kind: "denied", ...tool, ...deniedMessage(localText("denied.askInReplyOrConfirm")) },
     });
   }
 

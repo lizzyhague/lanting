@@ -60,6 +60,11 @@ export function toolNameOr(name: string, key: string): ToolName {
   return name ? { toolName: name.slice(0, 120) } : genericTool(key);
 }
 
+/** A denied activity's message in lanting's own wording: English in message, the key in messageText. */
+export function deniedMessage(text: LocalText): { message: string; messageText: LocalText } {
+  return { message: englishText(text), messageText: text };
+}
+
 /** A permission whose label or description is lanting's own text, translated in the browser. */
 export function localizedPermission(option: {
   id: string;
@@ -124,6 +129,8 @@ export type AgentEvent =
     outcome: "completed" | "interrupted" | "failed";
     text: string;
     error?: string;
+    /** lanting's own wording of error, shown in the browser's language. */
+    errorText?: LocalText;
   };
 
 export interface AgentSession {
