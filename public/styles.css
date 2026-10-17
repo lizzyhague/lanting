@@ -806,6 +806,8 @@ button.icon-button svg {
 .timezone-select {
   flex: none;
   width: 154px;
+  min-height: 34px;
+  padding: 0 2rem 0 0.65rem;
 }
 
 .theme-options svg {
