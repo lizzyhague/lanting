@@ -7,6 +7,7 @@ const source = await readFile(new URL("./theme.js", import.meta.url), "utf8");
 
 function run({ stored = null, systemLight = false, storage = true } = {}) {
   const attributes = {};
+  const header = { content: "#161617", setAttribute(name, value) { if (name === "content") this.content = value; } };
   const store = new Map(stored === null ? [] : [["lanting.theme", stored]]);
   const mediaListeners = [];
   const windowListeners = {};
@@ -30,11 +31,15 @@ function run({ stored = null, systemLight = false, storage = true } = {}) {
   const context = {
     window,
     localStorage,
-    document: { documentElement: { setAttribute: (name, value) => { attributes[name] = value; } } },
+    document: {
+      documentElement: { setAttribute: (name, value) => { attributes[name] = value; } },
+      querySelector: (selector) => (selector === 'meta[name="theme-color"]' ? header : null),
+    },
   };
   vm.runInNewContext(source, context);
   return {
     theme: () => attributes["data-theme"],
+    header: () => header.content,
     api: window.lantingTheme,
     store,
     setSystem(light) {
@@ -96,6 +101,15 @@ test("another tab changing the choice updates this page", () => {
   assert.equal(page.theme(), "light");
   page.storageEvent("lanting.theme", null);
   assert.equal(page.theme(), "dark");
+});
+
+test("the PWA header color follows the applied theme", () => {
+  const page = run({ systemLight: true });
+  assert.equal(page.header(), "#f8f4ea");
+  page.setSystem(false);
+  assert.equal(page.header(), "#161617");
+  page.api.set("light");
+  assert.equal(page.header(), "#f8f4ea");
 });
 
 test("pages load theme.js before the stylesheet", async () => {

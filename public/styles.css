@@ -52,6 +52,10 @@
   --text-mid: color-mix(in srgb, var(--tint) var(--mix-text-mid), white);
   --text-muted: color-mix(in srgb, var(--tint) var(--mix-text-muted), white);
   --brand-wordmark-color: #f4f4f5;
+  /* Logo petals: orange, mint and yellow from the member color table (src/agents/palette.ts). */
+  --logo-orange: #d97757;
+  --logo-mint: #a7f3d0;
+  --logo-yellow: #f3c56b;
   --theme-bright: color-mix(in srgb, var(--theme) var(--mix-theme-bright), var(--text));
   --theme-wash: color-mix(in srgb, var(--theme) var(--mix-theme-wash), var(--surface-2));
   --bubble-user: color-mix(in srgb, var(--tint) var(--mix-bubble-user), white);
@@ -353,6 +357,12 @@ button.primary {
 [data-palette] {
   --agent: color-mix(in srgb, var(--text) var(--agent-mix, 0%), var(--agent-color));
 }
+
+/* The logo petals take the same three colors from the table, so light mode darkens them like member colors. */
+.brand-logo [data-palette="orange"] { --agent-color: var(--logo-orange); }
+.brand-logo [data-palette="mint"] { --agent-color: var(--logo-mint); }
+.brand-logo [data-palette="yellow"] { --agent-color: var(--logo-yellow); }
+.brand-logo use { fill: var(--agent); }
 
 .agent-dot {
   flex: none;

@@ -25,6 +25,19 @@ test("the wordmark uses Chinese calligraphy and Marck Script in English", () => 
   assert.match(styles, /:root\[data-theme="light"\][^{]*\{[^}]*--brand-wordmark-color:\s*#242426;/su);
 });
 
+test("the logo petals are inline and colored by the member-color rule", async () => {
+  assert.doesNotMatch(html, /src="\/logo\.svg"/u);
+  assert.equal((html.match(/class="[^"]*\bbrand-logo"/gu) ?? []).length, 2);
+  const palette = await readFile(new URL("../src/agents/palette.ts", import.meta.url), "utf8");
+  for (const id of ["orange", "mint", "yellow"]) {
+    assert.equal((html.match(new RegExp(`<use href="#brand-petal" data-palette="${id}"`, "gu")) ?? []).length, 2, id);
+    const color = palette.match(new RegExp(`id: "${id}", label: "[^"]+", color: "(#[0-9a-f]{6})"`, "u"))[1];
+    assert.match(styles, new RegExp(`^  --logo-${id}: ${color};$`, "mu"), id);
+    assert.match(styles, new RegExp(`\\.brand-logo \\[data-palette="${id}"\\] \\{ --agent-color: var\\(--logo-${id}\\); \\}`, "u"), id);
+  }
+  assert.match(styles, /\.brand-logo use \{ fill: var\(--agent\); \}/u);
+});
+
 test("the login label is compact and browser validation does not intercept submission", () => {
   assert.match(html, /<label for="token-input"><span data-i18n="login\.tokenLabel">[^<]*<\/span><span class="login-label-hint" data-i18n="login\.tokenHint">/u);
   assert.doesNotMatch(html, /class="login-hint"/u);

@@ -8,6 +8,8 @@ import { inflateSync } from "node:zlib";
 
 const styles = await readFile(new URL("./styles.css", import.meta.url), "utf8");
 const root = styles.slice(0, styles.indexOf("\n}"));
+const lightStart = styles.indexOf(':root[data-theme="light"] {');
+const light = styles.slice(lightStart, styles.indexOf("\n}", lightStart));
 const ICON_TILE = "#141413";
 
 function declaration(name) {
@@ -29,12 +31,17 @@ function mix(a, percent, b) {
   return a.map((c, i) => c * p + b[i] * (1 - p));
 }
 
-function pageBackground() {
+function lightDeclaration(name) {
+  const match = light.match(new RegExp(`^\\s*${name}:\\s*([^;]+);`, "mu"));
+  return match ? match[1].trim() : declaration(name);
+}
+
+function pageBackground(read = declaration) {
   // The formula is hard-coded here; if the color module's formula changes, these two assertions fail first as a reminder to update this test.
-  assert.equal(declaration("--tint"), "color-mix(in srgb, var(--theme) var(--mix-tint), var(--neutral))");
-  assert.equal(declaration("--surface-page"), "color-mix(in srgb, var(--tint) var(--mix-surface-page), black)");
-  const percent = (name) => Number.parseFloat(declaration(name));
-  const tint = mix(rgb(declaration("--theme")), percent("--mix-tint"), rgb(declaration("--neutral")));
+  assert.equal(read("--tint"), "color-mix(in srgb, var(--theme) var(--mix-tint), var(--neutral))");
+  assert.equal(read("--surface-page"), "color-mix(in srgb, var(--tint) var(--mix-surface-page), black)");
+  const percent = (name) => Number.parseFloat(read(name));
+  const tint = mix(rgb(read("--theme")), percent("--mix-tint"), rgb(read("--neutral")));
   return hex(mix(tint, percent("--mix-surface-page"), [0, 0, 0]));
 }
 
@@ -113,6 +120,14 @@ test("page headers and the manifest use the page background", async () => {
   const manifest = JSON.parse(await text("manifest.webmanifest"));
   assert.equal(manifest.theme_color, background);
   assert.equal(manifest.background_color, background);
+});
+
+test("theme.js switches the page header to each theme's page background", async () => {
+  const theme = await text("theme.js");
+  const match = theme.match(/HEADER_COLORS = \{ dark: "([^"]+)", light: "([^"]+)" \}/u);
+  assert.ok(match, "theme.js 缺少 HEADER_COLORS");
+  assert.equal(match[1], pageBackground());
+  assert.equal(match[2], pageBackground(lightDeclaration));
 });
 
 test("the app icon tile is the shared dark tile in svg, renderer and PNGs", async () => {
