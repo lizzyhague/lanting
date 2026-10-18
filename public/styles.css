@@ -161,7 +161,7 @@
 
 /* Some member colors share a hue with the background, so their bubbles need extra darkening; reset on every member first to avoid inheriting the outer member's value. */
 :root[data-theme="light"] [data-agent] { --agent-bubble-mix: initial; }
-:root[data-theme="light"] [data-palette="yellow"] { --agent-bubble-mix: 20%; }
+:root[data-theme="light"] [data-palette="yellow"] { --agent-bubble-mix: 15%; }
 
 @font-face {
   font-family: "Marck Script";
