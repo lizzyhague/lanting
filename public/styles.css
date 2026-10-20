@@ -131,7 +131,6 @@
   --border: color-mix(in srgb, var(--tint) var(--mix-border), black);
   --border-strong: color-mix(in srgb, var(--tint) var(--mix-border-strong), black);
   --bubble-border: color-mix(in srgb, var(--tint) 90%, black);
-  --settings-fill: color-mix(in srgb, var(--tint) 98%, black);
   --text: color-mix(in srgb, var(--tint) var(--mix-text), var(--ink));
   --text-mid: color-mix(in srgb, var(--tint) var(--mix-text-mid), var(--ink));
   --text-muted: color-mix(in srgb, var(--tint) var(--mix-text-muted), var(--ink));
@@ -724,7 +723,7 @@ button.icon-button svg {
 }
 
 .settings-dialog {
-  width: min(94vw, 760px);
+  width: min(94vw, 560px);
   max-height: 90dvh;
   padding: 0;
   border: 1px solid var(--border);
