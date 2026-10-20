@@ -7,7 +7,7 @@ const source = await readFile(new URL("./theme.js", import.meta.url), "utf8");
 
 function run({ stored = null, systemLight = false, storage = true } = {}) {
   const attributes = {};
-  const header = { content: "#161617", setAttribute(name, value) { if (name === "content") this.content = value; } };
+  const header = { content: "#0f0f10", setAttribute(name, value) { if (name === "content") this.content = value; } };
   const store = new Map(stored === null ? [] : [["lanting.theme", stored]]);
   const mediaListeners = [];
   const windowListeners = {};
@@ -107,7 +107,7 @@ test("the PWA header color follows the applied theme", () => {
   const page = run({ systemLight: true });
   assert.equal(page.header(), "#fbf9f4");
   page.setSystem(false);
-  assert.equal(page.header(), "#161617");
+  assert.equal(page.header(), "#0f0f10");
   page.api.set("light");
   assert.equal(page.header(), "#fbf9f4");
 });

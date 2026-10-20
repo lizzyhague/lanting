@@ -10,27 +10,27 @@
   --theme-ink: #111214;
 
   /* Shared mix ratios */
-  --mix-tint: 3%;
+  --mix-tint: 0%;
   --mix-surface-sunken: 65%;
   --mix-surface-page: 100%;
-  --mix-surface-1: 96%;
+  --mix-surface-1: 97%;
   --mix-surface-2: 94%;
   --mix-surface-3: 88%;
-  --mix-border: 84%;
-  --mix-border-strong: 72%;
-  --mix-text: 2%;
-  --mix-text-mid: 20%;
+  --mix-border: 85%;
+  --mix-border-strong: 60%;
+  --mix-text: 0%;
+  --mix-text-mid: 15%;
   --mix-text-muted: 30%;
   --mix-theme-bright: 70%;
   --mix-theme-wash: 14%;
-  --mix-bubble-user: 90%;
+  --mix-bubble-user: 95%;
   --mix-danger-wash: 10%;
   --mix-warning-wash: 10%;
   --mix-success-wash: 10%;
   --mix-info-wash: 10%;
   --mix-danger: 50%;
   --mix-success: 50%;
-  --mix-bubble-ai: 6%;
+  --mix-bubble-ai: 8%;
   --mix-permission: 8%;
   --mix-copy-success: 10%;
   --mix-divider-accent: 70%;
@@ -46,7 +46,7 @@
   --border-strong: color-mix(in srgb, var(--tint) var(--mix-border-strong), white);
   --divider: var(--border);
   --bubble-border: var(--border);
-  --settings-fill: var(--surface-2);
+  --settings-fill: var(--surface-1);
   --divider-accent: color-mix(in srgb, var(--theme) var(--mix-divider-accent), var(--border));
   --text: color-mix(in srgb, var(--tint) var(--mix-text), white);
   --text-mid: color-mix(in srgb, var(--tint) var(--mix-text-mid), white);
@@ -57,26 +57,29 @@
   --logo-mint: #a7f3d0;
   --logo-yellow: #f3c56b;
   --theme-bright: color-mix(in srgb, var(--theme) var(--mix-theme-bright), var(--text));
-  --theme-wash: color-mix(in srgb, var(--theme) var(--mix-theme-wash), var(--surface-2));
+  --theme-wash: color-mix(in srgb, var(--theme) var(--mix-theme-wash), var(--surface-sunken));
   --bubble-user: color-mix(in srgb, var(--tint) var(--mix-bubble-user), white);
-  --hover: rgb(255 255 255 / 4%);
-  --scrim: rgb(0 0 0 / 55%);
+  --hover: var(--surface-2);
+  --scrim: color-mix(in srgb, var(--surface-page) 50%, transparent);
   --danger: color-mix(in srgb, #ff0000 var(--mix-danger), var(--text));
-  --danger-wash: color-mix(in srgb, var(--danger) var(--mix-danger-wash), var(--surface-2));
+  --danger-wash: color-mix(in srgb, var(--danger) var(--mix-danger-wash), var(--surface-sunken));
   --warning: #fcd34d;
-  --warning-wash: color-mix(in srgb, var(--warning) var(--mix-warning-wash), var(--surface-2));
+  --warning-wash: color-mix(in srgb, var(--warning) var(--mix-warning-wash), var(--surface-sunken));
   --success: color-mix(in srgb, #00ff00 var(--mix-success), var(--text));
-  --success-wash: color-mix(in srgb, var(--success) var(--mix-success-wash), var(--surface-2));
+  --success-wash: color-mix(in srgb, var(--success) var(--mix-success-wash), var(--surface-sunken));
   --info: #facc15;
-  --info-wash: color-mix(in srgb, var(--info) var(--mix-info-wash), var(--surface-2));
+  --info-wash: color-mix(in srgb, var(--info) var(--mix-info-wash), var(--surface-sunken));
+  --shadow-sm-offset: 0 2px;
+  --shadow-md-offset: 0 12px;
+  --shadow-lg-offset: 0 24px;
   --shadow-sm: 8px rgb(0 0 0 / 45%);
   --shadow-md: 44px rgb(0 0 0 / 42%);
   --shadow-lg: 90px rgb(0 0 0 / 52%);
 
   /* Only these values change when picking colors; the rules stay the same. */
-  --bubble-ai: color-mix(in srgb, var(--theme) var(--mix-bubble-ai), var(--surface-2));
-  --permission-fill: color-mix(in srgb, var(--theme) var(--mix-permission), var(--surface-2));
-  --copy-success-fill: color-mix(in srgb, var(--theme) var(--mix-copy-success), var(--surface-2));
+  --bubble-ai: color-mix(in srgb, var(--theme) var(--mix-bubble-ai), var(--surface-sunken));
+  --permission-fill: var(--bubble-ai);
+  --copy-success-fill: var(--bubble-ai);
   --stop-fill: var(--danger-wash);
   --stop-border: var(--danger);
   --danger-border: #7f1d1d;
@@ -101,23 +104,23 @@
   --neutral: #fbf9f4;
   --theme: #46464b;
   --theme-ink: var(--neutral);
-  --ink: #1c1c1e;
+  --ink: #000000;
   --brand-wordmark-color: #242426;
 
   --mix-tint: 0%;
-  --mix-border: 87%;
-  --mix-border-strong: 78%;
-  --mix-text: 6%;
-  --mix-text-mid: 26%;
-  --mix-text-muted: 42%;
+  --mix-border: 85%;
+  --mix-border-strong: 60%;
+  --mix-text: 0%;
+  --mix-text-mid: 15%;
+  --mix-text-muted: 30%;
   --mix-danger: 80%;
   --mix-success: 60%;
   --mix-warning: 85%;
   --mix-info: 85%;
-  --mix-bubble-ai: 10%;
+  --mix-bubble-ai: 8%;
   --mix-permission: 14%;
   --mix-copy-success: 16%;
-  --mix-bubble-user: 93%;
+  --mix-bubble-user: 95%;
 
   /* Mirror of dark mode: recessed surfaces mix toward white, raised surfaces toward black; text mixes toward ink. */
   --surface-sunken: color-mix(in srgb, var(--tint) var(--mix-surface-sunken), white);
@@ -126,13 +129,13 @@
   --surface-3: color-mix(in srgb, var(--tint) var(--mix-surface-3), black);
   --border: color-mix(in srgb, var(--tint) var(--mix-border), black);
   --border-strong: color-mix(in srgb, var(--tint) var(--mix-border-strong), black);
-  --bubble-border: color-mix(in srgb, var(--tint) 90%, black);
+  --bubble-border: color-mix(in srgb, var(--tint) 85%, black);
   --text: color-mix(in srgb, var(--tint) var(--mix-text), var(--ink));
   --text-mid: color-mix(in srgb, var(--tint) var(--mix-text-mid), var(--ink));
   --text-muted: color-mix(in srgb, var(--tint) var(--mix-text-muted), var(--ink));
   --bubble-user: color-mix(in srgb, var(--tint) var(--mix-bubble-user), black);
-  --hover: rgb(0 0 0 / 4%);
-  --scrim: color-mix(in srgb, var(--surface-page) 40%, transparent);
+  --hover: var(--surface-2);
+  --scrim: color-mix(in srgb, var(--surface-page) 50%, transparent);
   --warning: color-mix(in srgb, #fcd34d var(--mix-warning), var(--text));
   --info: color-mix(in srgb, #facc15 var(--mix-info), var(--text));
   --shadow-sm: 8px rgb(0 0 0 / 8%);
@@ -153,10 +156,6 @@
 :root[data-theme="light"] [data-palette="sky"] { --agent-mix: 30%; }
 :root[data-theme="light"] [data-palette="magenta"] { --agent-mix: 20%; }
 :root[data-theme="light"] [data-palette="ocean"] { --agent-mix: 10%; }
-
-/* Some member colors share a hue with the background, so their bubbles need extra darkening; reset on every member first to avoid inheriting the outer member's value. */
-:root[data-theme="light"] [data-agent] { --agent-bubble-mix: initial; }
-:root[data-theme="light"] [data-palette="yellow"] { --agent-bubble-mix: 15%; }
 
 @font-face {
   font-family: "Marck Script";
@@ -265,8 +264,8 @@ button.primary {
   padding: 2rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
-  background: var(--surface-2);
-  box-shadow: 0 24px var(--shadow-lg);
+  background: var(--surface-sunken);
+  box-shadow: var(--shadow-lg-offset) var(--shadow-lg);
 }
 
 .login-card h1 {
@@ -288,7 +287,7 @@ button.primary {
 .login-card input {
   width: auto;
   padding: 0.75rem;
-  background: var(--surface-sunken);
+  background: var(--surface-1);
   color: var(--text);
 }
 
@@ -343,9 +342,9 @@ button.primary {
 
 [data-agent] {
   --agent: var(--text-muted);
-  --bubble-ai: color-mix(in srgb, var(--agent) var(--agent-bubble-mix, var(--mix-bubble-ai)), var(--surface-2));
-  --permission-fill: color-mix(in srgb, var(--agent) var(--mix-permission), var(--surface-2));
-  --copy-success-fill: color-mix(in srgb, var(--agent) var(--mix-copy-success), var(--surface-2));
+  --bubble-ai: color-mix(in srgb, var(--agent) var(--agent-bubble-mix, var(--mix-bubble-ai)), var(--surface-sunken));
+  --permission-fill: var(--bubble-ai);
+  --copy-success-fill: var(--bubble-ai);
 }
 
 /* Colors from the 12-color table; light mode mixes them into the body text color by --agent-mix, dark mode uses them as-is. */
@@ -924,12 +923,12 @@ button.icon-button svg {
   padding: 0.75rem 0.85rem;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--surface-2);
+  background: var(--surface-sunken);
   color: var(--text-muted);
   font-size: 0.78rem;
   line-height: 1.55;
   overflow-y: auto;
-  box-shadow: 0 18px var(--shadow-md);
+  box-shadow: var(--shadow-md-offset) var(--shadow-md);
 }
 
 .field-info-popover:not(:popover-open) {
@@ -1112,8 +1111,8 @@ button.icon-button svg {
   padding: 0.55rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--surface-2);
-  box-shadow: 0 12px var(--shadow-md);
+  background: var(--surface-sunken);
+  box-shadow: var(--shadow-md-offset) var(--shadow-md);
 }
 
 .settings-color-choice,
@@ -1198,7 +1197,7 @@ button[aria-invalid="true"] {
   padding: 1.25rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--surface-2);
+  background: var(--surface-1);
   color: var(--text);
 }
 
@@ -1210,7 +1209,7 @@ button[aria-invalid="true"] {
   width: min(430px, calc(100vw - 1.5rem));
   padding: 0;
   color: var(--text);
-  background: var(--surface-2);
+  background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: 14px;
 }
@@ -1591,7 +1590,7 @@ button[aria-invalid="true"] {
   padding: 0.85rem 1rem;
   border: 1px solid var(--bubble-border);
   border-radius: var(--radius-lg);
-  background: var(--surface-2);
+  background: var(--surface-1);
   line-height: 1.58;
 }
 
@@ -2129,7 +2128,7 @@ button[aria-invalid="true"] {
   padding: 0;
   border-radius: var(--radius-sm);
   background: var(--surface-2);
-  box-shadow: 0 2px var(--shadow-sm);
+  box-shadow: var(--shadow-sm-offset) var(--shadow-sm);
   color: var(--text-muted);
 }
 
@@ -2229,7 +2228,7 @@ button.plus-button {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-2);
-  box-shadow: 0 16px var(--shadow-md);
+  box-shadow: var(--shadow-md-offset) var(--shadow-md);
 }
 
 .plus-menu {
@@ -2456,7 +2455,7 @@ html.pull-refresh-enabled {
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   background: var(--surface-2);
-  box-shadow: 0 6px var(--shadow-md);
+  box-shadow: var(--shadow-md-offset) var(--shadow-md);
   font-size: 0.82rem;
   pointer-events: none;
 }
