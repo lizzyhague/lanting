@@ -105,11 +105,11 @@ test("another tab changing the choice updates this page", () => {
 
 test("the PWA header color follows the applied theme", () => {
   const page = run({ systemLight: true });
-  assert.equal(page.header(), "#f8f4ea");
+  assert.equal(page.header(), "#fbf9f4");
   page.setSystem(false);
   assert.equal(page.header(), "#161617");
   page.api.set("light");
-  assert.equal(page.header(), "#f8f4ea");
+  assert.equal(page.header(), "#fbf9f4");
 });
 
 test("pages load theme.js before the stylesheet", async () => {

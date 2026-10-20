@@ -98,17 +98,13 @@
 :root[data-theme="light"] {
   color-scheme: light;
 
-  --neutral: #f8f4ea;
+  --neutral: #fbf9f4;
   --theme: #46464b;
   --theme-ink: var(--neutral);
   --ink: #1c1c1e;
   --brand-wordmark-color: #242426;
 
   --mix-tint: 0%;
-  --mix-surface-sunken: 95%;
-  --mix-surface-1: 97%;
-  --mix-surface-2: 50%;
-  --mix-surface-3: 92%;
   --mix-border: 87%;
   --mix-border-strong: 78%;
   --mix-text: 6%;
@@ -123,10 +119,10 @@
   --mix-copy-success: 16%;
   --mix-bubble-user: 93%;
 
-  /* Recessed surfaces mix toward black, raised surfaces toward white; text mixes toward ink. */
-  --surface-sunken: color-mix(in srgb, var(--tint) var(--mix-surface-sunken), black);
+  /* Mirror of dark mode: recessed surfaces mix toward white, raised surfaces toward black; text mixes toward ink. */
+  --surface-sunken: color-mix(in srgb, var(--tint) var(--mix-surface-sunken), white);
   --surface-1: color-mix(in srgb, var(--tint) var(--mix-surface-1), black);
-  --surface-2: color-mix(in srgb, var(--tint) var(--mix-surface-2), white);
+  --surface-2: color-mix(in srgb, var(--tint) var(--mix-surface-2), black);
   --surface-3: color-mix(in srgb, var(--tint) var(--mix-surface-3), black);
   --border: color-mix(in srgb, var(--tint) var(--mix-border), black);
   --border-strong: color-mix(in srgb, var(--tint) var(--mix-border-strong), black);
