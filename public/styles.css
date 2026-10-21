@@ -1471,7 +1471,7 @@ button[aria-invalid="true"] {
   display: flex;
   align-items: center;
   gap: 0.1rem;
-  padding: 3px;
+  padding: 1px 3px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -1484,7 +1484,7 @@ button[aria-invalid="true"] {
 .member-flower {
   flex: none;
   width: 1.4rem;
-  height: 1.6rem;
+  height: 1.5rem;
   min-height: 0;
   padding: 0;
   position: relative;
