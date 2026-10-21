@@ -144,7 +144,7 @@
 /* Ratio at which member colors mix into the body text color, spelled out for all 12 colors; otherwise the outer member's ratio is inherited. */
 :root[data-theme="light"] [data-palette="orange"] { --agent-mix: 0%; }
 :root[data-theme="light"] [data-palette="mint"] { --agent-mix: 30%; }
-:root[data-theme="light"] [data-palette="yellow"] { --agent-mix: 20%; }
+:root[data-theme="light"] [data-palette="yellow"] { --agent-mix: 15%; }
 :root[data-theme="light"] [data-palette="blue"] { --agent-mix: 20%; }
 :root[data-theme="light"] [data-palette="pink"] { --agent-mix: 20%; }
 :root[data-theme="light"] [data-palette="teal"] { --agent-mix: 20%; }
