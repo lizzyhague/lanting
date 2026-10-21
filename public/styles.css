@@ -21,7 +21,6 @@
   --mix-text: 0%;
   --mix-text-mid: 15%;
   --mix-text-muted: 30%;
-  --mix-theme-bright: 70%;
   --mix-theme-wash: 14%;
   --mix-bubble-user: 95%;
   --mix-danger-wash: 10%;
@@ -56,7 +55,6 @@
   --logo-orange: #d97757;
   --logo-mint: #a7f3d0;
   --logo-yellow: #f3c56b;
-  --theme-bright: color-mix(in srgb, var(--theme) var(--mix-theme-bright), var(--text));
   --theme-wash: color-mix(in srgb, var(--theme) var(--mix-theme-wash), var(--surface-sunken));
   --bubble-user: color-mix(in srgb, var(--tint) var(--mix-bubble-user), white);
   --hover: var(--surface-2);
@@ -900,12 +898,6 @@ button.icon-button svg {
   content: "";
   position: absolute;
   inset: -0.45rem;
-}
-
-.field-info:hover:not(:disabled),
-.field-info:focus-visible {
-  border-color: var(--theme-bright);
-  color: var(--theme-bright);
 }
 
 .field-info-popover {
