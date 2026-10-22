@@ -592,6 +592,14 @@ button.icon-button svg {
   padding-right: 2.3rem;
 }
 
+/* Text-entry fields and selects use the same inset focus border as the composer shell.
+   Keep specificity low so controls with a deliberately different focus color can override it. */
+:where(input[type="text"], input[type="password"], input[type="search"], input[type="time"], textarea:not(.composer textarea), select):focus {
+  outline: 0;
+  border-color: var(--divider-accent);
+  box-shadow: inset 0 0 0 0.5px var(--divider-accent);
+}
+
 .group-search input {
   font-size: 0.86rem;
 }
