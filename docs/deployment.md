@@ -26,8 +26,8 @@ Do not commit completed configuration files.
   default model, does not display context usage, cannot compact its context, and does not delete
   Antigravity's saved session when a group is permanently deleted.
 - A random login token of at least 32 characters
-- To send attachments, ai-remote-upload running under the same system account, at a version that
-  recognizes `lanting` as a caller. lanting works without it, but attachments are unavailable.
+- To send attachments, [ai-remote-upload](https://github.com/lizzyhague/ai-remote-upload) running
+  under the same system account, at a version that recognizes `lanting` as a caller. lanting works without it, but attachments are unavailable.
 
 ## 2. Install and configure
 
