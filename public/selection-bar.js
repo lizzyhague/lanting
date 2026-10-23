@@ -8,9 +8,8 @@ const ICONS = Object.freeze({
     ["path", { d: "m15 18-6-6 6-6" }],
   ],
   cancel: [
-    ["path", { d: "M15 21h4a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-4" }],
-    ["path", { d: "m8 17-5-5 5-5" }],
-    ["path", { d: "M3 12h12" }],
+    ["path", { d: "M18 6 6 18" }],
+    ["path", { d: "m6 6 12 12" }],
   ],
   archive: [
     ["rect", { width: "20", height: "5", x: "2", y: "3", rx: "1" }],
