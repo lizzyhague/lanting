@@ -1,0 +1,32 @@
+lanting
+Copyright (c) 2026 lizzyhague
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+---
+
+This product is not an official product of Anthropic, OpenAI, xAI, Anysphere
+(Cursor), Google or any other AI tool vendor, and is not affiliated with,
+endorsed by, or sponsored by any of them. "Claude", "Claude Code", "Codex",
+"Grok", "Cursor", "Antigravity", "Pi" and other product names belong to their
+respective owners, and any trademarks among them are used here only to describe
+what this software interoperates with.
+
+The name "lanting" and this project's logo and other brand assets are NOT
+licensed under the Apache License, Version 2.0. All rights to them are reserved
+by the copyright holder. See Section 6 of the License, which grants no trademark
+rights.
+
+The font file public/marck-script.ttf is "Marck Script" by Denis Masharov and
+Marck Fogel. It is licensed under the SIL Open Font License, Version 1.1, not
+under the Apache License; see public/marck-script-OFL.txt.
