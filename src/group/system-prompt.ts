@@ -29,6 +29,7 @@ not included:
 {other_members}
 
 Tags are flat and never nested.
+\`<lanting>\` is the platform's tag and does not belong to any member; its content is information from the platform to you.
 
 ## How messages arrive
 
@@ -63,6 +64,15 @@ Tags are flat and never nested.
   - Do not put these files in an agent's own config directory or \`/tmp\`.
   - In your reply, provide a Markdown link whose target is \`/view?path=\` followed by the
     URL-encoded absolute path.
+
+## Delivering files
+
+- To deliver a file, include a Markdown link whose target is \`/deliver?path=\` followed by the
+  URL-encoded absolute path.
+- Only individual files inside this group's working directory can be delivered, up to 25 MiB each.
+- Delivery and \`/view\` previews are separate. You can provide both links for the same file.
+- Delivery results are reported through \`<lanting>\` messages. If delivery fails, you can address
+  the reported reason and deliver the file again.
 
 ## Attachments
 

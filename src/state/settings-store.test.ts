@@ -300,3 +300,37 @@ test("isAgentComplete requires a name, configured kind and color", () => {
   assert.equal(isAgentComplete(agent("a", "alice", "claude", null), ["claude"]), false);
   assert.equal(isAgentComplete(agent("a", "alice", "claude", "orange"), ["codex"]), false);
 });
+
+test("rejects the platform name on AI creation and rename and username changes", async (t) => {
+  const { store } = await populatedStore(t);
+  await rejectsSettings(store.update((next) => { next.agents[0]!.name = "lanting"; }), "name", "a");
+  await rejectsSettings(store.update((next) => { next.agents.push(agent("c", "lanting", null, null)); }), "name", undefined);
+  for (const name of ["lanting", "Lanting", "LANTING"]) {
+    await rejectsSettings(store.update((next) => { next.username = name; }), "username", undefined);
+  }
+  assert.equal(store.get().agents[0]!.name, "alice");
+  assert.equal(store.get().username, "host");
+});
+
+test("existing platform names remain readable and editable without being renamed", async (t) => {
+  for (const legacy of ["agent", "username"] as const) {
+    const directory = await scratch(t);
+    const settings = { username: legacy === "username" ? "Lanting" : "host", initialized: true,
+      collaboration: "", createMembers: null,
+      agents: [agent("a", legacy === "agent" ? "lanting" : "alice", "claude", "orange")] };
+    await writeFile(path.join(directory, "settings.json"), JSON.stringify({ version: 2, settings }));
+    const store = await SettingsStore.open(directory, ["claude"]);
+    assert.deepEqual(store.get(), settings);
+    await store.update((next) => { next.collaboration = "rules"; });
+    const reopened = await SettingsStore.open(directory, ["claude"]);
+    assert.equal(reopened.get().collaboration, "rules");
+    await store.update((next) => {
+      if (legacy === "agent") next.agents[0]!.name = "helper";
+      else next.username = "owner";
+    });
+    await rejectsSettings(store.update((next) => {
+      if (legacy === "agent") next.agents[0]!.name = "lanting";
+      else next.username = "Lanting";
+    }), legacy === "agent" ? "name" : "username", legacy === "agent" ? "a" : undefined);
+  }
+});

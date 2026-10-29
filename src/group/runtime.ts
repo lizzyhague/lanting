@@ -526,7 +526,8 @@ export class GroupRuntime {
       if (!state) return;
       if (nativeId) state.nativeSessionId = nativeId;
       // After an error it's unclear whether the message arrived, so don't advance: resend next time, preferring a duplicate over a gap.
-      if (final.outcome !== "failed") state.cursor = entry.seq;
+      // Leave this reply unread so its delivery results reach the author on the next call.
+      if (final.outcome !== "failed") state.cursor = entry.deliveries?.length ? entry.seq - 1 : entry.seq;
     });
     if (session && (final.outcome === "failed" || this.#adapter(group, agent).closeAfterTurn)) {
       // Wait for the process to actually close before ending this reply, so on the next call old and new processes don't both continue the same session.

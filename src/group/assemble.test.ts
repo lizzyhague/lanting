@@ -61,3 +61,27 @@ test("attachments go to the agents called in that round; later agents only see a
     "<host>\nlook\n\nhost sent an attachment: screen.png (path: /blobs/a1)\n</host>",
   );
 });
+
+test("the author receives delivery results without its own reply text for every outcome", () => {
+  for (const status of ["completed", "interrupted", "failed"] as const) {
+    const entry = agent("claude", "original reply", status);
+    entry.deliveries = [{ path: "/work/result.txt", name: "result.txt", status: "failed", reason: "interrupted" }];
+    assert.equal(assembleMessage([entry], "claude", "host"),
+      '<lanting>\nDelivery results for "claude": "result.txt": failed (Reply interrupted; not delivered)\n</lanting>');
+    assert.equal(assembleMessage([entry], "codex", "host"), status === "completed"
+      ? '<claude>\noriginal reply\n</claude>\n\n<lanting>\nDelivery results for "claude": "result.txt": failed (Reply interrupted; not delivered)\n</lanting>'
+      : "");
+  }
+});
+
+test("successful and failed delivery results follow the speaker as a separate platform block", () => {
+  const entry = agent("claude", "original reply");
+  entry.deliveries = [
+    { path: "/work/a.txt", name: "a.txt", status: "available", attachmentId: "id", size: 5, expiresAtMs: 100,
+      binding: { caller: "lanting", projectId: "demo", sessionId: "group" } },
+    { path: "/work/b.txt", name: "b.txt", status: "failed", reason: "file_changed" },
+  ];
+  const result = assembleMessage([entry, host("next")], "codex", "host");
+  assert.equal(result, '<claude>\noriginal reply\n</claude>\n\n<lanting>\nDelivery results for "claude": "a.txt": delivered; "b.txt": failed (File changed while being saved)\n</lanting>\n\n<host>\nnext\n</host>');
+  assert.doesNotMatch(result, /binding|expiresAtMs|attachmentId|\/work/);
+});

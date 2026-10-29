@@ -25,3 +25,10 @@ test("user-chosen AI names are compared exactly without regard to case", () => {
   assert.deepEqual(usernameProblem("Alice", [...NAMES, "alice"]), { key: "error.usernameMatchesAgent", params: { name: "alice" } });
   assert.equal(usernameProblem("alice2", [...NAMES, "alice"]), null);
 });
+
+test("the platform name is reserved regardless of case or member names", () => {
+  for (const name of ["lanting", "Lanting", "LANTING"]) {
+    assert.deepEqual(usernameProblem(name, []), { key: "error.platformNameReserved" });
+  }
+  assert.equal(usernameProblem("lanting2", []), null);
+});

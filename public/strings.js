@@ -400,6 +400,10 @@ window.lantingStrings = {
   "error.unknownPermission": { zh: "{agent} 没有这个权限选项：{permission}", en: "{agent} has no permission option {permission}." },
   "error.approvalSettled": { zh: "这条审批已经处理过或已失效。", en: "This approval was already handled or has expired." },
 
+  "error.platformNameReserved": {
+    zh: "lanting 是平台保留名称，用户名和 AI 名字均不能使用（不区分大小写）。",
+    en: "lanting is reserved for the platform and cannot be used as a username or AI name (case-insensitive).",
+  },
   "error.usernameEmpty": { zh: "用户名不能为空。", en: "The username is empty." },
   "error.usernameTooLong": {
     zh: "用户名最多 {max} 位，现在是 {length} 位。",

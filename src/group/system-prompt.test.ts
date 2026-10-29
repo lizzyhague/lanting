@@ -14,7 +14,7 @@ test("fills the user tag, the other members and the agent's own name", () => {
   assert.match(prompt, /^- <alice>: the user\.\n- <codex>\n- <grok>\n\nTags are flat/mu);
   assert.doesNotMatch(prompt, /<claude>/u);
   assert.match(prompt, /^- Reply with the message body only\. Do not add your own member tag/mu);
-  assert.doesNotMatch(prompt, /working directory/u);
+  assert.match(prompt, /individual files inside this group's working directory/u);
   assert.match(prompt, /temporary previews[\s\S]*`~\/preview`/u);
   assert.match(prompt, /without creating subdirectories/u);
   assert.match(prompt, /project name and your own name, such as\n\s+`myapp-logo-claude-1\.svg`/u);
@@ -51,4 +51,14 @@ test("omits the collaboration section when it is blank", () => {
   const base = buildSystemPrompt({ username: "host", self: "claude", others: [] });
   assert.equal(buildSystemPrompt({ username: "host", self: "claude", others: [], collaboration: " \n\t" }), base);
   assert.doesNotMatch(base, /collaboration rules/u);
+});
+
+test("defines the platform tag and file delivery rules in English", () => {
+  const prompt = buildSystemPrompt({ username: "host", self: "claude", others: [] });
+  assert.ok(prompt.includes("`<lanting>` is the platform's tag and does not belong to any member; its content is information from the platform to you."));
+  assert.match(prompt, /## Delivering files[\s\S]*`\/deliver\?path=`[\s\S]*URL-encoded absolute path/u);
+  assert.match(prompt, /25 MiB each/u);
+  assert.match(prompt, /Delivery and `\/view` previews are separate/u);
+  assert.match(prompt, /Delivery results are reported through `<lanting>` messages/u);
+  assert.match(prompt, /address\n  the reported reason and deliver the file again/u);
 });

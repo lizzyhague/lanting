@@ -837,3 +837,22 @@ test("stopping just before copying never calls the delivery handler", async (t) 
   assert.equal(entry.deliveries?.[0]?.status === "failed" && entry.deliveries[0].reason, "interrupted");
   assert.equal(f.adapters.codex!.received.length, 0);
 });
+
+test("delivery results reach the author on its next call and are not repeated afterwards", async (t) => {
+  for (const outcome of ["completed", "interrupted", "failed"] as const) {
+    const f = await setup(t, ["claude", "codex"]);
+    f.adapters.claude!.script = (_, call) => [{ type: "end", outcome: call === 1 ? outcome : "completed",
+      text: call === 1 ? deliveryReply : "follow-up answer" }];
+    await f.runtime.startRound(f.groupId, "first", ["claude"]).done;
+    assert.equal(f.store.get(f.groupId)?.agents.claude?.cursor, outcome === "failed" ? 0 : 1);
+    await f.runtime.startRound(f.groupId, "second", ["codex", "claude"]).done;
+    const own = f.adapters.claude!.received[1]!;
+    assert.match(own, /<lanting>\nDelivery results for "claude": "result.txt": failed/);
+    assert.equal(own.includes(deliveryReply), false);
+    assert.equal(f.adapters.codex!.received[0]!.includes("<lanting>"), outcome === "completed");
+    const reopened = await GroupStore.open(f.directory);
+    assert.equal(reopened.get(f.groupId)?.agents.claude?.cursor, f.store.transcript(f.groupId).at(-1)?.seq);
+    await f.runtime.startRound(f.groupId, "third", ["claude"]).done;
+    assert.doesNotMatch(f.adapters.claude!.received[2]!, /<lanting>/);
+  }
+});

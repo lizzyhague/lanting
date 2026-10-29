@@ -138,6 +138,9 @@ function validateSettings(value: unknown, previous?: Settings): asserts value is
   if (!isObject(value)) throw new SettingsError(localText("error.settingsMalformed"));
   if (typeof value.username !== "string") throw new SettingsError(localText("error.usernameInvalid"), "username");
   const username = value.username;
+  if (previous && username !== previous.username && username.toLowerCase() === "lanting") {
+    throw new SettingsError(localText("error.platformNameReserved"), "username");
+  }
   if (!Array.isArray(value.agents)) throw new SettingsError(localText("error.settingsMalformed"));
   if (typeof value.initialized !== "boolean") throw new SettingsError(localText("error.settingsMalformed"));
   if (value.createMembers !== null &&
@@ -173,6 +176,9 @@ function validateSettings(value: unknown, previous?: Settings): asserts value is
     ids.add(item.id);
     if (typeof item.name !== "string" || (item.name !== "" && !AGENT_NAME_PATTERN.test(item.name))) {
       throw new SettingsError(localText("error.agentNameRule"), "name", agentId);
+    }
+    if (previous && item.name.toLowerCase() === "lanting" && previousById.get(item.id)?.name !== item.name) {
+      throw new SettingsError(localText("error.platformNameReserved"), "name", agentId);
     }
     if (item.kind !== null && !isAgentKind(item.kind)) {
       throw new SettingsError(localText("error.kindUnsupported"), "kind", agentId);
