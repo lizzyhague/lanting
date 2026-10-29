@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-const SCRIPTS = ["app.js", "boot.js", "agents.js", "markdown.js", "viewer.js", "selection-bar.js", "confirm-dialog.js"];
+const SCRIPTS = ["app.js", "boot.js", "agents.js", "markdown.js", "delivery-card.js", "viewer.js", "selection-bar.js", "confirm-dialog.js"];
 const scripts = await Promise.all(SCRIPTS.map((file) => readFile(new URL(`./${file}`, import.meta.url), "utf8")));
 const [stringsSource, source, html, viewHtml, app, boot] = await Promise.all([
   readFile(new URL("./strings.js", import.meta.url), "utf8"),

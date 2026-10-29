@@ -121,3 +121,17 @@ function createRecordingDocument(clipboard, setTimeout) {
     },
   };
 }
+
+test("delivery cards replace only recognized links with matching saved results", () => {
+  const doc = createRecordingDocument();
+  const delivery = { path: "/work/report.pdf", name: "report.pdf", status: "failed", reason: "too_large" };
+  const link = "[report](/deliver?path=%2Fwork%2Freport.pdf)";
+  const find = (node, className) => [node, ...(node.children ?? []).flatMap((child) => find(child, className))]
+    .filter((item) => item.className === className);
+  const marked = renderMarkdown(link, doc, [delivery]);
+  assert.equal(marked.children[0].children[0].className, "delivery-card");
+  assert.equal(renderMarkdown(link, doc).children[0].children[0].tagName, "A");
+  const source = `${link}\n\n> ${link}\n\n- **${link}**\n\n| ${link} |\n| --- |\n| ${link} |\n\n\`${link}\`\n\n~~~\n${link}\n~~~\n\n![image](/deliver?path=%2Fwork%2Freport.pdf)`;
+  assert.equal(find(renderMarkdown(source, doc, [delivery]), "delivery-card").length, 5);
+  assert.equal(find(renderMarkdown("[other](/deliver?path=%2Fwork%2Fother.pdf)", doc, [delivery]), "delivery-card").length, 0);
+});

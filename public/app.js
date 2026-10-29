@@ -1299,7 +1299,7 @@ function entryElement(entry) {
   paintAgent(article, memberColor(state.current?.group, agent));
   article.append(speakerLabel(agent, entry.status));
   if (entry.activities?.length) article.append(activityDetails(entry.activities));
-  if (entry.text.trim()) article.append(renderMarkdown(entry.text));
+  if (entry.text.trim()) article.append(renderMarkdown(entry.text, document, entry.deliveries ?? []));
   if (entry.status === "failed") {
     const error = document.createElement("p");
     error.className = "entry-error";

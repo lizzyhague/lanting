@@ -35,6 +35,7 @@ async function startServer(t: test.TestContext) {
   await writeFile(path.join(webRoot, "theme.js"), "");
   await writeFile(path.join(webRoot, "confirm-dialog.js"), "");
   await writeFile(path.join(webRoot, "markdown.js"), "");
+  await writeFile(path.join(webRoot, "delivery-card.js"), "");
   await writeFile(path.join(webRoot, "notice.js"), "");
   await writeFile(path.join(webRoot, "selection-bar.js"), "");
   await writeFile(path.join(webRoot, "viewer.js"), 'import "./markdown.js";\n');
@@ -170,6 +171,13 @@ test("serves only allow-listed static files and rewrites assets to versioned pat
   const icon = await fetch(`${base}/icon.svg`);
   assert.equal(icon.status, 200);
   assert.equal(icon.headers.get("content-type"), "image/svg+xml");
+
+  const deliveryModulePath = /content="[^"]*(\/assets\/[a-f0-9]{64}\/delivery-card\.js)/u.exec(html)?.[1];
+  assert.ok(deliveryModulePath, "the offline asset list includes the delivery card module");
+  const deliveryModule = await fetch(`${base}${deliveryModulePath}`);
+  assert.equal(deliveryModule.status, 200);
+  assert.match(deliveryModule.headers.get("content-type") ?? "", /text\/javascript/u);
+  assert.equal((await fetch(`${base}/delivery-card.js`)).status, 200);
 
   assert.equal((await fetch(`${base}/package.json`)).status, 404);
   assert.equal((await fetch(`${base}/`, { method: "POST" })).status, 405);

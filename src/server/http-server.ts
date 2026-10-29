@@ -50,6 +50,7 @@ const STATIC_FILES: Record<string, { file: string; contentType: string }> = {
   "/i18n.js": { file: "i18n.js", contentType: "text/javascript; charset=utf-8" },
   "/app.js": { file: "app.js", contentType: "text/javascript; charset=utf-8" },
   "/agents.js": { file: "agents.js", contentType: "text/javascript; charset=utf-8" },
+  "/delivery-card.js": { file: "delivery-card.js", contentType: "text/javascript; charset=utf-8" },
   "/markdown.js": { file: "markdown.js", contentType: "text/javascript; charset=utf-8" },
   "/call-order.js": { file: "call-order.js", contentType: "text/javascript; charset=utf-8" },
   "/confirm-dialog.js": { file: "confirm-dialog.js", contentType: "text/javascript; charset=utf-8" },

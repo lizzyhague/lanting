@@ -400,6 +400,22 @@ window.lantingStrings = {
   "error.unknownPermission": { zh: "{agent} 没有这个权限选项：{permission}", en: "{agent} has no permission option {permission}." },
   "error.approvalSettled": { zh: "这条审批已经处理过或已失效。", en: "This approval was already handled or has expired." },
 
+  "delivery.until": { zh: "可下载至 {date}", en: "Available until {date}" },
+  "delivery.expired": { zh: "已过期 · 副本只保留 30 天", en: "Expired \u00b7 Copies are kept for 30 days" },
+  "delivery.download": { zh: "下载", en: "Download" },
+  "delivery.downloadFile": { zh: "下载 {name}", en: "Download {name}" },
+  "delivery.downloadFailed": { zh: "暂时无法下载，请稍后再试。", en: "Download unavailable. Please try again later." },
+  "delivery.failure.interrupted": { zh: "回复中断，未交付", en: "Reply interrupted; not delivered" },
+  "delivery.failure.too_many": { zh: "未交付：一条回复最多交付 100 个文件", en: "Not delivered: limit of 100 files per reply" },
+  "delivery.failure.invalid_path": { zh: "未交付：需要绝对文件路径", en: "Not delivered: an absolute file path is required" },
+  "delivery.failure.outside_root": { zh: "未交付：文件不在本群目录内", en: "Not delivered: file is outside this group's working directory" },
+  "delivery.failure.not_file": { zh: "未交付：只支持单个普通文件", en: "Not delivered: only individual regular files are supported" },
+  "delivery.failure.sensitive_file": { zh: "未交付：文件名命中敏感文件规则", en: "Not delivered: sensitive file name" },
+  "delivery.failure.too_large": { zh: "未交付：超过 25 MiB 上限", en: "Not delivered: exceeds the 25 MiB limit" },
+  "delivery.failure.file_changed": { zh: "未交付：保存时文件被修改", en: "Not delivered: file changed while being saved" },
+  "delivery.failure.unavailable": { zh: "未交付：文件不存在或无法读取", en: "Not delivered: file is missing or cannot be read" },
+  "delivery.failure.upload_failed": { zh: "未交付：副本保存失败", en: "Not delivered: could not save the copy" },
+
   "error.platformNameReserved": {
     zh: "lanting 是平台保留名称，用户名和 AI 名字均不能使用（不区分大小写）。",
     en: "lanting is reserved for the platform and cannot be used as a username or AI name (case-insensitive).",

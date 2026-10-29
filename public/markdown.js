@@ -1,3 +1,5 @@
+import { renderDeliveryCard } from "./delivery-card.js";
+
 /** Interface text from i18n.js; looked up on each call so a language switch applies to the next render. */
 const t = (key, params) => globalThis.lantingI18n ? globalThis.lantingI18n.t(key, params) : key;
 
@@ -119,10 +121,10 @@ export function sanitizeHref(value) {
   return href;
 }
 
-export function renderMarkdown(source, ownerDocument = document) {
+export function renderMarkdown(source, ownerDocument = document, deliveries = []) {
   const root = ownerDocument.createElement("div");
   root.className = "markdown-body";
-  appendBlocks(root, parseMarkdown(source), ownerDocument);
+  appendBlocks(root, parseMarkdown(source), ownerDocument, new Map(deliveries.map((delivery) => [delivery.path, delivery])));
   return root;
 }
 
@@ -353,15 +355,15 @@ function pushText(tokens, text) {
   }
 }
 
-function appendBlocks(parent, blocks, ownerDocument) {
+function appendBlocks(parent, blocks, ownerDocument, deliveries) {
   for (const block of blocks) {
     if (block.type === "heading") {
       const heading = ownerDocument.createElement(`h${block.level}`);
-      appendInline(heading, tokenizeInline(block.text), ownerDocument);
+      appendInline(heading, tokenizeInline(block.text), ownerDocument, deliveries);
       parent.append(heading);
     } else if (block.type === "paragraph") {
       const paragraph = ownerDocument.createElement("p");
-      appendInline(paragraph, tokenizeInline(block.text), ownerDocument);
+      appendInline(paragraph, tokenizeInline(block.text), ownerDocument, deliveries);
       parent.append(paragraph);
     } else if (block.type === "rule") {
       parent.append(ownerDocument.createElement("hr"));
@@ -369,19 +371,19 @@ function appendBlocks(parent, blocks, ownerDocument) {
       parent.append(renderCodeBlock(block, ownerDocument));
     } else if (block.type === "blockquote") {
       const quote = ownerDocument.createElement("blockquote");
-      appendBlocks(quote, block.blocks, ownerDocument);
+      appendBlocks(quote, block.blocks, ownerDocument, deliveries);
       parent.append(quote);
     } else if (block.type === "list") {
       const list = ownerDocument.createElement(block.ordered ? "ol" : "ul");
       if (block.ordered && block.start !== 1) list.start = block.start;
       for (const item of block.items) {
         const listItem = ownerDocument.createElement("li");
-        appendInline(listItem, tokenizeInline(item), ownerDocument);
+        appendInline(listItem, tokenizeInline(item), ownerDocument, deliveries);
         list.append(listItem);
       }
       parent.append(list);
     } else if (block.type === "table") {
-      parent.append(renderTable(block, ownerDocument));
+      parent.append(renderTable(block, ownerDocument, deliveries));
     }
   }
 }
@@ -471,7 +473,7 @@ function createCopyStateIcon(state, ownerDocument) {
   return svg;
 }
 
-function renderTable(block, ownerDocument) {
+function renderTable(block, ownerDocument, deliveries) {
   const wrapper = ownerDocument.createElement("div");
   wrapper.className = "markdown-table-wrap";
   const table = ownerDocument.createElement("table");
@@ -480,7 +482,7 @@ function renderTable(block, ownerDocument) {
   block.headers.forEach((text, index) => {
     const cell = ownerDocument.createElement("th");
     cell.style.textAlign = block.alignments[index];
-    appendInline(cell, tokenizeInline(text), ownerDocument);
+    appendInline(cell, tokenizeInline(text), ownerDocument, deliveries);
     headRow.append(cell);
   });
   head.append(headRow);
@@ -493,7 +495,7 @@ function renderTable(block, ownerDocument) {
       row.forEach((text, index) => {
         const cell = ownerDocument.createElement("td");
         cell.style.textAlign = block.alignments[index];
-        appendInline(cell, tokenizeInline(text), ownerDocument);
+        appendInline(cell, tokenizeInline(text), ownerDocument, deliveries);
         tableRow.append(cell);
       });
       body.append(tableRow);
@@ -505,7 +507,7 @@ function renderTable(block, ownerDocument) {
   return wrapper;
 }
 
-function appendInline(parent, tokens, ownerDocument) {
+function appendInline(parent, tokens, ownerDocument, deliveries) {
   for (const token of tokens) {
     if (token.type === "text") {
       appendTextWithBreaks(parent, token.text, ownerDocument);
@@ -515,10 +517,13 @@ function appendInline(parent, tokens, ownerDocument) {
       parent.append(code);
     } else if (token.type === "strong" || token.type === "emphasis") {
       const element = ownerDocument.createElement(token.type === "strong" ? "strong" : "em");
-      appendInline(element, token.children, ownerDocument);
+      appendInline(element, token.children, ownerDocument, deliveries);
       parent.append(element);
     } else if (token.type === "link") {
-      appendLink(parent, token.href, token.children, ownerDocument);
+      const path = deliveryPath(token.href);
+      const delivery = path === null ? null : deliveries?.get(path);
+      if (delivery) parent.append(renderDeliveryCard(delivery, ownerDocument));
+      else appendLink(parent, token.href, token.children, ownerDocument);
     } else if (token.type === "imageLink") {
       const label = [{ type: "text", text: t("markdown.image", { name: token.text }) }];
       appendLink(parent, token.href, label, ownerDocument, "markdown-image-link");

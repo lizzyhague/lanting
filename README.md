@@ -29,8 +29,9 @@ browser can neither reach the CLIs directly nor choose an arbitrary working dire
 - Add attachments with the plus menu, drag files onto the composer, or paste files and screenshots into
   the message box; uploads use the separate [ai-remote-upload](https://github.com/lizzyhague/ai-remote-upload)
   service;
+- AIs can deliver files for download from file cards in the chat;
 - After signing in, view Markdown documents and images inside the project root and `~/preview`; there is
-  no source viewing, download or directory browsing;
+  no source viewing, download action or directory browsing on the preview page;
 - Pin groups, move them to trash, and restore them within 30 days; a permanent delete also deletes the
   AIs' native sessions where the CLI supports it;
 - Interface in Chinese or English, light and dark themes, installable as a PWA.
