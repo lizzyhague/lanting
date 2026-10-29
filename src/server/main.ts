@@ -3,6 +3,8 @@ import { pathToFileURL } from "node:url";
 
 import { AGENT_MODULES } from "../agents/index.ts";
 import { AgentRegistry } from "../agents/registry.ts";
+import { groupAttachmentBinding } from "../attachments/binding.ts";
+import { prepareDeliveries } from "../deliveries/prepare.ts";
 import { SharedUploadClient } from "../attachments/shared-upload-client.ts";
 import type { AgentAdapter } from "../agents/types.ts";
 import { configuredKinds, loadConfig } from "../config/load.ts";
@@ -37,7 +39,12 @@ export async function main(): Promise<void> {
   // The socket comes from AI_REMOTE_UPLOAD_SOCKET, or ai-remote-upload's default location when unset.
   const uploads = new SharedUploadClient();
   const agents = new AgentRegistry(adapters);
-  const runtime = new GroupRuntime({ store, agents, collaboration: () => settings.get().collaboration });
+  const runtime = new GroupRuntime({
+    store, agents, collaboration: () => settings.get().collaboration,
+    deliverReply: ({ group, source, signal }) => prepareDeliveries({
+      source, root: group.cwd, binding: groupAttachmentBinding(group), client: uploads, signal,
+    }),
+  });
   const groups = new GroupService({ projectRoot: config.projectRoot, store, runtime, agents, settings, uploads });
   const hub = new ConnectionHub();
   groups.onEvent((event) => {

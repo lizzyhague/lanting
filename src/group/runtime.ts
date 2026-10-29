@@ -11,6 +11,7 @@ import {
 import { ApprovalRegistry } from "../approvals/registry.ts";
 import type { StoredAttachment } from "../attachments/prompt.ts";
 import { PathRedactor } from "../attachments/redact.ts";
+import { interruptedDeliveries, type DeliveryResult } from "../deliveries/prepare.ts";
 import type { UsagePart } from "../features/index.ts";
 import { englishText, localText, textOf, type LocalText } from "../i18n/text.ts";
 import type { GroupStore } from "../state/group-store.ts";
@@ -75,10 +76,13 @@ export class GroupError extends Error {
   }
 }
 
+export type DeliverReply = (input: { group: Group; source: string; signal: AbortSignal }) => Promise<DeliveryResult[]>;
+
 type ActiveRound = {
   id: string;
   order: string[];
   interrupted: boolean;
+  deliveryAbort: AbortController;
   speakingAgent: string | null;
   speaking: AgentSession | null;
   text: string;
@@ -109,6 +113,7 @@ export class GroupRuntime {
   readonly #approvals: ApprovalRegistry;
   readonly #idleCloseMs: number;
   readonly #collaboration: () => string;
+  readonly #deliverReply: DeliverReply | undefined;
   readonly #listeners = new Set<(event: GroupEvent) => void>();
   readonly #rounds = new Map<string, ActiveRound>();
   readonly #sessions = new Map<string, CachedSession>();
@@ -128,8 +133,10 @@ export class GroupRuntime {
     idleCloseMs?: number;
     /** The group chat collaboration rules from settings, read at the time a session opens. */
     collaboration?: () => string;
+    deliverReply?: DeliverReply;
   }) {
     this.#store = options.store;
+    this.#deliverReply = options.deliverReply;
     this.#collaboration = options.collaboration ?? (() => "");
     this.#agents = options.agents;
     this.#approvals = options.approvals ?? new ApprovalRegistry();
@@ -197,6 +204,7 @@ export class GroupRuntime {
       id: randomUUID(),
       order: [...order],
       interrupted: false,
+      deliveryAbort: new AbortController(),
       speakingAgent: null,
       speaking: null,
       text: "",
@@ -231,6 +239,7 @@ export class GroupRuntime {
     const round = this.#rounds.get(groupId);
     if (!round) return false;
     round.interrupted = true;
+    round.deliveryAbort.abort();
     this.#approvals.cancel(groupId);
     await round.speaking?.interrupt();
     return true;
@@ -482,9 +491,25 @@ export class GroupRuntime {
       this.#touch(groupId, agent);
     }
 
+    const replyText = redactor.redact(final.text);
+    let deliveries = interruptedDeliveries(replyText);
+    if (deliveries.length > 0 && final.outcome === "completed" && !round.interrupted) {
+      try {
+        deliveries = this.#deliverReply
+          ? await this.#deliverReply({ group, source: replyText, signal: round.deliveryAbort.signal })
+          : deliveries.map((delivery) => ({ ...delivery, status: "failed", reason: "upload_failed" }));
+      } catch {
+        // A storage outage must not discard the model's completed reply.
+        deliveries = interruptedDeliveries(replyText).map((delivery) => ({
+          ...delivery, status: "failed", reason: "upload_failed",
+        }));
+      }
+    }
+    if (round.interrupted) deliveries = interruptedDeliveries(replyText);
     const entry = await this.#store.append(groupId, {
       from: { role: "agent", agent },
-      text: redactor.redact(final.text),
+      text: replyText,
+      ...(deliveries.length > 0 ? { deliveries } : {}),
       status: final.outcome,
       ...(final.error === undefined ? {} : { error: redactor.redact(final.error) }),
       ...(final.errorText === undefined ? {} : { errorText: final.errorText }),

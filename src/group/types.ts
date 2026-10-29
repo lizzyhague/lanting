@@ -2,6 +2,7 @@ import type { AgentKind } from "../agents/kinds.ts";
 import type { PaletteId } from "../agents/palette.ts";
 import type { AgentSettings } from "../agents/types.ts";
 import type { StoredAttachment } from "../attachments/prompt.ts";
+import type { DeliveryResult } from "../deliveries/prepare.ts";
 import type { LocalText } from "../i18n/text.ts";
 
 export type AgentState = {
@@ -79,6 +80,8 @@ export type TranscriptEntry = {
    * Who was called in the round with the attachments. These AIs receive the attachments themselves; AIs called later only see a one-line attachment note.
    */
   recipients?: string[];
+  /** Final delivery results; successful bindings stay on the backend only. */
+  deliveries?: DeliveryResult[];
 };
 
 /** Content is decided by each adapter; carries at least kind. */

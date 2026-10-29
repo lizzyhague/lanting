@@ -6,6 +6,8 @@ import { isAgentKind, type AgentKind } from "../agents/kinds.ts";
 import { isPaletteId, type PaletteId } from "../agents/palette.ts";
 import type { AgentSettings } from "../agents/types.ts";
 import type { StoredAttachment } from "../attachments/prompt.ts";
+import type { DeliveryResult } from "../deliveries/prepare.ts";
+import { MAX_UPLOAD_BYTES } from "../attachments/types.ts";
 import type { Activity, AgentState, Group, ReplyStatus, Speaker, TranscriptEntry } from "../group/types.ts";
 import { isLocalText, type LocalText } from "../i18n/text.ts";
 import { AGENT_NAME_PATTERN } from "./settings-store.ts";
@@ -304,6 +306,9 @@ function parseTranscript(value: unknown, id: string): TranscriptEntry[] {
     if (attachments !== undefined && !(Array.isArray(attachments) && attachments.every(isStoredAttachment))) {
       fail(`invalid attachments in entry ${expected}`);
     }
+    const deliveries = entry.deliveries;
+    if (deliveries !== undefined && (from.role !== "agent" || !Array.isArray(deliveries) ||
+        !deliveries.every(isDeliveryResult))) fail(`invalid deliveries in entry ${expected}`);
     const recipients = entry.recipients;
     if (recipients !== undefined && stringArray(recipients) === null) fail(`invalid attachment recipients in entry ${expected}`);
     entries.push({
@@ -318,6 +323,7 @@ function parseTranscript(value: unknown, id: string): TranscriptEntry[] {
       ...(activities === undefined ? {} : { activities: activities as Activity[] }),
       ...(attachments === undefined ? {} : { attachments: attachments as StoredAttachment[] }),
       ...(recipients === undefined ? {} : { recipients: recipients as string[] }),
+      ...(deliveries === undefined ? {} : { deliveries: deliveries as DeliveryResult[] }),
     });
   }
   return entries;
@@ -377,4 +383,19 @@ function stringArray(value: unknown): string[] | null {
 
 function isObject(value: unknown): value is { [key: string]: unknown } {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isDeliveryResult(value: unknown): boolean {
+  if (!isObject(value) || typeof value.path !== "string" || typeof value.name !== "string") return false;
+  if (value.status === "failed") return typeof value.reason === "string" && [
+    "interrupted", "too_many", "invalid_path", "outside_root", "not_file", "sensitive_file",
+    "too_large", "file_changed", "unavailable", "upload_failed",
+  ].includes(value.reason);
+  return value.status === "available" && typeof value.attachmentId === "string" &&
+    UUID_PATTERN.test(value.attachmentId) && typeof value.size === "number" &&
+    Number.isSafeInteger(value.size) && value.size >= 0 && value.size <= MAX_UPLOAD_BYTES &&
+    typeof value.expiresAtMs === "number" && Number.isSafeInteger(value.expiresAtMs) && value.expiresAtMs >= 0 &&
+    isObject(value.binding) && value.binding.caller === "lanting" &&
+    typeof value.binding.projectId === "string" && value.binding.projectId.length > 0 &&
+    typeof value.binding.sessionId === "string" && value.binding.sessionId.length > 0;
 }

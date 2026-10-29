@@ -12,10 +12,10 @@ import type { AttachmentBinding, AttachmentLease } from "../attachments/types.ts
 import { GroupStore } from "../state/group-store.ts";
 import { SettingsError, SettingsStore } from "../state/settings-store.ts";
 import type { AgentFeatureId } from "../features/index.ts";
-import { GroupError, GroupRuntime } from "./runtime.ts";
+import { GroupError, GroupRuntime, type DeliverReply } from "./runtime.ts";
 import { GroupService, type ServiceEvent } from "./service.ts";
 
-async function setup(t: test.TestContext, claudeWithout: readonly AgentFeatureId[] = []) {
+async function setup(t: test.TestContext, claudeWithout: readonly AgentFeatureId[] = [], deliverReply?: DeliverReply) {
   const directory = await mkdtemp(path.join(tmpdir(), "lanting-service-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const projectRoot = path.join(directory, "projects");
@@ -24,7 +24,7 @@ async function setup(t: test.TestContext, claudeWithout: readonly AgentFeatureId
   const adapter = new FakeAdapter("claude", undefined, { without: claudeWithout });
   const codexAdapter = new FakeAdapter("codex");
   const agents = new AgentRegistry([adapter, codexAdapter]);
-  const runtime = new GroupRuntime({ store, agents });
+  const runtime = new GroupRuntime({ store, agents, ...(deliverReply ? { deliverReply } : {}) });
   t.after(() => runtime.shutdown());
   const settings = await SettingsStore.open(path.join(directory, "data"), ["claude", "codex"]);
   const uploads = new FakeUploads(path.join(directory, "blobs"));
@@ -812,4 +812,27 @@ test("a late usage result is dropped once the group is in the trash", async (t) 
   assert.equal(usageEvents(events).length, count);
   await service.restore([groupId]);
   assert.notDeepEqual(service.snapshot(groupId).usage, { status: "ok", parts: [{ kind: "quota", window: { name: "late" }, left: 50 }] });
+});
+
+test("delivery bindings stay in storage and are omitted from snapshots and appended events", async (t) => {
+  const filePath = "/work/demo/result.txt";
+  const f = await setup(t, [], async ({ group }) => [{
+    path: filePath, name: "result.txt", status: "available",
+    attachmentId: "11111111-1111-4111-8111-111111111111", size: 10, expiresAtMs: 1000,
+    binding: { caller: "lanting", projectId: "demo", sessionId: group.id },
+  }]);
+  f.adapter.script = () => [{ type: "end", outcome: "completed", text: `[result](/deliver?path=${encodeURIComponent(filePath)})` }];
+  await f.service.startRound(f.groupId, "question", ["claude"]);
+  await idle(f.service, f.groupId);
+  const stored = f.store.transcript(f.groupId).at(-1)!.deliveries![0]!;
+  assert.equal(stored.status, "available");
+  assert.ok("binding" in stored);
+  const visible = f.service.snapshot(f.groupId).transcript.at(-1)!.deliveries![0]!;
+  assert.equal(visible.status, "available");
+  assert.equal("binding" in visible, false);
+  const appended = f.events.flatMap((event) =>
+    event.scope === "group" && event.payload.type === "entry.appended" && event.payload.entry.deliveries
+      ? [event.payload.entry] : []);
+  assert.equal(appended.length, 1);
+  assert.deepEqual(appended[0]!.deliveries, [visible]);
 });

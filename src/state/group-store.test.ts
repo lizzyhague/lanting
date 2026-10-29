@@ -290,3 +290,43 @@ test("removing a group deletes its directory and it stays gone after reopening",
   const reopened = await GroupStore.open(directory);
   assert.deepEqual(reopened.list().map((item) => item.id), [kept.id]);
 });
+
+test("delivery failures and successful bindings survive reopening", async (t) => {
+  const directory = await scratch(t);
+  const store = await GroupStore.open(directory);
+  const group = await store.create(NEW_GROUP);
+  const entry = await store.append(group.id, {
+    from: { role: "agent", agent: "claude" }, text: "files", status: "completed",
+    deliveries: [
+      { path: "/work/demo/a", name: "a", status: "available", attachmentId: "11111111-1111-4111-8111-111111111111",
+        size: 0, expiresAtMs: 1000, binding: { caller: "lanting", projectId: "demo", sessionId: group.id } },
+      { path: "relative", name: "relative", status: "failed", reason: "invalid_path" },
+    ],
+  });
+  const reopened = await GroupStore.open(directory);
+  assert.deepEqual(reopened.transcript(group.id)[0], entry);
+});
+
+test("invalid persisted delivery data fails to open without overwriting the record", async (t) => {
+  const invalid = [
+    { status: "other" },
+    { status: "failed", reason: "unknown" },
+    { status: "available", attachmentId: "invalid", size: 0, expiresAtMs: 1000 },
+    { status: "available", attachmentId: "11111111-1111-4111-8111-111111111111", size: -1, expiresAtMs: 1000 },
+    { status: "available", attachmentId: "11111111-1111-4111-8111-111111111111", size: 0, expiresAtMs: 1000,
+      binding: { caller: "codex", projectId: "demo", sessionId: "group" } },
+  ];
+  for (const delivery of invalid) {
+    const directory = await scratch(t);
+    const store = await GroupStore.open(directory);
+    const group = await store.create(NEW_GROUP);
+    await store.append(group.id, { from: { role: "agent", agent: "claude" }, text: "reply", status: "completed" });
+    const file = path.join(directory, "groups", group.id, "transcript.json");
+    const record = JSON.parse(await readFile(file, "utf8"));
+    record.entries[0].deliveries = [{ path: "/work/demo/a", name: "a", ...delivery }];
+    const bytes = JSON.stringify(record);
+    await writeFile(file, bytes);
+    await assert.rejects(GroupStore.open(directory), /invalid deliveries/);
+    assert.equal(await readFile(file, "utf8"), bytes);
+  }
+});

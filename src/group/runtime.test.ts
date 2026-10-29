@@ -11,7 +11,7 @@ import { AgentRegistry } from "../agents/registry.ts";
 import { DEFAULT_AGENT_SETTINGS } from "../agents/types.ts";
 import type { AgentFeatureId } from "../features/index.ts";
 import { GroupStore } from "../state/group-store.ts";
-import { GroupError, GroupRuntime, type GroupEvent } from "./runtime.ts";
+import { GroupError, GroupRuntime, type DeliverReply, type GroupEvent } from "./runtime.ts";
 
 type TestMember = { tag: string; kind: AgentKind };
 
@@ -20,6 +20,7 @@ async function setup(
   input: readonly (AgentKind | TestMember)[] = AGENT_KINDS,
   configured?: readonly AgentKind[],
   without: Readonly<Record<string, readonly AgentFeatureId[] | undefined>> = {},
+  deliverReply?: DeliverReply,
 ) {
   const directory = await mkdtemp(path.join(tmpdir(), "lanting-runtime-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -35,7 +36,7 @@ async function setup(
   const store = await GroupStore.open(directory);
   const configuredAdapters = Object.values(adapters)
     .filter((adapter): adapter is FakeAdapter => adapter !== undefined);
-  const runtime = new GroupRuntime({ store, agents: new AgentRegistry(configuredAdapters) });
+  const runtime = new GroupRuntime({ store, agents: new AgentRegistry(configuredAdapters), ...(deliverReply ? { deliverReply } : {}) });
   t.after(() => runtime.shutdown());
   const events: GroupEvent[] = [];
   runtime.onEvent((event) => events.push(event));
@@ -716,4 +717,123 @@ test("closing a group's sessions waits for an opening session and closes it too"
   await closing;
   await read;
   assert.equal(adapter.sessions[1]!.closed, true);
+});
+
+const deliveredFile = "/work/demo/result.txt";
+const deliveryReply = `[result](/deliver?path=${encodeURIComponent(deliveredFile)})`;
+const deliveryId = "11111111-1111-4111-8111-111111111111";
+
+function deliveryGate() {
+  let open!: () => void;
+  const promise = new Promise<void>((resolve) => { open = resolve; });
+  return { promise, open };
+}
+
+test("delivery copies finish before the reply is saved or the next agent starts", async (t) => {
+  const started = deliveryGate();
+  const finish = deliveryGate();
+  const f = await setup(t, ["claude", "codex"], undefined, {}, async ({ group, source, signal }) => {
+    assert.equal(source, deliveryReply);
+    assert.equal(group.cwd, "/work/demo");
+    assert.equal(signal.aborted, false);
+    started.open();
+    await finish.promise;
+    return [{ path: deliveredFile, name: "result.txt", status: "available", attachmentId: deliveryId,
+      size: 10, expiresAtMs: 1000, binding: { caller: "lanting", projectId: "demo", sessionId: group.id } }];
+  });
+  f.adapters.claude!.script = () => [
+    { type: "text", delta: deliveryReply }, { type: "end", outcome: "completed", text: deliveryReply },
+  ];
+  const round = f.runtime.startRound(f.groupId, "question", ["claude", "codex"]);
+  await started.promise;
+  assert.equal(f.store.transcript(f.groupId).length, 1);
+  assert.equal(f.adapters.codex!.received.length, 0);
+  assert.equal(f.runtime.round(f.groupId)?.speaking, "claude");
+  assert.equal(f.runtime.round(f.groupId)?.text, deliveryReply);
+  finish.open();
+  assert.equal(await round.done, "completed");
+  const entry = f.store.transcript(f.groupId)[1]!;
+  assert.equal(entry.text, deliveryReply);
+  assert.equal(entry.deliveries?.[0]?.status, "available");
+  assert.equal(f.adapters.codex!.received.length, 1);
+  const reopened = await GroupStore.open(f.directory);
+  assert.deepEqual(reopened.transcript(f.groupId)[1]?.deliveries, entry.deliveries);
+  assert.equal(f.store.transcript(f.groupId)[2]?.deliveries, undefined);
+});
+
+test("stopping during copying preserves completed text, invalidates every delivery and ends the round", async (t) => {
+  const started = deliveryGate();
+  const f = await setup(t, ["claude", "codex"], undefined, {}, async ({ signal, group }) => {
+    started.open();
+    await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+    // Even if a callback returns a previously saved copy, cancellation invalidates it.
+    return [{ path: deliveredFile, name: "result.txt", status: "available", attachmentId: deliveryId,
+      size: 10, expiresAtMs: 1000, binding: { caller: "lanting", projectId: "demo", sessionId: group.id } }];
+  });
+  const reply = `${deliveryReply} [two](/deliver?path=%2Fwork%2Fdemo%2Ftwo.txt)`;
+  f.adapters.claude!.script = () => [{ type: "end", outcome: "completed", text: reply }];
+  const round = f.runtime.startRound(f.groupId, "question", ["claude", "codex"]);
+  await started.promise;
+  assert.equal(await f.runtime.interrupt(f.groupId), true);
+  assert.equal(await round.done, "interrupted");
+  const entry = f.store.transcript(f.groupId)[1]!;
+  assert.equal(entry.status, "completed");
+  assert.equal(entry.text, reply);
+  assert.deepEqual(entry.deliveries?.map((item) => item.status === "failed" && item.reason), ["interrupted", "interrupted"]);
+  assert.equal(f.adapters.codex!.received.length, 0);
+});
+
+test("failed and interrupted model replies never start delivery copying", async (t) => {
+  let calls = 0;
+  const f = await setup(t, ["claude"], undefined, {}, async () => { calls++; return []; });
+  for (const outcome of ["failed", "interrupted"] as const) {
+    f.adapters.claude!.script = () => [{ type: "end", outcome, text: deliveryReply }];
+    assert.equal(await f.runtime.startRound(f.groupId, "question", ["claude"]).done, outcome);
+    const result = f.store.transcript(f.groupId).at(-1)!.deliveries?.[0];
+    assert.equal(result?.status === "failed" && result.reason, "interrupted");
+  }
+  assert.equal(calls, 0);
+});
+
+test("missing or throwing delivery handlers preserve the reply with failed deliveries", async (t) => {
+  for (const handler of [undefined, async () => { throw new Error("storage unavailable"); }]) {
+    const f = await setup(t, ["claude"], undefined, {}, handler);
+    f.adapters.claude!.script = () => [{ type: "end", outcome: "completed", text: deliveryReply }];
+    assert.equal(await f.runtime.startRound(f.groupId, "question", ["claude"]).done, "completed");
+    const entry = f.store.transcript(f.groupId).at(-1)!;
+    assert.equal(entry.text, deliveryReply);
+    assert.equal(entry.deliveries?.[0]?.status === "failed" && entry.deliveries[0].reason, "upload_failed");
+  }
+});
+
+test("delivery identification uses the same redacted text that is saved", async (t) => {
+  let source = "";
+  const f = await setup(t, ["claude"], undefined, {}, async (input) => {
+    source = input.source;
+    return [{ path: "result.txt", name: "result.txt", status: "failed", reason: "invalid_path" }];
+  });
+  const storedPath = "/storage/result.txt";
+  f.adapters.claude!.script = () => [{ type: "end", outcome: "completed", text: `[file](/deliver?path=${storedPath})` }];
+  await f.runtime.startRound(f.groupId, "question", ["claude"], [{
+    id: deliveryId, path: storedPath, originalName: "result.txt", mimeType: "text/plain", kind: "file", size: 10,
+  }]).done;
+  assert.equal(source, "[file](/deliver?path=result.txt)");
+  assert.equal(f.store.transcript(f.groupId).at(-1)!.text, source);
+});
+
+test("stopping just before copying never calls the delivery handler", async (t) => {
+  let calls = 0;
+  const f = await setup(t, ["claude", "codex"], undefined, {}, async () => { calls++; return []; });
+  f.adapters.claude!.script = () => [
+    { type: "text", delta: deliveryReply }, { type: "end", outcome: "completed", text: deliveryReply },
+  ];
+  f.runtime.onEvent((event) => {
+    if (event.type === "agent.text") void f.runtime.interrupt(f.groupId);
+  });
+  assert.equal(await f.runtime.startRound(f.groupId, "question", ["claude", "codex"]).done, "interrupted");
+  assert.equal(calls, 0);
+  const entry = f.store.transcript(f.groupId).at(-1)!;
+  assert.equal(entry.status, "completed");
+  assert.equal(entry.deliveries?.[0]?.status === "failed" && entry.deliveries[0].reason, "interrupted");
+  assert.equal(f.adapters.codex!.received.length, 0);
 });

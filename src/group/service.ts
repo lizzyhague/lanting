@@ -6,6 +6,8 @@ import type { PaletteId } from "../agents/palette.ts";
 import { kindDisplayName, SUPPORTED_AGENT_KINDS, type AgentRegistry } from "../agents/registry.ts";
 import { DEFAULT_AGENT_SETTINGS, type AgentAdapter, type AgentCatalog, type AgentSettings } from "../agents/types.ts";
 import type { ApprovalEvent, ApprovalRequest } from "../approvals/registry.ts";
+import { groupAttachmentBinding } from "../attachments/binding.ts";
+import type { DeliveryResult } from "../deliveries/prepare.ts";
 import { publicAttachment, type StoredAttachment } from "../attachments/prompt.ts";
 import { PathRedactor } from "../attachments/redact.ts";
 import type { SharedUploadClient } from "../attachments/shared-upload-client.ts";
@@ -16,8 +18,6 @@ import {
   MAX_MESSAGE_ATTACHMENTS,
   MAX_UPLOAD_BYTES,
   SharedUploadError,
-  UPLOAD_CALLER,
-  type AttachmentBinding,
   type UploadTicket,
 } from "../attachments/types.ts";
 import type { GroupStore } from "../state/group-store.ts";
@@ -84,9 +84,13 @@ export type GroupSummary = {
   deleting: boolean;
 };
 
+export type PublicDeliveryResult = Exclude<DeliveryResult, { status: "available" }> |
+  Omit<Extract<DeliveryResult, { status: "available" }>, "binding">;
+
 /** Chat record sent to the browser: attachments without paths. */
-export type PublicEntry = Omit<TranscriptEntry, "attachments"> & {
+export type PublicEntry = Omit<TranscriptEntry, "attachments" | "deliveries"> & {
   attachments?: Omit<StoredAttachment, "path">[];
+  deliveries?: PublicDeliveryResult[];
 };
 
 export type GroupSnapshot = {
@@ -752,7 +756,7 @@ export class GroupService {
     if (file.expectedSize > MAX_UPLOAD_BYTES) {
       throw new SharedUploadError("file_too_large", localText("attach.tooLarge"), 413);
     }
-    return uploads.createTicket({ ...binding(group), ...file });
+    return uploads.createTicket({ ...groupAttachmentBinding(group), ...file });
   }
 
   /**
@@ -776,7 +780,7 @@ export class GroupService {
     if (this.#runtime.isBusy(groupId)) throw new GroupError("busy", localText("error.roundInProgress"));
     const uploads = this.#requireUploads();
     const ownerId = randomUUID();
-    const lease = await uploads.createLease(binding(group), ownerId, [...new Set(attachmentIds)]);
+    const lease = await uploads.createLease(groupAttachmentBinding(group), ownerId, [...new Set(attachmentIds)]);
     const release = () => uploads.releaseLease(lease.leaseId, ownerId).catch((error: unknown) => {
       console.error(`Releasing the attachment lease failed: ${error instanceof Error ? error.message : String(error)}`);
     });
@@ -1008,11 +1012,6 @@ export class GroupService {
   }
 }
 
-/** Attachments are bound to a group: the project is the working directory name and the session is the group id. */
-function binding(group: Group): AttachmentBinding {
-  return { caller: UPLOAD_CALLER, projectId: path.basename(group.cwd), sessionId: group.id };
-}
-
 function usageKey(groupId: string, agent: string): string {
   return `${groupId}\0${agent}`;
 }
@@ -1024,8 +1023,16 @@ function titleFromText(text: string): string {
 }
 
 function publicEntry(entry: TranscriptEntry): PublicEntry {
-  if (!entry.attachments) return entry;
-  return { ...entry, attachments: entry.attachments.map(publicAttachment) };
+  const { attachments, deliveries, ...rest } = entry;
+  return {
+    ...rest,
+    ...(attachments ? { attachments: attachments.map(publicAttachment) } : {}),
+    ...(deliveries ? { deliveries: deliveries.map((delivery): PublicDeliveryResult => {
+      if (delivery.status === "failed") return delivery;
+      const { binding: _binding, ...result } = delivery;
+      return result;
+    }) } : {}),
+  };
 }
 
 function publicApproval<T extends ApprovalRequest>(approval: T, redactor: PathRedactor): T & { remainingMs: number } {
