@@ -1,4 +1,6 @@
 import { request as httpRequest, type IncomingMessage } from "node:http";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -44,6 +46,56 @@ export class SharedUploadClient {
       source,
     );
     return response.attachment;
+  }
+
+  async uploadStream(
+    ticket: string,
+    contentLength: number,
+    source: AsyncIterable<Uint8Array>,
+    signal: AbortSignal,
+  ): Promise<PublicAttachment> {
+    signal.throwIfAborted();
+    return new Promise((resolve, reject) => {
+      const input = Readable.from(source);
+      let sent = false;
+      let result: PublicAttachment | undefined;
+      const finish = () => { if (sent && result) resolve(result); };
+      const request = httpRequest({
+        socketPath: this.#socketPath, path: "/v1/uploads", method: "POST", signal,
+        headers: {
+          "content-type": "application/octet-stream", "content-length": contentLength,
+          "x-upload-ticket": ticket,
+        },
+      }, (response) => {
+        void collectResponse<{ attachment: PublicAttachment }>(response).then((value) => {
+          result = value.attachment;
+          finish();
+        }, (error: unknown) => { input.destroy(); request.destroy(); reject(error); });
+      });
+      request.once("error", (error) => { input.destroy(); reject(error); });
+      request.setTimeout(30_000, () => request.destroy(new Error("The shared upload service request timed out.")));
+      void pipeline(input, request, { signal }).then(() => { sent = true; finish(); }, reject);
+    });
+  }
+
+  getContent(binding: AttachmentBinding, attachmentId: string, signal?: AbortSignal): Promise<IncomingMessage> {
+    const body = Buffer.from(JSON.stringify(binding));
+    return new Promise((resolve, reject) => {
+      const request = httpRequest({
+        socketPath: this.#socketPath,
+        path: `/v1/attachments/${encodeURIComponent(attachmentId)}/content`, method: "POST",
+        ...(signal ? { signal } : {}),
+        headers: { "content-type": "application/json", "content-length": body.byteLength },
+      }, (response) => {
+        if (response.statusCode === 200) resolve(response);
+        else void collectResponse(response).then(() => reject(
+          new SharedUploadError("invalid_response", "The shared upload service returned an invalid response.", 502),
+        ), reject);
+      });
+      request.once("error", (error) => reject(connectionError(error)));
+      request.setTimeout(30_000, () => request.destroy(new Error("The shared upload service request timed out.")));
+      request.end(body);
+    });
   }
 
   async createLease(

@@ -16,7 +16,7 @@ const TYPES: Record<string, string> = {
 };
 
 // Compares real directory identity, supporting both case-sensitive and case-insensitive volumes coexisting on macOS.
-async function insideRoot(root: string, candidate: string): Promise<boolean> {
+export async function insideRoot(root: string, candidate: string): Promise<boolean> {
   const rootInfo = await stat(root);
   let parent = path.dirname(candidate);
   for (;;) {

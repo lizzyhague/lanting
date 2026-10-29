@@ -6,6 +6,42 @@ export function parseMarkdown(source) {
   return parseBlocks(lines);
 }
 
+/** Shared by delivery processing and file-card rendering. */
+export function deliveryPath(href) {
+  if (typeof href !== "string" || !href.startsWith("/deliver?")) return null;
+  const url = new URL(href, "http://lanting.local");
+  if (url.pathname !== "/deliver") return null;
+  return url.searchParams.get("path");
+}
+
+export function findDeliveryLinks(source) {
+  const links = [];
+  const inline = (text) => {
+    const visit = (tokens) => {
+      for (const token of tokens) {
+        if (token.type === "link") {
+          const path = deliveryPath(token.href);
+          if (path !== null) links.push({ href: token.href, path });
+        } else if (token.children) visit(token.children);
+      }
+    };
+    visit(tokenizeInline(text));
+  };
+  const blocks = (items) => {
+    for (const block of items) {
+      if (block.type === "paragraph" || block.type === "heading") inline(block.text);
+      else if (block.type === "blockquote") blocks(block.blocks);
+      else if (block.type === "list") block.items.forEach(inline);
+      else if (block.type === "table") {
+        block.headers.forEach(inline);
+        block.rows.forEach((row) => row.forEach(inline));
+      }
+    }
+  };
+  blocks(parseMarkdown(source));
+  return links;
+}
+
 export function tokenizeInline(source) {
   const text = String(source ?? "");
   const tokens = [];
