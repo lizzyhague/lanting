@@ -120,3 +120,23 @@ test("everything else is pushed to the browser for a per-call decision", async (
     assert.equal(decision.behavior, "ask", toolName);
   }
 });
+
+
+test("sensitive filenames are denied consistently in paths, globs and commands", async () => {
+  const behavior = async (toolName: string, input: Record<string, unknown>) =>
+    (await decideToolUse({ toolName, input, cwd })).behavior;
+  for (const name of [".ENV", ".Env.local", ".env*", "id_rsa", "ID_ED25519", "id_ecdsa", "id_dsa",
+    "server.pem", "server.KEY", "bundle.p12", "bundle.PFX", ".netrc", ".credentials.json", "*.pem", "*.key"]) {
+    assert.equal(await behavior("Read", { file_path: `config/${name}` }), "deny", name);
+    assert.equal(await behavior("Glob", { pattern: `**/${name}` }), "deny", name);
+    assert.equal(await behavior("Bash", { command: `cat config/${name}` }), "deny", name);
+    assert.equal(await behavior("Bash", { command: `node -e 'open("config/${name}")'` }), "deny", name);
+  }
+  for (const name of ["foo.keyboard", "file.pem.txt", "id_rsa.pub", ".envrc", "README.md"]) {
+    assert.equal(await behavior("Read", { file_path: name }), "allow", name);
+    assert.equal(await behavior("Bash", { command: `cat ${name}` }), "ask", name);
+  }
+  assert.equal(await behavior("Grep", { pattern: "server.pem", path: "src" }), "allow");
+  assert.equal(await behavior("Bash", { command: 'grep -n "server.pem" README.md' }), "ask");
+  assert.equal(await behavior("Bash", { command: "cat <config/server.KEY" }), "deny");
+});

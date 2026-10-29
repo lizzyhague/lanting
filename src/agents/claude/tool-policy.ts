@@ -2,6 +2,8 @@ import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
+import { hasSensitiveFileName, textNamesSensitiveFile } from "../../security/sensitive-files.ts";
+
 import type { HookCallback } from "@anthropic-ai/claude-agent-sdk";
 
 
@@ -253,9 +255,7 @@ function envRunsNoCommand(args: string[]): boolean {
 
 /** Whether the command text names a protected file. Judges the text only, not the intent. */
 function namesSensitiveTarget(text: string, protectedPaths: Set<string>): boolean {
-  if (/(?:^|[\s'"`=<>()[\]{},;:|&\\/])\.env(?:\.[^\s'"`<>()[\]{},;:|&\\/]*)?(?=$|[\s'"`<>()[\]{},;:|&\\/])/u.test(text)) {
-    return true;
-  }
+  if (textNamesSensitiveFile(text)) return true;
   const normalized = text.replaceAll("\\", "/");
   for (const protectedPath of protectedPaths) {
     const relativeToHome = path.relative(homedir(), protectedPath);
@@ -266,9 +266,7 @@ function namesSensitiveTarget(text: string, protectedPaths: Set<string>): boolea
       .filter(Boolean);
     if (variants.some((candidate) => normalized.includes(candidate))) return true;
   }
-  return /(?:^|[\s'"`=<>()[\]{},;:|&\\/])\.credentials\.json(?=$|[\s'"`<>()[\]{},;:|&\\/])/u.test(
-    text,
-  );
+  return false;
 }
 
 /**
@@ -326,13 +324,6 @@ function expandHome(candidate: string): string {
   if (candidate === "~") return homedir();
   if (candidate.startsWith("~/")) return path.join(homedir(), candidate.slice(2));
   return candidate;
-}
-
-function hasSensitiveFileName(candidate: string): boolean {
-  return candidate.split(/[\\/]/u).some((segment) =>
-    segment === ".env" || segment.startsWith(".env.") ||
-    segment === ".env*" || segment.startsWith(".env.*")
-  );
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
