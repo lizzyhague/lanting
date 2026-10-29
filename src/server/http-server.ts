@@ -27,8 +27,8 @@ export type WebServerOptions = {
   heartbeatIntervalMs?: number;
   allowedOrigins?: string[];
   webRoot?: string;
-  /** ai-remote-upload client; without it the upload endpoint returns 503. */
-  uploads?: Pick<SharedUploadClient, "upload">;
+  /** ai-remote-upload client; without it uploads and delivery downloads return 503. */
+  uploads?: Pick<SharedUploadClient, "upload" | "getContent">;
 };
 
 const DEFAULT_WEB_ROOT = fileURLToPath(new URL("../../public/", import.meta.url));
@@ -185,7 +185,7 @@ export class WebServer {
       await this.#login(request, response);
       return;
     }
-    if (["/auth/session", "/raw", "/attachments/upload"].includes(pathname)) {
+    if (["/auth/session", "/raw", "/attachments/upload"].includes(pathname) || pathname.startsWith("/deliveries/")) {
       if (!this.#originAllowed(request)) {
         sendJson(response, 403, { error: { message: "Request origin mismatch." } });
         return;
@@ -197,6 +197,10 @@ export class WebServer {
       }
       // Authenticated HTTP requests renew the cookie.
       response.setHeader("set-cookie", this.#auth.header(cookie));
+    }
+    if (pathname.startsWith("/deliveries/")) {
+      await this.#serveDelivery(request, response, pathname);
+      return;
     }
     if (pathname === "/attachments/upload") {
       await this.#receiveUpload(request, response);
@@ -246,6 +250,61 @@ export class WebServer {
       "x-content-type-options": "nosniff",
     });
     response.end(request.method === "HEAD" ? undefined : body);
+  }
+
+  async #serveDelivery(request: IncomingMessage, response: ServerResponse, pathname: string): Promise<void> {
+    response.setHeader("cache-control", "no-store");
+    response.setHeader("x-content-type-options", "nosniff");
+    response.setHeader("content-security-policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'");
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      response.setHeader("allow", "GET, HEAD");
+      sendJson(response, 405, { error: { message: "Only GET or HEAD is allowed." } });
+      return;
+    }
+    const id = /^\/deliveries\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/u.exec(pathname)?.[1];
+    const delivery = id ? this.#services.groups.findDelivery(id) : null;
+    if (!delivery) {
+      sendJson(response, 404, { error: { message: "Delivery not found." } });
+      return;
+    }
+    if (delivery.expiresAtMs <= Date.now()) {
+      sendJson(response, 410, { error: { message: "Delivery expired." } });
+      return;
+    }
+    if (!this.#uploads) {
+      sendJson(response, 503, { error: { message: "The shared upload service is unavailable." } });
+      return;
+    }
+    const controller = new AbortController();
+    const disconnected = () => controller.abort();
+    response.once("close", disconnected);
+    let source: IncomingMessage | undefined;
+    try {
+      source = await this.#uploads.getContent(delivery.binding, id!, controller.signal);
+      if (controller.signal.aborted) return;
+      const length = parseUploadLength(source.headers["content-length"]);
+      if (length === null || length !== delivery.size) {
+        sendJson(response, 502, { error: { message: "The shared upload service returned invalid file metadata." } });
+        return;
+      }
+      response.writeHead(200, {
+        "content-type": "application/octet-stream",
+        "content-length": length,
+        "content-disposition": downloadDisposition(delivery.name),
+      });
+      if (request.method === "HEAD") response.end();
+      else await pipeline(source, response, { signal: controller.signal });
+    } catch (error) {
+      if (response.destroyed || controller.signal.aborted) return;
+      if (response.headersSent) { response.destroy(); return; }
+      const status = error instanceof SharedUploadError && error.status === 404 ? 410
+        : error instanceof SharedUploadError && error.status === 503 ? 503 : 502;
+      sendJson(response, status, { error: { message: status === 410 ? "Delivery expired."
+        : "The shared upload service is unavailable." } });
+    } finally {
+      source?.destroy();
+      response.off("close", disconnected);
+    }
   }
 
   async #serveRaw(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -459,4 +518,11 @@ function sendJson(response: ServerResponse, status: number, value: unknown): voi
     "x-content-type-options": "nosniff",
   });
   response.end(body);
+}
+
+function downloadDisposition(name: string): string {
+  const fallback = name.replace(/[^\x20-\x7e]|["\\]/gu, "_") || "download";
+  const encoded = encodeURIComponent(name.toWellFormed()).replace(/['()*]/gu, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }

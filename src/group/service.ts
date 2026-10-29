@@ -371,6 +371,20 @@ export class GroupService {
     return summary;
   }
 
+  /** Only saved delivery copies are downloadable; trash retains them until permanent deletion. */
+  findDelivery(attachmentId: string): Extract<DeliveryResult, { status: "available" }> | null {
+    for (const group of this.#store.list()) {
+      if (group.deletingAt || this.#locked.has(group.id)) continue;
+      for (const entry of this.#store.transcript(group.id)) {
+        if (entry.from.role !== "agent") continue;
+        const delivery = entry.deliveries?.find((item) =>
+          item.status === "available" && item.attachmentId === attachmentId);
+        if (delivery?.status === "available") return structuredClone(delivery);
+      }
+    }
+    return null;
+  }
+
   snapshot(groupId: string): GroupSnapshot {
     const group = this.#requireActive(groupId);
     return {

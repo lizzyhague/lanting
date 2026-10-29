@@ -21,8 +21,8 @@
   它没有单独的登录命令，登录方法见第 7 节。lanting 不切换 Antigravity 的模型，用的是它的默认模型；
   不显示上下文用量，不支持压缩，永久删除群时也不删除 Antigravity 自己保存的会话。
 - 一个至少 32 字符的随机登录令牌
-- 要发附件的话：同一个系统账户下运行的 [ai-remote-upload](https://github.com/lizzyhague/ai-remote-upload)，
-  版本要认得调用方 `lanting`。不装也能用，只是不能发附件
+- 要上传附件和交付文件的话：同一个系统账户下运行的 [ai-remote-upload](https://github.com/lizzyhague/ai-remote-upload)，
+  版本要认得调用方 `lanting`，并支持按 ID 取回附件字节。不装也能用，只是不能上传附件和交付文件
 
 ## 2. 装代码和配置
 

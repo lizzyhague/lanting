@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { request as httpRequest, type IncomingMessage } from "node:http";
+import { PassThrough } from "node:stream";
+import { SharedUploadError, type AttachmentBinding } from "../attachments/types.ts";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -59,7 +62,17 @@ async function startServer(t: test.TestContext) {
       : { target: "group", groupId: event.groupId, payload: event.payload });
   });
   const uploaded: { ticket: string; body: string }[] = [];
+  const download = { bytes: Buffer.from([0, 255, 42]), error: null as Error | null,
+    calls: [] as { binding: AttachmentBinding; id: string }[], sources: [] as PassThrough[], length: "3" };
   const uploads = {
+    async getContent(binding: AttachmentBinding, id: string, _signal?: AbortSignal): Promise<IncomingMessage> {
+      download.calls.push({ binding, id });
+      if (download.error) throw download.error;
+      const source = Object.assign(new PassThrough(), { headers: { "content-length": download.length } });
+      download.sources.push(source);
+      source.end(download.bytes);
+      return source as unknown as IncomingMessage;
+    },
     async upload(ticket: string, _length: number, source: AsyncIterable<Buffer>) {
       const chunks: Buffer[] = [];
       for await (const chunk of source) chunks.push(Buffer.from(chunk));
@@ -80,7 +93,7 @@ async function startServer(t: test.TestContext) {
     await runtime.shutdown();
     await rm(webRoot, { recursive: true, force: true });
   });
-  return { base: `http://127.0.0.1:${port}`, port, hub, claude, uploaded, projectRoot, webRoot };
+  return { base: `http://127.0.0.1:${port}`, port, hub, claude, uploaded, projectRoot, webRoot, store, groups, settings, uploads, download };
 }
 
 async function login(base: string, token = TOKEN): Promise<Response> {
@@ -499,4 +512,165 @@ test("uploads require login and are streamed to the upload service with their ti
   assert.equal(response.status, 201);
   assert.deepEqual(await response.json(), { attachment: { id: "attachment-1", originalName: "a.txt" } });
   assert.deepEqual(uploaded, [{ ticket: "t1", body: "hello" }]);
+});
+
+const DOWNLOAD_ID = "11111111-1111-4111-8111-111111111111";
+
+async function deliveryFixture(t: test.TestContext, name = "中文.txt", expiresAtMs = Date.now() + 60_000) {
+  const f = await startServer(t);
+  const group = await f.groups.create({ directory: "demo", members: [f.settings.get().agents[0]!.id], title: "" });
+  const binding = { caller: "lanting", projectId: "demo", sessionId: group.id } as const;
+  await f.store.append(group.id, {
+    from: { role: "agent", agent: "claude" }, text: "file", status: "completed",
+    deliveries: [{ path: `/work/demo/${name}`, name, status: "available", attachmentId: DOWNLOAD_ID,
+      size: f.download.bytes.length, expiresAtMs, binding }],
+  });
+  const cookie = cookieFrom(await login(f.base));
+  return { ...f, cookie, groupId: group.id, binding, url: `${f.base}/deliveries/${DOWNLOAD_ID}` };
+}
+
+test("delivery downloads require authentication, allowed origin and a saved delivery ID", async (t) => {
+  const f = await deliveryFixture(t);
+  assert.equal((await fetch(f.url)).status, 401);
+  assert.equal((await fetch(f.url, { headers: { cookie: f.cookie, origin: "https://elsewhere.example" } })).status, 403);
+  for (const id of ["invalid", "22222222-2222-4222-8222-222222222222", `${DOWNLOAD_ID}/extra`]) {
+    assert.equal((await fetch(`${f.base}/deliveries/${id}`, { headers: { cookie: f.cookie } })).status, 404);
+  }
+  const method = await fetch(f.url, { method: "POST", headers: { cookie: f.cookie } });
+  assert.equal(method.status, 405);
+  assert.equal(method.headers.get("allow"), "GET, HEAD");
+  assert.equal(f.download.calls.length, 0);
+});
+
+test("expired delivery records return 410 without contacting the upload service", async (t) => {
+  const f = await deliveryFixture(t, "old.txt", Date.now() - 1);
+  for (const method of ["GET", "HEAD"]) {
+    const response = await fetch(f.url, { method, headers: { cookie: f.cookie } });
+    assert.equal(response.status, 410);
+    if (method === "HEAD") assert.equal(await response.text(), "");
+  }
+  assert.equal(f.download.calls.length, 0);
+});
+
+test("missing stored bytes become expired and upload service outages return 503", async (t) => {
+  const f = await deliveryFixture(t);
+  f.download.error = new SharedUploadError("attachment_unavailable", "internal storage details", 404);
+  const missing = await fetch(f.url, { headers: { cookie: f.cookie } });
+  assert.equal(missing.status, 410);
+  assert.equal((await missing.text()).includes("internal storage details"), false);
+  f.download.error = new SharedUploadError("upload_service_unavailable", "unavailable", 503);
+  assert.equal((await fetch(f.url, { headers: { cookie: f.cookie } })).status, 503);
+});
+
+test("delivery downloads stream exact bytes with safe attachment headers and the stored binding", async (t) => {
+  const f = await deliveryFixture(t);
+  const response = await fetch(f.url, { headers: { cookie: f.cookie } });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "application/octet-stream");
+  assert.equal(response.headers.get("content-length"), "3");
+  assert.equal(response.headers.get("content-disposition"), `attachment; filename="__.txt"; filename*=UTF-8''%E4%B8%AD%E6%96%87.txt`);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.match(response.headers.get("content-security-policy") ?? "", /sandbox; default-src 'none'/);
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), f.download.bytes);
+  assert.deepEqual(f.download.calls, [{ binding: f.binding, id: DOWNLOAD_ID }]);
+});
+
+test("download filenames cannot inject headers and RFC 5987 characters are encoded", async (t) => {
+  const name = 'bad"\\\r\nX-Injected: yes\x00\x7f\'()*.txt';
+  const f = await deliveryFixture(t, name);
+  const response = await fetch(f.url, { headers: { cookie: f.cookie } });
+  assert.equal(response.status, 200);
+  const disposition = response.headers.get("content-disposition")!;
+  assert.ok(disposition.startsWith(`attachment; filename="bad____X-Injected: yes__'()*.txt";`));
+  assert.ok(disposition.endsWith("%27%28%29%2A.txt"));
+  assert.ok(disposition.includes("%0D%0A"));
+  assert.equal(response.headers.get("x-injected"), null);
+  await response.arrayBuffer();
+});
+
+test("HEAD validates availability and closes the upstream without returning file bytes", async (t) => {
+  const f = await deliveryFixture(t);
+  const response = await fetch(f.url, { method: "HEAD", headers: { cookie: f.cookie } });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-length"), "3");
+  assert.equal(await response.text(), "");
+  assert.equal(f.download.calls.length, 1);
+  assert.equal(f.download.sources[0]!.destroyed, true);
+});
+
+test("downloads remain available in trash but disappear during permanent deletion", async (t) => {
+  const f = await deliveryFixture(t);
+  await f.store.update(f.groupId, (group) => { group.trashedAt = new Date().toISOString(); });
+  const trashed = await fetch(f.url, { headers: { cookie: f.cookie } });
+  assert.equal(trashed.status, 200);
+  await trashed.arrayBuffer();
+  await f.store.update(f.groupId, (group) => { group.deletingAt = new Date().toISOString(); });
+  assert.equal((await fetch(f.url, { headers: { cookie: f.cookie } })).status, 404);
+  assert.equal(f.download.calls.length, 1);
+});
+
+test("invalid upstream file lengths return 502 and close the upstream", async (t) => {
+  const f = await deliveryFixture(t);
+  f.download.length = "4";
+  assert.equal((await fetch(f.url, { headers: { cookie: f.cookie } })).status, 502);
+  assert.equal(f.download.sources[0]!.destroyed, true);
+});
+
+test("browser disconnect cancels an outstanding request to the upload service", async (t) => {
+  const f = await deliveryFixture(t);
+  let ready!: () => void;
+  let aborted!: () => void;
+  const started = new Promise<void>((resolve) => { ready = resolve; });
+  const cancelled = new Promise<void>((resolve) => { aborted = resolve; });
+  f.uploads.getContent = async (_binding, _id, signal) => {
+    ready();
+    return new Promise((_resolve, reject) => {
+      signal!.addEventListener("abort", () => { aborted(); reject(signal!.reason); }, { once: true });
+    });
+  };
+  const request = httpRequest(f.url, { headers: { cookie: f.cookie } });
+  request.on("error", () => {});
+  request.end();
+  await started;
+  request.destroy();
+  await cancelled;
+});
+
+test("browser disconnect during a download destroys the upstream stream", async (t) => {
+  const f = await deliveryFixture(t);
+  const source = Object.assign(new PassThrough(), { headers: { "content-length": "3" } });
+  const closed = new Promise<void>((resolve) => source.once("close", resolve));
+  f.uploads.getContent = async () => source as unknown as IncomingMessage;
+  const received = new Promise<void>((resolve) => {
+    const request = httpRequest(f.url, { headers: { cookie: f.cookie } }, (response) => {
+      response.once("data", () => { request.destroy(); resolve(); });
+      response.on("error", () => {});
+    });
+    request.on("error", () => {});
+    request.end();
+  });
+  source.write(Buffer.from([42]));
+  await received;
+  await closed;
+  assert.equal(source.destroyed, true);
+});
+
+test("upstream failure during a download aborts the browser response", async (t) => {
+  const f = await deliveryFixture(t);
+  const source = Object.assign(new PassThrough(), { headers: { "content-length": "3" } });
+  f.uploads.getContent = async () => source as unknown as IncomingMessage;
+  const aborted = new Promise<void>((resolve, reject) => {
+    const request = httpRequest(f.url, { headers: { cookie: f.cookie } }, (response) => {
+      response.once("data", () => source.destroy(new Error("upstream failed")));
+      response.once("aborted", resolve);
+      response.once("end", () => reject(new Error("Truncated download must not finish successfully")));
+      response.on("error", () => {});
+    });
+    request.on("error", reject);
+    request.end();
+  });
+  source.write(Buffer.from([42]));
+  await aborted;
+  assert.equal(source.destroyed, true);
 });
