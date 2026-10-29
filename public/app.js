@@ -2690,22 +2690,123 @@ function setSettingsError(error, fallbackAgentId, fallbackField) {
 
 let nextDraftId = 1;
 
+function canAddAttachments() {
+  return state.authenticated && Boolean(state.current);
+}
+
+function addAttachmentFiles(files) {
+  if (!canAddAttachments()) return;
+  const current = state.current;
+  const available = Math.max(0, MAX_MESSAGE_ATTACHMENTS - state.drafts.length);
+  const accepted = Array.from(files).slice(0, available).map((file) => {
+    const error = file.size > MAX_UPLOAD_BYTES ? t("attach.tooLarge") : "";
+    const draft = { localId: nextDraftId++, name: file.name, status: error ? "failed" : "uploading", attachment: null, error };
+    return { file, draft };
+  });
+  state.drafts.push(...accepted.map(({ draft }) => draft));
+  renderDrafts();
+  renderComposer();
+  if (files.length > available) {
+    elements.composerStatus.textContent = t("attach.tooMany", { max: MAX_MESSAGE_ATTACHMENTS });
+  }
+  for (const { file, draft } of accepted) {
+    if (!draft.error) void upload(current, draft, file);
+  }
+}
+
 elements.fileInput.addEventListener("change", () => {
   const files = [...(elements.fileInput.files ?? [])];
   elements.fileInput.value = "";
-  const current = state.current;
-  if (!current) return;
-  for (const file of files) {
-    if (state.drafts.length >= MAX_MESSAGE_ATTACHMENTS) {
-      elements.composerStatus.textContent = t("attach.tooMany", { max: MAX_MESSAGE_ATTACHMENTS });
-      break;
+  addAttachmentFiles(files);
+});
+
+function clearAttachmentDrag() {
+  elements.composer.classList.remove("file-drag-over");
+  elements.composer.removeAttribute("data-drop-label");
+}
+
+function isFileDrag(event) {
+  return Array.from(event.dataTransfer?.types ?? []).includes("Files");
+}
+
+for (const name of ["dragenter", "dragover"]) {
+  elements.composer.addEventListener(name, (event) => {
+    if (!isFileDrag(event) || !canAddAttachments()) {
+      clearAttachmentDrag();
+      return;
     }
-    const draft = { localId: nextDraftId++, name: file.name, status: "uploading", attachment: null, error: "" };
-    state.drafts.push(draft);
-    void upload(current, draft, file);
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    elements.composer.classList.add("file-drag-over");
+    elements.composer.setAttribute("data-drop-label", t("attach.dropHere"));
+  });
+}
+elements.composer.addEventListener("dragleave", (event) => {
+  if (!elements.composer.contains(event.relatedTarget)) clearAttachmentDrag();
+});
+elements.composer.addEventListener("drop", (event) => {
+  event.preventDefault();
+  clearAttachmentDrag();
+  if (!canAddAttachments()) return;
+  const transfer = event.dataTransfer;
+  const files = [];
+  let folders = false;
+  let unsupported = false;
+  // Entry access is synchronous: browsers protect the drag data after this event.
+  if (transfer?.items?.length) {
+    for (const item of transfer.items) {
+      if (item.kind !== "file") {
+        unsupported = true;
+        continue;
+      }
+      if (item.webkitGetAsEntry?.()?.isDirectory) {
+        folders = true;
+        continue;
+      }
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+  } else {
+    files.push(...(transfer?.files ?? []));
+    unsupported = files.length === 0;
   }
-  renderDrafts();
-  renderComposer();
+  addAttachmentFiles(files);
+  const notices = [];
+  if (folders) notices.push(t("attach.noFolders"));
+  if (unsupported && files.length === 0 && !folders) notices.push(t("attach.noWebContent"));
+  if (notices.length) {
+    elements.composerStatus.textContent = [elements.composerStatus.textContent, ...notices].filter(Boolean).join(" ");
+  }
+});
+
+// A drop anywhere else must never navigate away from the conversation.
+document.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  if (!canAddAttachments()) clearAttachmentDrag();
+});
+document.addEventListener("drop", (event) => {
+  event.preventDefault();
+  clearAttachmentDrag();
+});
+document.addEventListener("dragend", clearAttachmentDrag);
+document.addEventListener("dragleave", (event) => {
+  if (!event.relatedTarget) clearAttachmentDrag();
+});
+window.addEventListener("blur", clearAttachmentDrag);
+
+elements.messageInput.addEventListener("paste", (event) => {
+  const files = Array.from(event.clipboardData?.files ?? []);
+  if (!files.length || !canAddAttachments()) return;
+  event.preventDefault();
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, "0");
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  addAttachmentFiles(files.map((file, index) => {
+    if (!/^image\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(file.name) || !file.type.startsWith("image/")) return file;
+    const extension = file.name.split(".").pop().toLowerCase();
+    const suffix = files.length > 1 ? `-${index + 1}` : "";
+    return new File([file], `screenshot-${stamp}${suffix}.${extension}`, { type: file.type, lastModified: file.lastModified });
+  }));
 });
 
 /** First request a ticket over the WebSocket, then send the file as-is to the backend, which forwards it to ai-remote-upload. */

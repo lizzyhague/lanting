@@ -284,6 +284,9 @@ window.lantingStrings = {
   "settings.colors": { zh: "主色", en: "Colors" },
   "settings.noColor": { zh: "不选择主色", en: "No color" },
 
+  "attach.dropHere": { zh: "松开上传", en: "Drop to upload" },
+  "attach.noFolders": { zh: "不支持文件夹。", en: "Folders are not supported." },
+  "attach.noWebContent": { zh: "不支持链接或网页内容。", en: "Links and web content are not supported." },
   "attach.tooMany": { zh: "一条消息最多 {max} 个附件。", en: "A message can have at most {max} attachments." },
   "attach.tooLarge": { zh: "单个文件不能超过 25 MiB。", en: "Each file must be 25 MiB or smaller." },
   "attach.uploadFailed": { zh: "上传失败。", en: "Upload failed." },
