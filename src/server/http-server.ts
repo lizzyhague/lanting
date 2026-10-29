@@ -298,8 +298,11 @@ export class WebServer {
     } catch (error) {
       if (response.destroyed || controller.signal.aborted) return;
       if (response.headersSent) { response.destroy(); return; }
-      const status = error instanceof SharedUploadError && error.status === 404 ? 410
-        : error instanceof SharedUploadError && error.status === 503 ? 503 : 502;
+      const unavailableAttachment = error instanceof SharedUploadError &&
+        error.status === 404 && error.code === "attachment_unavailable";
+      const unavailableService = error instanceof SharedUploadError &&
+        (error.status === 404 || error.status === 503);
+      const status = unavailableAttachment ? 410 : unavailableService ? 503 : 502;
       sendJson(response, status, { error: { message: status === 410 ? "Delivery expired."
         : "The shared upload service is unavailable." } });
     } finally {

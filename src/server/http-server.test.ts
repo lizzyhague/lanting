@@ -682,3 +682,15 @@ test("upstream failure during a download aborts the browser response", async (t)
   await aborted;
   assert.equal(source.destroyed, true);
 });
+
+test("an unknown upload service endpoint is unavailable rather than an expired delivery", async (t) => {
+  const f = await deliveryFixture(t);
+  f.download.error = new SharedUploadError("not_found", "The upload endpoint does not exist.", 404);
+  for (const method of ["HEAD", "GET"]) {
+    const response = await fetch(f.url, { method, headers: { cookie: f.cookie } });
+    assert.equal(response.status, 503);
+    if (method === "GET") {
+      assert.deepEqual(await response.json(), { error: { message: "The shared upload service is unavailable." } });
+    }
+  }
+});
