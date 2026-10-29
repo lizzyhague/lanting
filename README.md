@@ -26,7 +26,8 @@ browser can neither reach the CLIs directly nor choose an arbitrary working dire
 - Tool calls are shown on the page, and tool approvals are handled there; an approval nobody answers is
   denied after 120 seconds;
 - Collaboration rules written in Settings are passed to every AI in every group;
-- Attachments, through the separate [ai-remote-upload](https://github.com/lizzyhague/ai-remote-upload)
+- Add attachments with the plus menu, drag files onto the composer, or paste files and screenshots into
+  the message box; uploads use the separate [ai-remote-upload](https://github.com/lizzyhague/ai-remote-upload)
   service;
 - After signing in, view Markdown documents and images inside the project root and `~/preview`; there is
   no source viewing, download or directory browsing;
