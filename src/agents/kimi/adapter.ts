@@ -122,7 +122,6 @@ export class KimiAdapter implements AgentAdapter {
 type Turn = {
   channel: EventChannel<AgentEvent>;
   segment: string;
-  thought: string;
   interrupted: boolean;
 };
 
@@ -193,14 +192,13 @@ class KimiSession implements AgentSession {
   async *send(text: string): AsyncIterable<AgentEvent> {
     if (!this.alive) throw new Error("The Kimi process is closed.");
     if (this.#turn) throw new Error("Kimi is still handling the previous round.");
-    const turn: Turn = { channel: new EventChannel<AgentEvent>(), segment: "", thought: "", interrupted: false };
+    const turn: Turn = { channel: new EventChannel<AgentEvent>(), segment: "", interrupted: false };
     this.#turn = turn;
     const prompt = this.#rulesPending ? firstMessage(this.#options.systemPrompt, text) : text;
     this.#rulesPending = false;
     void this.#client.sessionPrompt(this.#sessionId, prompt).then(
       (result) => {
         const stop = result.stopReason ?? "end_turn";
-        this.#flushThought(turn);
         if (turn.interrupted || stop === "cancelled") {
           this.#finish({ type: "end", outcome: "interrupted", text: turn.segment });
         } else if (stop === "end_turn") {
@@ -256,11 +254,6 @@ class KimiSession implements AgentSession {
     turn.channel.end();
   }
 
-  #flushThought(turn: Turn): void {
-    if (turn.thought.trim()) turn.channel.push({ type: "activity", activity: { kind: "note", text: turn.thought } });
-    turn.thought = "";
-  }
-
   #onUpdate(payload: KimiUpdate): void {
     if (payload.sessionId !== this.#sessionId) return;
     const update = payload.update;
@@ -275,12 +268,7 @@ class KimiSession implements AgentSession {
     }
     const turn = this.#turn;
     if (!turn) return;
-    if (kind === "agent_thought_chunk") {
-      turn.thought += contentText(update.content);
-      return;
-    }
     if (kind === "agent_message_chunk") {
-      this.#flushThought(turn);
       const text = contentText(update.content);
       if (!text) return;
       turn.segment += text;
@@ -290,7 +278,6 @@ class KimiSession implements AgentSession {
     if (kind === "tool_call" || kind === "tool_call_update") {
       this.#rememberToolCall(update);
       if (kind !== "tool_call") return;
-      this.#flushThought(turn);
       if (turn.segment.trim()) turn.channel.push({ type: "activity", activity: { kind: "note", text: turn.segment } });
       turn.segment = "";
       turn.channel.push({ type: "activity", activity: toolActivity(update) });

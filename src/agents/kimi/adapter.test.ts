@@ -203,7 +203,7 @@ test("new and resumed sessions apply settings and send group rules only once", a
   assert.equal(after.prompts.filter((prompt: string) => prompt.includes("GROUP RULES")).length, 1);
 });
 
-test("streams thought, text and tool activity, asks once, and records context usage", async (t) => {
+test("drops thought chunks, streams text and tool activity, asks once, and records context usage", async (t) => {
   const { adapter, cwd } = await setup(t);
   const approvals: Approval[] = [];
   const session = await adapter.startSession(options(cwd, { model: null, effort: null, permission: "ask" }, approvals));
@@ -214,7 +214,6 @@ test("streams thought, text and tool activity, asks once, and records context us
   approvals[0]!.resolve({ decision: "allow", message: "" });
   const events = await turn;
   assert.deepEqual(events.filter((event) => event.type === "activity").map((event) => event.activity), [
-    { kind: "note", text: "Need a command" },
     { kind: "note", text: "Let me check" },
     { kind: "tool", toolName: "bash", detail: "" },
   ]);
