@@ -13,13 +13,16 @@
 
 - Node.js 24 或更高版本
 - 一个项目根目录：新建群时，工作目录从它下面的第一层文件夹里选
-- 要拉进群的 AI 的 CLI，已安装并登录：Claude Code、Codex、Grok、Pi、Cursor、Antigravity，至少一个。
+- 要拉进群的 AI 的 CLI，已安装并登录：Claude Code、Codex、Grok、Pi、Cursor、Antigravity、Kimi Code，至少一个。
   Pi 还要用它自己的包管理命令安装权限扩展 `pi-minimal-permission-system`，lanting 才能把工具确认接到网页审批。
   Cursor 用 Cursor Agent CLI，按 Cursor 官方说明安装后运行 `cursor-agent login` 登录；
   lanting 不切换 Cursor 的模型，用的是 Cursor 当前的默认模型。
   Antigravity 用 Google 官方的 Antigravity ACP Server（`agy_acp_server.par`），按官方说明安装；
   它没有单独的登录命令，登录方法见第 7 节。lanting 不切换 Antigravity 的模型，用的是它的默认模型；
   不显示上下文用量，不支持压缩，永久删除群时也不删除 Antigravity 自己保存的会话。
+  Kimi Code 按官方说明安装，并用运行 lanting 的同一个账户执行 `kimi login`。lanting 可以切换
+  Kimi 的模型和思考强度、显示上下文用量，并在永久删除群时删除 Kimi 保存的会话；Kimi 的 ACP
+  接口不提供手动压缩上下文。
 - 一个至少 32 字符的随机登录令牌
 - 要上传附件和交付文件的话：同一个系统账户下运行的 [ai-remote-upload](https://github.com/lizzyhague/ai-remote-upload)，
   版本要认得调用方 `lanting`，并支持按 ID 取回附件字节。不装也能用，只是不能上传附件和交付文件
@@ -55,7 +58,8 @@ chmod 600 .env config.json
     "grok": { "executable": "/absolute/path/to/grok" },
     "pi": { "executable": "/absolute/path/to/pi" },
     "cursor": { "executable": "/absolute/path/to/cursor-agent" },
-    "antigravity": { "executable": "/absolute/path/to/agy_acp_server.par" }
+    "antigravity": { "executable": "/absolute/path/to/agy_acp_server.par" },
+    "kimi": { "executable": "/absolute/path/to/kimi" }
   }
 }
 ```

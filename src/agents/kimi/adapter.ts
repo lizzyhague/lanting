@@ -1,5 +1,5 @@
 import type { AgentFeatures, UsagePart } from "../../features/index.ts";
-import { localText } from "../../i18n/text.ts";
+import { englishText, localText, LocalizedError } from "../../i18n/text.ts";
 import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
 import {
@@ -38,17 +38,17 @@ export const KIMI_PERMISSIONS: readonly PermissionOption[] = [
   localizedPermission({
     id: "ask",
     label: localText("permission.ask"),
-    description: "Ask before Kimi runs a tool that needs approval.",
+    description: localText("permission.kimi.ask"),
   }),
   localizedPermission({
     id: ALWAYS_APPROVE,
     label: "Always approve",
-    description: "Approve every Kimi tool request for this group without asking.",
+    description: localText("permission.kimi.alwaysApprove"),
     danger: true,
   }),
 ];
 
-export const LOGIN_REQUIRED = "Kimi Code is not logged in. Run `kimi login` on the server first.";
+export const LOGIN_REQUIRED = localText("error.kimiLogin");
 
 export function firstMessage(systemPrompt: string, text: string): string {
   return [
@@ -178,7 +178,7 @@ class KimiSession implements AgentSession {
     } catch (error) {
       if (client.stderrTail.trim()) console.error(`Kimi stderr: ${client.stderrTail.trim()}`);
       await session.close();
-      throw isAuthRequired(error) ? new Error(LOGIN_REQUIRED) : error;
+      throw isAuthRequired(error) ? new LocalizedError(LOGIN_REQUIRED) : error;
     }
   }
 
@@ -214,7 +214,9 @@ class KimiSession implements AgentSession {
           type: "end",
           outcome: turn.interrupted ? "interrupted" : "failed",
           text: turn.segment,
-          ...(turn.interrupted ? {} : { error: isAuthRequired(error) ? LOGIN_REQUIRED : errorText(error) }),
+          ...(turn.interrupted ? {} : isAuthRequired(error)
+            ? { error: englishText(LOGIN_REQUIRED), errorText: LOGIN_REQUIRED }
+            : { error: errorText(error) }),
         });
       },
     );

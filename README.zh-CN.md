@@ -14,7 +14,7 @@ AI 的 CLI 拉进同一个群，让你在手机或电脑的网页上，同时和
 
 ## 功能
 
-- 支持的 CLI：Claude Code、Codex、Grok、Pi、Cursor Agent、Antigravity ACP Server；
+- 支持的 CLI：Claude Code、Codex、Grok、Pi、Cursor Agent、Antigravity ACP Server、Kimi Code；
 - 一个群里可以有多个 AI，同一种 CLI 也可以有多个 AI，各有自己的名字和颜色；
 - 每一轮点名一个或几个 AI，按你定的顺序依次发言；每个 AI 收到的是它上次发言以来群里的全部内容；
 - 每个群的工作目录从配置的项目根目录的第一层子目录里选；

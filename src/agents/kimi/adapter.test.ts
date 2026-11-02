@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { localText } from "../../i18n/text.ts";
+import { englishText, localText } from "../../i18n/text.ts";
 import type { AgentEvent, AgentSession, ApprovalAnswer, ApprovalAsk, SessionOptions } from "../types.ts";
 import {
   firstMessage,
@@ -267,7 +267,9 @@ test("interrupts a turn and maps auth, early stops and crashes", async (t) => {
   await new Promise((resolve) => setTimeout(resolve, 50));
   await session.interrupt();
   assert.deepEqual(endOf(await held), { type: "end", outcome: "interrupted", text: "working" });
-  assert.equal(endOf(await drain(session, "unauthorized")).error, LOGIN_REQUIRED);
+  const unauthorized = endOf(await drain(session, "unauthorized"));
+  assert.equal(unauthorized.error, englishText(LOGIN_REQUIRED));
+  assert.deepEqual(unauthorized.errorText, LOGIN_REQUIRED);
   assert.equal(endOf(await drain(session, "refuse")).outcome, "failed");
   assert.equal(endOf(await drain(session, "crash")).error, "The Kimi process exited.");
 });
@@ -283,7 +285,7 @@ test("deletes native sessions and rewrites login failure while opening", async (
 
   process.env.FAKE_AUTH = "1";
   t.after(() => delete process.env.FAKE_AUTH);
-  await assert.rejects(adapter.startSession(options(cwd)), new RegExp(LOGIN_REQUIRED.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  await assert.rejects(adapter.startSession(options(cwd)), new RegExp(englishText(LOGIN_REQUIRED).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
 test("model and tool helpers tolerate incomplete ACP records", () => {

@@ -16,15 +16,19 @@ Do not commit completed configuration files.
 - Node.js 24 or later
 - A project root directory: when creating a group, its working directory is selected from the
   immediate subdirectories of this root
-- At least one supported AI CLI, installed and signed in: Claude Code, Codex, Grok, Pi, Cursor, or
-  Antigravity. Pi also requires its permission extension, `pi-minimal-permission-system`, installed
-  through Pi's package manager so lanting can route tool confirmations to the web interface.
+- At least one supported AI CLI, installed and signed in: Claude Code, Codex, Grok, Pi, Cursor,
+  Antigravity, or Kimi Code. Pi also requires its permission extension,
+  `pi-minimal-permission-system`, installed through Pi's package manager so lanting can route tool
+  confirmations to the web interface.
   Cursor uses the Cursor Agent CLI; install it according to Cursor's documentation and sign in with
   `cursor-agent login`. lanting does not select a Cursor model and uses Cursor's current default.
   Antigravity uses Google's Antigravity ACP Server (`agy_acp_server.par`); install it according to
   Google's documentation. It has no separate login command, so follow section 7. lanting uses its
   default model, does not display context usage, cannot compact its context, and does not delete
   Antigravity's saved session when a group is permanently deleted.
+  Install Kimi Code with its official installer and run `kimi login` as the account that runs
+  lanting. lanting can select Kimi's model and thinking level, display context usage, and delete its
+  saved session. Kimi's ACP interface does not provide manual context compaction.
 - A random login token of at least 32 characters
 - To upload attachments and deliver files, [ai-remote-upload](https://github.com/lizzyhague/ai-remote-upload) running
   under the same system account, at a version that recognizes `lanting` as a caller and supports retrieving attachment bytes by ID.
@@ -61,7 +65,8 @@ Edit `.env` and set at least the login token. The available environment variable
     "grok": { "executable": "/absolute/path/to/grok" },
     "pi": { "executable": "/absolute/path/to/pi" },
     "cursor": { "executable": "/absolute/path/to/cursor-agent" },
-    "antigravity": { "executable": "/absolute/path/to/agy_acp_server.par" }
+    "antigravity": { "executable": "/absolute/path/to/agy_acp_server.par" },
+    "kimi": { "executable": "/absolute/path/to/kimi" }
   }
 }
 ```

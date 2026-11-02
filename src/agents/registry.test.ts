@@ -12,6 +12,7 @@ test("lists every supported CLI kind in its fixed order", () => {
     { kind: "pi", displayName: "Pi" },
     { kind: "cursor", displayName: "Cursor" },
     { kind: "antigravity", displayName: "Antigravity" },
+    { kind: "kimi", displayName: "Kimi Code" },
   ]);
 });
 
