@@ -25,13 +25,17 @@ export function renderDeliveryCard(delivery, ownerDocument = document, options =
   filename.title = name;
   const metadata = ownerDocument.createElement("span");
   metadata.className = "delivery-meta";
-  details.append(filename, metadata);
+  const directory = ownerDocument.createElement("span");
+  directory.className = "delivery-directory";
+  directory.textContent = delivery.directory ?? "";
+  const detailRows = delivery.directory ? [filename, directory, metadata] : [filename, metadata];
+  details.append(...detailRows);
   card.append(badge, details);
 
   function expire() {
     card.dataset.state = "expired";
     metadata.textContent = t("delivery.expired");
-    details.replaceChildren(filename, metadata);
+    details.replaceChildren(...detailRows);
     card.replaceChildren(badge, details);
   }
 

@@ -1,6 +1,7 @@
-import { constants, type BigIntStats } from "node:fs";
+import { constants, realpathSync, type BigIntStats } from "node:fs";
 import { open, realpath, stat, type FileHandle } from "node:fs/promises";
 import path from "node:path";
+import { homedir } from "node:os";
 
 import { findDeliveryLinks } from "../../public/markdown.js";
 import type { SharedUploadClient } from "../attachments/shared-upload-client.ts";
@@ -11,7 +12,7 @@ import { insideAnyRoot } from "../server/files.ts";
 export type DeliveryFailure = "interrupted" | "too_many" | "invalid_path" | "outside_root" |
   "not_file" | "sensitive_file" | "too_large" | "file_changed" | "unavailable" | "upload_failed";
 
-export type DeliveryResult = { path: string; name: string } & (
+export type DeliveryResult = { path: string; name: string; directory?: string } & (
   { status: "failed"; reason: DeliveryFailure } |
   { status: "available"; attachmentId: string; size: number; expiresAtMs: number; binding: AttachmentBinding }
 );
@@ -23,9 +24,30 @@ class DeliveryError extends Error {
   constructor(reason: DeliveryFailure) { super(reason); this.reason = reason; }
 }
 
+/** Display a directory without exposing the service account name inside its home. */
+export function deliveryDirectory(filePath: string, homeDirectory: string = homedir()): string | undefined {
+  if (!path.isAbsolute(filePath) || filePath.includes("\0")) return undefined;
+  const directory = path.dirname(filePath);
+  let realHome = homeDirectory;
+  try { realHome = realpathSync(homeDirectory); } catch { /* Use the supplied home if unavailable. */ }
+  for (const home of [realHome, homeDirectory]) {
+    const relative = path.relative(home, directory);
+    if (relative === "") return "~";
+    if (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
+      return `~/${relative}`;
+    }
+  }
+  return directory;
+}
+
+function deliveryBase(filePath: string): Pick<DeliveryResult, "path" | "name" | "directory"> {
+  const directory = deliveryDirectory(filePath);
+  return { path: filePath, name: path.basename(filePath), ...(directory === undefined ? {} : { directory }) };
+}
+
 export function interruptedDeliveries(source: string): DeliveryResult[] {
   return [...new Set(findDeliveryLinks(source).map((link) => link.path))].map((filePath) => ({
-    path: filePath, name: path.basename(filePath), status: "failed", reason: "interrupted",
+    ...deliveryBase(filePath), status: "failed", reason: "interrupted",
   }));
 }
 
@@ -37,7 +59,7 @@ export async function prepareDeliveries(options: {
   const results: DeliveryResult[] = [];
   for (const [index, filePath] of paths.entries()) {
     if (options.signal.aborted) return interruptedDeliveries(options.source);
-    const base = { path: filePath, name: path.basename(filePath) };
+    const base = deliveryBase(filePath);
     if (index >= 100) {
       results.push({ ...base, status: "failed", reason: "too_many" });
       continue;
@@ -46,6 +68,8 @@ export async function prepareDeliveries(options: {
     try {
       if (!path.isAbsolute(filePath) || filePath.includes("\0")) throw new DeliveryError("invalid_path");
       const resolved = await realpath(filePath);
+      const directory = deliveryDirectory(resolved);
+      if (directory !== undefined) base.directory = directory;
       if (!await insideAnyRoot(options.roots, resolved)) throw new DeliveryError("outside_root");
       const beforeOpen = await stat(resolved, { bigint: true });
       handle = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);

@@ -4,7 +4,7 @@ import { lantingI18n } from "./i18n.test-support.js";
 import { renderDeliveryCard, formatDeliverySize } from "./delivery-card.js";
 import { descendants, recordingDocument } from "./delivery-card.test-support.js";
 
-const ready = { path: "/work/report.docx", name: "report.docx", status: "available",
+const ready = { path: "/work/report.docx", directory: "~/projects/demo/docs", name: "report.docx", status: "available",
   attachmentId: "11111111-1111-4111-8111-111111111111", size: 1024, expiresAtMs: Date.UTC(2030, 10, 28) };
 const now = () => Date.UTC(2030, 9, 29);
 const one = (card, name) => descendants(card, name)[0];
@@ -12,6 +12,7 @@ const one = (card, name) => descendants(card, name)[0];
 test("available cards show the type, filename, size, expiry date and download action", () => {
   const card = renderDeliveryCard(ready, recordingDocument(), { now });
   assert.equal(card.dataset.state, "available");
+  assert.equal(one(card, "delivery-directory").textContent, ready.directory);
   assert.equal(one(card, "delivery-type").textContent, "DOCX");
   assert.equal(one(card, "delivery-name").textContent, "report.docx");
   assert.equal(one(card, "delivery-name").title, "report.docx");
@@ -30,6 +31,7 @@ test("all failure reasons are localized and have no download action", () => {
     for (const reason of reasons) {
       const card = renderDeliveryCard({ ...ready, status: "failed", reason }, recordingDocument());
       assert.equal(card.dataset.state, "failed");
+      assert.equal(one(card, "delivery-directory").textContent, ready.directory);
       assert.equal(descendants(card, "delivery-download").length, 0);
       assert.equal(one(card, "delivery-type").textContent, "!");
       const text = one(card, "delivery-meta").textContent;
@@ -44,6 +46,7 @@ test("all failure reasons are localized and have no download action", () => {
 test("expired cards have no download action, including the expiry boundary", () => {
   const card = renderDeliveryCard(ready, recordingDocument(), { now: () => ready.expiresAtMs });
   assert.equal(card.dataset.state, "expired");
+  assert.equal(one(card, "delivery-directory").textContent, ready.directory);
   assert.equal(one(card, "delivery-meta").textContent, "已过期 · 副本只保留 30 天");
   assert.equal(descendants(card, "delivery-download").length, 0);
 });
@@ -64,6 +67,7 @@ test("404 and 410 preflight responses turn the card into expired without navigat
     const card = renderDeliveryCard(ready, doc, { now, fetch: async () => ({ status }) });
     await one(card, "delivery-download").listeners.click();
     assert.equal(card.dataset.state, "expired");
+    assert.equal(one(card, "delivery-directory").textContent, ready.directory);
     assert.equal(descendants(card, "delivery-download").length, 0);
     assert.deepEqual(doc.clicks, []);
   }
@@ -76,6 +80,7 @@ test("network and service errors preserve the download action and show feedback"
     const button = one(card, "delivery-download");
     await button.listeners.click();
     assert.equal(card.dataset.state, "available");
+    assert.equal(one(card, "delivery-directory").textContent, ready.directory);
     assert.equal(button.disabled, false);
     assert.equal(one(card, "delivery-feedback").textContent, "暂时无法下载，请稍后再试。");
     assert.deepEqual(doc.clicks, []);
@@ -99,5 +104,12 @@ test("repeated clicks share one preflight and expiry is checked before downloadi
   finish({ status: 200 });
   await first;
   assert.equal(card.dataset.state, "expired");
+  assert.equal(one(card, "delivery-directory").textContent, ready.directory);
   assert.deepEqual(doc.clicks, []);
+});
+
+test("cards without a stored directory omit the directory row", () => {
+  const { directory, ...legacy } = ready;
+  const card = renderDeliveryCard(legacy, recordingDocument(), { now });
+  assert.equal(descendants(card, "delivery-directory").length, 0);
 });

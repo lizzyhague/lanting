@@ -298,7 +298,7 @@ test("delivery failures and successful bindings survive reopening", async (t) =>
   const entry = await store.append(group.id, {
     from: { role: "agent", agent: "claude" }, text: "files", status: "completed",
     deliveries: [
-      { path: "/work/demo/a", name: "a", status: "available", attachmentId: "11111111-1111-4111-8111-111111111111",
+      { path: "/work/demo/a", name: "a", directory: "~/projects/demo", status: "available", attachmentId: "11111111-1111-4111-8111-111111111111",
         size: 0, expiresAtMs: 1000, binding: { caller: "lanting", projectId: "demo", sessionId: group.id } },
       { path: "relative", name: "relative", status: "failed", reason: "invalid_path" },
     ],
@@ -310,6 +310,7 @@ test("delivery failures and successful bindings survive reopening", async (t) =>
 test("invalid persisted delivery data fails to open without overwriting the record", async (t) => {
   const invalid = [
     { status: "other" },
+    { status: "failed", reason: "unavailable", directory: 42 },
     { status: "failed", reason: "unknown" },
     { status: "available", attachmentId: "invalid", size: 0, expiresAtMs: 1000 },
     { status: "available", attachmentId: "11111111-1111-4111-8111-111111111111", size: -1, expiresAtMs: 1000 },

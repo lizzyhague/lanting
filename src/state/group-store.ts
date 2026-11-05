@@ -387,6 +387,7 @@ function isObject(value: unknown): value is { [key: string]: unknown } {
 
 function isDeliveryResult(value: unknown): boolean {
   if (!isObject(value) || typeof value.path !== "string" || typeof value.name !== "string") return false;
+  if (value.directory !== undefined && typeof value.directory !== "string") return false;
   if (value.status === "failed") return typeof value.reason === "string" && [
     "interrupted", "too_many", "invalid_path", "outside_root", "not_file", "sensitive_file",
     "too_large", "file_changed", "unavailable", "upload_failed",

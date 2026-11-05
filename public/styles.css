@@ -1195,6 +1195,7 @@ button[aria-invalid="true"] {
   font-weight: 600;
 }
 
+.delivery-directory,
 .delivery-meta,
 .delivery-feedback {
   display: block;

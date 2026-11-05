@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { MAX_UPLOAD_BYTES, type PublicAttachment, type UploadTicket } from "../attachments/types.ts";
-import { prepareDeliveries } from "./prepare.ts";
+import { deliveryDirectory, interruptedDeliveries, prepareDeliveries } from "./prepare.ts";
 
 const binding = { caller: "lanting", projectId: "example", sessionId: "group" } as const;
 const link = (file: string) => `[file](/deliver?path=${encodeURIComponent(file)})`;
@@ -142,4 +142,42 @@ test("a missing allowed root does not block delivery from another root", async (
   const results = await prepareDeliveries({ ...f.options,
     roots: [path.join(f.directory, "missing-preview"), f.root], source: link(file) });
   assert.equal(results[0]!.status, "available");
+});
+
+
+test("formats home directories with boundaries and resolves a symlinked home", async (t) => {
+  const f = await fixture(t);
+  assert.equal(deliveryDirectory("/example/home/projects/a.txt", "/example/home"), "~/projects");
+  assert.equal(deliveryDirectory("/example/home/a.txt", "/example/home"), "~");
+  assert.equal(deliveryDirectory("/example/home-other/a.txt", "/example/home"), "/example/home-other");
+  assert.equal(deliveryDirectory("/elsewhere/a.txt", "/example/home"), "/elsewhere");
+  assert.equal(deliveryDirectory("relative", "/example/home"), undefined);
+  assert.equal(deliveryDirectory("/invalid\0/file", "/example/home"), undefined);
+  const alias = path.join(f.directory, "home-alias");
+  await symlink(f.root, alias);
+  assert.equal(deliveryDirectory(path.join(await realpath(f.root), "docs", "a.txt"), alias), "~/docs");
+});
+
+test("stores real directories for symlinks and falls back to written paths on failure", async (t) => {
+  const f = await fixture(t);
+  const target = path.join(f.root, "docs", "report.txt");
+  await mkdir(path.dirname(target));
+  await writeFile(target, "content");
+  const alias = path.join(f.root, "latest.txt");
+  await symlink(target, alias);
+  const outside = path.join(f.directory, "outside.txt");
+  await writeFile(outside, "outside");
+  const escape = path.join(f.root, "escape.txt");
+  await symlink(outside, escape);
+  const missing = path.join(f.root, "missing", "report.txt");
+  const results = await prepareDeliveries({ ...f.options, source: [alias, escape, missing, "relative"].map(link).join("\n") });
+  assert.equal(results[0]!.directory, deliveryDirectory(await realpath(target)));
+  assert.equal(results[0]!.name, "latest.txt");
+  assert.equal(results[1]!.status === "failed" && results[1]!.reason, "outside_root");
+  assert.equal(results[1]!.directory, deliveryDirectory(await realpath(outside)));
+  assert.equal(results[2]!.directory, deliveryDirectory(missing));
+  assert.equal(Object.hasOwn(results[3]!, "directory"), false);
+  const interrupted = interruptedDeliveries([alias, "relative"].map(link).join("\n"));
+  assert.equal(interrupted[0]!.directory, deliveryDirectory(alias));
+  assert.equal(Object.hasOwn(interrupted[1]!, "directory"), false);
 });
