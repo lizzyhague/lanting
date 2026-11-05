@@ -6,7 +6,7 @@ import { findDeliveryLinks } from "../../public/markdown.js";
 import type { SharedUploadClient } from "../attachments/shared-upload-client.ts";
 import { MAX_UPLOAD_BYTES, type AttachmentBinding } from "../attachments/types.ts";
 import { hasSensitiveFileName } from "../security/sensitive-files.ts";
-import { insideRoot } from "../server/files.ts";
+import { insideAnyRoot } from "../server/files.ts";
 
 export type DeliveryFailure = "interrupted" | "too_many" | "invalid_path" | "outside_root" |
   "not_file" | "sensitive_file" | "too_large" | "file_changed" | "unavailable" | "upload_failed";
@@ -31,7 +31,7 @@ export function interruptedDeliveries(source: string): DeliveryResult[] {
 
 /** Results are immutable once the reply is saved. Cancellation invalidates the entire batch. */
 export async function prepareDeliveries(options: {
-  source: string; root: string; binding: AttachmentBinding; client: UploadClient; signal: AbortSignal;
+  source: string; roots: readonly string[]; binding: AttachmentBinding; client: UploadClient; signal: AbortSignal;
 }): Promise<DeliveryResult[]> {
   const paths = [...new Set(findDeliveryLinks(options.source).map((link) => link.path))];
   const results: DeliveryResult[] = [];
@@ -46,7 +46,7 @@ export async function prepareDeliveries(options: {
     try {
       if (!path.isAbsolute(filePath) || filePath.includes("\0")) throw new DeliveryError("invalid_path");
       const resolved = await realpath(filePath);
-      if (!await insideRoot(await realpath(options.root), resolved)) throw new DeliveryError("outside_root");
+      if (!await insideAnyRoot(options.roots, resolved)) throw new DeliveryError("outside_root");
       const beforeOpen = await stat(resolved, { bigint: true });
       handle = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       const before = await handle.stat({ bigint: true });

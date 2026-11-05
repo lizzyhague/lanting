@@ -36,7 +36,7 @@ async function setup(
   const store = await GroupStore.open(directory);
   const configuredAdapters = Object.values(adapters)
     .filter((adapter): adapter is FakeAdapter => adapter !== undefined);
-  const runtime = new GroupRuntime({ store, agents: new AgentRegistry(configuredAdapters), ...(deliverReply ? { deliverReply } : {}) });
+  const runtime = new GroupRuntime({ projectRoot: "/work", store, agents: new AgentRegistry(configuredAdapters), ...(deliverReply ? { deliverReply } : {}) });
   t.after(() => runtime.shutdown());
   const events: GroupEvent[] = [];
   runtime.onEvent((event) => events.push(event));
@@ -180,13 +180,14 @@ test("system prompts list the user and the other members, not the agent itself",
   assert.match(prompt, /- <host>: the user\.\n- <claude>\n- <grok>\n/u);
   assert.doesNotMatch(prompt, /<codex>/u);
   assert.equal(adapters.codex!.calls[0]!.options.cwd, "/work/demo");
+  assert.ok(prompt.includes("`/work` and `~/preview`"));
 });
 
 test("system prompts carry the collaboration setting read when the session opens", async (t) => {
   const { store, groupId } = await setup(t, ["claude"]);
   const claude = new FakeAdapter("claude");
   let collaboration = "Keep the first round short.";
-  const runtime = new GroupRuntime({ store, agents: new AgentRegistry([claude]), collaboration: () => collaboration });
+  const runtime = new GroupRuntime({ projectRoot: "/work", store, agents: new AgentRegistry([claude]), collaboration: () => collaboration });
   t.after(() => runtime.shutdown());
   collaboration = "Say so when nothing is left to add.";
   await runtime.startRound(groupId, "q", ["claude"]).done;
@@ -200,7 +201,7 @@ test("after a restart the group is still there and agents resume their native se
 
   const store = await GroupStore.open(directory);
   const fresh = { claude: new FakeAdapter("claude"), codex: new FakeAdapter("codex") };
-  const restarted = new GroupRuntime({ store, agents: new AgentRegistry(Object.values(fresh)) });
+  const restarted = new GroupRuntime({ projectRoot: "/work", store, agents: new AgentRegistry(Object.values(fresh)) });
   t.after(() => restarted.shutdown());
 
   assert.equal(store.get(groupId)?.agents.claude?.nativeSessionId, "claude-session-1");

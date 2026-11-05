@@ -4,7 +4,7 @@ import test from "node:test";
 import { buildSystemPrompt } from "./system-prompt.ts";
 
 test("fills the user tag, the other members and the agent's own name", () => {
-  const prompt = buildSystemPrompt({
+  const prompt = buildSystemPrompt({ projectRoot: "/example/projects",
     username: "alice",
     self: "claude",
     others: ["codex", "grok"],
@@ -14,7 +14,9 @@ test("fills the user tag, the other members and the agent's own name", () => {
   assert.match(prompt, /^- <alice>: the user\.\n- <codex>\n- <grok>\n\nTags are flat/mu);
   assert.doesNotMatch(prompt, /<claude>/u);
   assert.match(prompt, /^- Reply with the message body only\. Do not add your own member tag/mu);
-  assert.match(prompt, /individual files inside this group's working directory/u);
+  assert.match(prompt, /share the same allowed directories/u);
+  assert.ok(prompt.includes("`/example/projects` and `~/preview`"));
+  assert.match(prompt, /individual files within the shared allowed directories/u);
   assert.match(prompt, /temporary previews[\s\S]*`~\/preview`/u);
   assert.match(prompt, /without creating subdirectories/u);
   assert.match(prompt, /project name and your own name, such as\n\s+`myapp-logo-claude-1\.svg`/u);
@@ -27,18 +29,18 @@ test("fills the user tag, the other members and the agent's own name", () => {
 });
 
 test("drops the member line when there are no other AIs", () => {
-  const prompt = buildSystemPrompt({ username: "host", self: "claude", others: [] });
+  const prompt = buildSystemPrompt({ projectRoot: "/example/projects", username: "host", self: "claude", others: [] });
   assert.match(prompt, /^- <host>: the user\.\n\nTags are flat/mu);
 });
 
 test("does not expand placeholders that appear inside filled values", () => {
-  const prompt = buildSystemPrompt({ username: "host", self: "{other_members}", others: ["{username}"] });
+  const prompt = buildSystemPrompt({ projectRoot: "/example/projects", username: "host", self: "{other_members}", others: ["{username}"] });
   assert.match(prompt, /your name is `\{other_members\}`\./u);
   assert.match(prompt, /^- <\{username\}>$/mu);
 });
 
 test("appends the user's collaboration rules under their own heading", () => {
-  const prompt = buildSystemPrompt({
+  const prompt = buildSystemPrompt({ projectRoot: "/example/projects",
     username: "host",
     self: "claude",
     others: [],
@@ -48,13 +50,13 @@ test("appends the user's collaboration rules under their own heading", () => {
 });
 
 test("omits the collaboration section when it is blank", () => {
-  const base = buildSystemPrompt({ username: "host", self: "claude", others: [] });
-  assert.equal(buildSystemPrompt({ username: "host", self: "claude", others: [], collaboration: " \n\t" }), base);
+  const base = buildSystemPrompt({ projectRoot: "/example/projects", username: "host", self: "claude", others: [] });
+  assert.equal(buildSystemPrompt({ projectRoot: "/example/projects", username: "host", self: "claude", others: [], collaboration: " \n\t" }), base);
   assert.doesNotMatch(base, /collaboration rules/u);
 });
 
 test("defines the platform tag and file delivery rules in English", () => {
-  const prompt = buildSystemPrompt({ username: "host", self: "claude", others: [] });
+  const prompt = buildSystemPrompt({ projectRoot: "/example/projects", username: "host", self: "claude", others: [] });
   assert.ok(prompt.includes("`<lanting>` is the platform's tag and does not belong to any member; its content is information from the platform to you."));
   assert.match(prompt, /## Delivering files[\s\S]*`\/deliver\?path=`[\s\S]*URL-encoded absolute path/u);
   assert.match(prompt, /25 MiB each/u);

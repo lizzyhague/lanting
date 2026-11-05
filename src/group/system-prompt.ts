@@ -52,6 +52,8 @@ Tags are flat and never nested.
 - Do not paste a whole file into the chat and then also write it to disk.
 - When you write a file, give its path and key points in your reply. File contents do not go into
   the chat history; other AIs will read the file themselves if needed.
+- \`/view\` and \`/deliver\` share the same allowed directories: the configured project root
+  \`{project_root}\` and \`~/preview\` (under the service account's home directory).
 - \`/view\` previews only Markdown documents and images. Do not provide HTML or other executable
   formats as previews.
 - Markdown documents and images that need to be shown to the user fall into two categories:
@@ -69,7 +71,7 @@ Tags are flat and never nested.
 
 - To deliver a file, include a Markdown link whose target is \`/deliver?path=\` followed by the
   URL-encoded absolute path.
-- Only individual files inside this group's working directory can be delivered, up to 25 MiB each.
+- Only individual files within the shared allowed directories above can be delivered, up to 25 MiB each.
 - Delivery and \`/view\` previews are separate. You can provide both links for the same file.
 - Delivery results are reported through \`<lanting>\` messages. If delivery fails, you can address
   the reported reason and deliver the file again.
@@ -86,6 +88,7 @@ const COLLABORATION_HEADING = `# User's collaboration rules
 The user wrote the following in lanting's settings. It applies to every group.`;
 
 export type SystemPromptInput = {
+  projectRoot: string;
   username: string;
   /** Own name in this group, matching the tag lanting wraps around its own messages. */
   self: string;
@@ -101,8 +104,8 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
   // Replaced in one pass, so placeholders appearing in filled-in values aren't replaced again.
   const prompt = TEMPLATE
     .replace(/^\{other_members\}\n/mu, others ? "{other_members}\n" : "")
-    .replace(/\{(username|self|other_members)\}/gu, (_, key: string) =>
-      key === "username" ? input.username : key === "self" ? input.self : others
+    .replace(/\{(username|self|other_members|project_root)\}/gu, (_, key: string) =>
+      key === "project_root" ? input.projectRoot : key === "username" ? input.username : key === "self" ? input.self : others
     );
   const collaboration = input.collaboration?.trim() ?? "";
   return collaboration ? `${prompt}\n${COLLABORATION_HEADING}\n\n${collaboration}\n` : prompt;

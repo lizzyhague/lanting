@@ -24,7 +24,7 @@ async function setup(t: test.TestContext, claudeWithout: readonly AgentFeatureId
   const adapter = new FakeAdapter("claude", undefined, { without: claudeWithout });
   const codexAdapter = new FakeAdapter("codex");
   const agents = new AgentRegistry([adapter, codexAdapter]);
-  const runtime = new GroupRuntime({ store, agents, ...(deliverReply ? { deliverReply } : {}) });
+  const runtime = new GroupRuntime({ projectRoot: "/work", store, agents, ...(deliverReply ? { deliverReply } : {}) });
   t.after(() => runtime.shutdown());
   const settings = await SettingsStore.open(path.join(directory, "data"), ["claude", "codex"]);
   const uploads = new FakeUploads(path.join(directory, "blobs"));

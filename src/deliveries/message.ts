@@ -4,7 +4,7 @@ const FAILURE_REASONS: Record<DeliveryFailure, string> = {
   interrupted: "Reply interrupted; not delivered",
   too_many: "More than 100 files in one reply",
   invalid_path: "An absolute file path is required",
-  outside_root: "File is outside the group's working directory",
+  outside_root: "File is outside the allowed delivery directories (the configured project root and ~/preview)",
   not_file: "Only individual regular files can be delivered",
   sensitive_file: "Sensitive file name",
   too_large: "File exceeds 25 MiB",

@@ -109,6 +109,7 @@ const DEFAULT_IDLE_CLOSE_MS = 15 * 60_000;
  */
 export class GroupRuntime {
   readonly #store: GroupStore;
+  readonly #projectRoot: string;
   readonly #agents: AgentRegistry;
   readonly #approvals: ApprovalRegistry;
   readonly #idleCloseMs: number;
@@ -127,6 +128,7 @@ export class GroupRuntime {
   #sweeper: NodeJS.Timeout | null = null;
 
   constructor(options: {
+    projectRoot: string;
     store: GroupStore;
     agents: AgentRegistry;
     approvals?: ApprovalRegistry;
@@ -136,6 +138,7 @@ export class GroupRuntime {
     deliverReply?: DeliverReply;
   }) {
     this.#store = options.store;
+    this.#projectRoot = options.projectRoot;
     this.#deliverReply = options.deliverReply;
     this.#collaboration = options.collaboration ?? (() => "");
     this.#agents = options.agents;
@@ -579,6 +582,7 @@ export class GroupRuntime {
       cwd: group.cwd,
       settings: { ...settings },
       systemPrompt: buildSystemPrompt({
+        projectRoot: this.#projectRoot,
         username: group.username,
         self: agent,
         others: group.members.filter((member) => member !== agent),

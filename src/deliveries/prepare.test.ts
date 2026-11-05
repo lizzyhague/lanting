@@ -31,7 +31,7 @@ async function fixture(t: test.TestContext) {
     },
   };
   const controller = new AbortController();
-  const options = { root, client, binding, signal: controller.signal };
+  const options = { roots: [root], client, binding, signal: controller.signal };
   return { directory, root, saved, client, controller, options, ticketCount: () => tickets };
 }
 
@@ -115,4 +115,31 @@ test("limits unique deliveries to 100 and continues after individual failures", 
   assert.equal(result.length, 101);
   assert.equal(result[1]!.status, "available");
   assert.equal(result[100]!.status === "failed" && result[100]!.reason, "too_many");
+});
+
+
+test("shares multiple allowed roots and checks symlink targets against all roots", async (t) => {
+  const f = await fixture(t);
+  const preview = path.join(f.directory, "preview");
+  await mkdir(preview);
+  const file = path.join(preview, "report.txt");
+  await writeFile(file, "preview content");
+  const alias = path.join(f.root, "alias.txt");
+  await symlink(file, alias);
+  const outside = path.join(f.directory, "outside.txt");
+  await writeFile(outside, "outside content");
+  const results = await prepareDeliveries({ ...f.options, roots: [f.root, preview],
+    source: [file, alias, outside].map(link).join("\n") });
+  assert.deepEqual(results.map((r) => r.status === "failed" ? r.reason : r.status),
+    ["available", "available", "outside_root"]);
+  assert.deepEqual(f.saved, [Buffer.from("preview content"), Buffer.from("preview content")]);
+});
+
+test("a missing allowed root does not block delivery from another root", async (t) => {
+  const f = await fixture(t);
+  const file = path.join(f.root, "report.txt");
+  await writeFile(file, "content");
+  const results = await prepareDeliveries({ ...f.options,
+    roots: [path.join(f.directory, "missing-preview"), f.root], source: link(file) });
+  assert.equal(results[0]!.status, "available");
 });

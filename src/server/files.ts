@@ -36,7 +36,7 @@ async function insideRootSafe(root: string, candidate: string): Promise<boolean>
   }
 }
 
-async function insideAnyRoot(roots: readonly string[], candidate: string): Promise<boolean> {
+export async function insideAnyRoot(roots: readonly string[], candidate: string): Promise<boolean> {
   for (const root of roots) {
     if (await insideRootSafe(root, candidate)) return true;
   }

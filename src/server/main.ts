@@ -39,10 +39,11 @@ export async function main(): Promise<void> {
   // The socket comes from AI_REMOTE_UPLOAD_SOCKET, or ai-remote-upload's default location when unset.
   const uploads = new SharedUploadClient();
   const agents = new AgentRegistry(adapters);
+  const fileRoots = buildViewableRoots([config.projectRoot], [previewRoot]);
   const runtime = new GroupRuntime({
-    store, agents, collaboration: () => settings.get().collaboration,
+    projectRoot: config.projectRoot, store, agents, collaboration: () => settings.get().collaboration,
     deliverReply: ({ group, source, signal }) => prepareDeliveries({
-      source, root: group.cwd, binding: groupAttachmentBinding(group), client: uploads, signal,
+      source, roots: fileRoots, binding: groupAttachmentBinding(group), client: uploads, signal,
     }),
   });
   const groups = new GroupService({ projectRoot: config.projectRoot, store, runtime, agents, settings, uploads });
@@ -54,7 +55,7 @@ export async function main(): Promise<void> {
   });
   const server = new WebServer({
     token,
-    fileRoots: buildViewableRoots([config.projectRoot], [previewRoot]),
+    fileRoots,
     services: { hub, groups },
     uploads,
     allowedOrigins: readAllowedOrigins(process.env.ALLOWED_ORIGINS),
