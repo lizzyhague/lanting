@@ -19,6 +19,8 @@ export type AgentState = {
   cursor: number;
   /** Model, reasoning effort and permission chosen for it in this group; affects this group only. */
   settings: AgentSettings;
+  /** Undefined preserves the inherited deployment environment for legacy records. */
+  useProxy?: boolean;
 };
 
 export type Group = {

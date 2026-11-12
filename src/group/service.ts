@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
+import { proxyAvailable } from "../agents/proxy.ts";
+
 import type { AgentKind } from "../agents/kinds.ts";
 import type { PaletteId } from "../agents/palette.ts";
 import { kindDisplayName, SUPPORTED_AGENT_KINDS, type AgentRegistry } from "../agents/registry.ts";
@@ -130,6 +132,7 @@ export type BatchResult = {
 
 export type PublicSettings = Omit<Settings, "agents"> & {
   agents: (AgentRecord & { complete: boolean })[];
+  proxyAvailable: boolean;
 };
 
 export type ServiceEvent =
@@ -235,7 +238,7 @@ export class GroupService {
   /** Models and permissions this AI can choose on the settings page, looked up from the project root. */
   async settingsCatalog(agentId: string): Promise<AgentCatalog> {
     const agent = this.#settingsAgent(this.#settings.get(), agentId);
-    return this.#catalogOf(this.#adapterForSettings(agent), this.#projectRoot);
+    return this.#catalogOf(this.#adapterForSettings(agent), this.#projectRoot, agent.useProxy);
   }
 
   /** Each AI's default settings, copied into newly created groups; existing groups aren't affected. */
@@ -243,7 +246,7 @@ export class GroupService {
     const agent = this.#settingsAgent(this.#settings.get(), agentId);
     const kind = agent.kind;
     const adapter = this.#adapterForSettings(agent);
-    const catalog = await this.#catalogOf(adapter, this.#projectRoot);
+    const catalog = await this.#catalogOf(adapter, this.#projectRoot, agent.useProxy);
     this.#checkSettings(agent.name, adapter, catalog, settings, { field: "defaults", agentId });
     await this.#settings.update((next) => {
       const current = next.agents.find((item) => item.id === agentId);
@@ -252,6 +255,15 @@ export class GroupService {
         throw new GroupError("agent_changed", localText("error.agentChanged", { name: current.name }));
       }
       current.defaults = { ...settings };
+    });
+    return this.#emitSettings();
+  }
+
+  async setProxy(agentId: string, useProxy: boolean): Promise<PublicSettings> {
+    this.#settingsAgent(this.#settings.get(), agentId);
+    if (useProxy && !proxyAvailable()) throw new GroupError("invalid_settings", localText("setting.noProxy"));
+    await this.#settings.update((next) => {
+      this.#settingsAgent(next, agentId).useProxy = useProxy;
     });
     return this.#emitSettings();
   }
@@ -350,6 +362,7 @@ export class GroupService {
       kind: agent.kind!,
       color: agent.color!,
       settings: { ...agent.defaults },
+      useProxy: proxyAvailable() && (agent.useProxy ?? true),
     }));
     const tags = members.map((member) => member.tag);
     const title = input.title.trim().slice(0, MAX_TITLE_LENGTH) || DEFAULT_TITLE;
@@ -418,7 +431,7 @@ export class GroupService {
   async catalog(groupId: string, agent: string): Promise<AgentCatalog> {
     const group = this.#requireActive(groupId);
     this.#requireMember(group, agent);
-    return this.#catalogOf(this.#adapterFor(group, agent), group.cwd);
+    return this.#catalogOf(this.#adapterFor(group, agent), group.cwd, group.agents[agent]!.useProxy);
   }
 
   /**
@@ -429,7 +442,7 @@ export class GroupService {
     const group = this.#requireActive(groupId);
     this.#requireMember(group, agent);
     const adapter = this.#adapterFor(group, agent);
-    this.#checkSettings(agent, adapter, await this.#catalogOf(adapter, group.cwd), settings);
+    this.#checkSettings(agent, adapter, await this.#catalogOf(adapter, group.cwd, group.agents[agent]!.useProxy), settings);
     const updated = await this.#store.update(groupId, (next) => {
       const state = next.agents[agent];
       if (state) state.settings = { ...settings };
@@ -713,7 +726,7 @@ export class GroupService {
           continue;
         }
         try {
-          await deleteSession(nativeId, group.cwd);
+          await deleteSession(nativeId, group.cwd, state.useProxy);
           await this.#store.update(groupId, (next) => {
             const state = next.agents[agent];
             if (state) state.nativeSessionId = null;
@@ -735,10 +748,10 @@ export class GroupService {
     }
   }
 
-  async #catalogOf(adapter: AgentAdapter, cwd: string): Promise<AgentCatalog> {
+  async #catalogOf(adapter: AgentAdapter, cwd: string, useProxy?: boolean): Promise<AgentCatalog> {
     return {
-      models: adapter.features.models ? await adapter.features.models(cwd) : [],
-      permissions: adapter.features.permissions ? await adapter.features.permissions(cwd) : [],
+      models: adapter.features.models ? await adapter.features.models(cwd, useProxy) : [],
+      permissions: adapter.features.permissions ? await adapter.features.permissions(cwd, useProxy) : [],
     };
   }
 
@@ -935,6 +948,7 @@ export class GroupService {
   #publicSettings(settings: Settings): PublicSettings {
     return {
       ...settings,
+      proxyAvailable: proxyAvailable(),
       agents: settings.agents.map((agent) => ({
         ...agent,
         complete: isAgentComplete(agent, this.#agents.kinds),

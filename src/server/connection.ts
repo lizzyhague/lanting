@@ -222,6 +222,10 @@ export class BrowserConnection implements EventSink {
         this.#respondOk(request.requestId, { settings: await groups.reorderAgents(request.order) });
         return;
       }
+      case "settings.proxy": {
+        this.#respondOk(request.requestId, { settings: await groups.setProxy(request.agentId, request.useProxy) });
+        return;
+      }
       case "settings.catalog": {
         this.#respondOk(request.requestId, await groups.settingsCatalog(request.agentId));
         return;

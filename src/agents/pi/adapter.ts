@@ -1,3 +1,4 @@
+import { proxyEnvironment } from "../proxy.ts";
 import type { AgentFeatures } from "../../features/index.ts";
 import { localText } from "../../i18n/text.ts";
 import { CatalogCache } from "../catalog-cache.ts";
@@ -54,8 +55,8 @@ export class PiAdapter implements AgentAdapter {
   readonly closeAfterTurn = true;
   readonly features: AgentFeatures = {
     compact: (session) => asOwnSession(session).compact(),
-    models: async (cwd) => (await this.#catalog(cwd)).models,
-    permissions: async (cwd) => (await this.#catalog(cwd)).permissions,
+    models: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).models,
+    permissions: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).permissions,
   };
   readonly #options: PiAdapterOptions;
   readonly #catalogs = new CatalogCache();
@@ -65,13 +66,13 @@ export class PiAdapter implements AgentAdapter {
   }
 
   /** Starts a short-lived RPC process that saves no session to query the model list; Pi only returns models with credentials. */
-  #catalog(cwd: string): Promise<AgentCatalog> {
-    return this.#catalogs.get("", async () => {
+  #catalog(cwd: string, useProxy?: boolean): Promise<AgentCatalog> {
+    return this.#catalogs.get(String(useProxy), async () => {
       const client = new PiRpcClient({
         executable: this.#options.executable,
         args: ["--no-session"],
         cwd,
-        env: childEnvironment(process.env),
+        env: childEnvironment(proxyEnvironment(useProxy)),
       });
       try {
         return { models: modelOptions(await client.getAvailableModels()), permissions: [...PI_PERMISSIONS] };
@@ -144,7 +145,7 @@ class PiSession implements AgentSession {
       executable: adapter.executable,
       args: ["--append-system-prompt", options.systemPrompt],
       cwd: options.cwd,
-      env: childEnvironment(process.env),
+      env: childEnvironment(proxyEnvironment(options.useProxy)),
     });
     const session = new PiSession(client, options);
     try {

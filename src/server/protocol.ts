@@ -62,6 +62,7 @@ export type BrowserRequest =
   }
   | { type: "settings.agent.remove"; requestId: string; agentId: string }
   | { type: "settings.agent.reorder"; requestId: string; order: string[] }
+  | { type: "settings.proxy"; requestId: string; agentId: string; useProxy: boolean }
   | { type: "settings.catalog"; requestId: string; agentId: string }
   | {
     type: "settings.defaults";
@@ -272,6 +273,9 @@ export function parseBrowserRequest(source: string): BrowserRequest {
         requestId,
         order: requireAgentIdList(value.order, "AI order", requestId),
       };
+    case "settings.proxy":
+      if (typeof value.useProxy !== "boolean") throw new ProtocolError("invalid_field", "useProxy must be a boolean.", requestId);
+      return { type: "settings.proxy", requestId, agentId: requireAgentId(value.agentId, requestId), useProxy: value.useProxy };
     case "settings.catalog":
       return { type: "settings.catalog", requestId, agentId: requireAgentId(value.agentId, requestId) };
     case "settings.defaults":

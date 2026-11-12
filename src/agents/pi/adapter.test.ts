@@ -14,6 +14,7 @@ import path from "node:path";
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
 const state = {
+  proxyKeys: Object.keys(process.env).filter((key) => /^(https?|all|no)_proxy$/i.test(key)),
   rules: flag("--append-system-prompt"),
   noSession: args.includes("--no-session"),
   sessionFile: "/fake/sessions/new.jsonl",
@@ -431,4 +432,19 @@ test("compact calls Pi's compact command", async (t) => {
   t.after(() => session.close());
   await adapter.features.compact!(session);
   assert.equal((await stateOf(session)).compacted, 1);
+});
+
+
+test("Pi start and resume use each group's proxy choice", async (t) => {
+  const before = process.env.HTTPS_PROXY;
+  process.env.HTTPS_PROXY = "http://localhost:8080";
+  t.after(() => { if (before === undefined) delete process.env.HTTPS_PROXY; else process.env.HTTPS_PROXY = before; });
+  const { adapter, options } = await setup(t);
+  const direct = await adapter.startSession({ ...options, useProxy: false });
+  t.after(() => direct.close());
+  assert.deepEqual((await stateOf(direct)).proxyKeys, []);
+  assert.ok(direct.nativeId);
+  const proxied = await adapter.resumeSession(direct.nativeId, { ...options, useProxy: true });
+  t.after(() => proxied.close());
+  assert.ok(((await stateOf(proxied)).proxyKeys as string[]).includes("HTTPS_PROXY"));
 });

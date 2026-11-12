@@ -1,3 +1,4 @@
+import { proxyEnvironment } from "../proxy.ts";
 import type { AgentFeatures } from "../../features/index.ts";
 import { englishText, localText, LocalizedError } from "../../i18n/text.ts";
 import { EventChannel } from "../event-channel.ts";
@@ -151,7 +152,7 @@ class AntigravitySession implements AgentSession {
     const client = new AntigravityAcpClient({
       executable: adapter.executable,
       cwd: options.cwd,
-      env: childEnvironment(process.env),
+      env: childEnvironment(proxyEnvironment(options.useProxy)),
     });
     const session = new AntigravitySession(client, options);
     try {

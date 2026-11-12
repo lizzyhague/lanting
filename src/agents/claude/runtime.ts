@@ -1,3 +1,4 @@
+import { proxyEnvironment } from "../proxy.ts";
 import {
   query,
   type EffortLevel,
@@ -43,6 +44,8 @@ export type ClaudeRuntimeOptions = {
   resume: boolean;
   /** Only for querying the model list: writes no session file and sends no messages. */
   ephemeral?: boolean;
+  environment?: NodeJS.ProcessEnv;
+  useProxy?: boolean;
   cwd: string;
   /** Appended after Claude Code's preset system prompt. */
   appendSystemPrompt: string;
@@ -156,7 +159,7 @@ export class ClaudeRuntime {
       ...(this.#options.ephemeral ? { persistSession: false } : {}),
       pathToClaudeCodeExecutable: this.#options.pathToClaudeCodeExecutable,
       // Taking over spawn ourselves puts the CLI and its tool subprocesses in one separate process group.
-      spawnClaudeCodeProcess: processGroup.spawn,
+      spawnClaudeCodeProcess: (options) => processGroup.spawn({ ...options, env: proxyEnvironment(this.#options.useProxy, options.env) }),
       systemPrompt: { type: "preset", preset: "claude_code", append: this.#options.appendSystemPrompt },
       settingSources: ["user", "project"],
       // A phone may handle an approval minutes later; the SDK's internal deadline is explicitly disabled and the approval registry owns timeouts.
@@ -166,7 +169,7 @@ export class ClaudeRuntime {
       allowDangerouslySkipPermissions: true,
       disallowedTools: DISALLOWED_TOOLS,
       includePartialMessages: true,
-      env: claudeCodeEnvironment(),
+      env: claudeCodeEnvironment(this.#options.environment),
       hooks: {
         PreToolUse: [{
           hooks: [createPreToolUseHook({

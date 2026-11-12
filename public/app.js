@@ -630,7 +630,7 @@ function applySettings(settings) {
   for (const id of state.expandedSettingsAgents) if (!ids.has(id)) state.expandedSettingsAgents.delete(id);
   const catalogKeys = new Set(settings.agents
     .filter((agent) => agent.kind !== null)
-    .map((agent) => settingsCatalogKey(agent.id, agent.kind)));
+    .map((agent) => settingsCatalogKey(agent.id, agent.kind, agent.useProxy)));
   for (const key of state.settingsCatalogs.keys()) if (!catalogKeys.has(key)) state.settingsCatalogs.delete(key);
   renderCreateForm();
   renderSettingsDialog();
@@ -1995,6 +1995,56 @@ function settingControls(catalog, settings, locked, supports, save, unavailable 
   return controls;
 }
 
+/** The connection choice is a member default, copied only when creating a group. */
+function proxyControls(agent, locked) {
+  const row = document.createElement("div");
+  row.className = "setting proxy-setting";
+  row.setAttribute("role", "radiogroup");
+  row.setAttribute("aria-label", t("setting.connection"));
+  const legend = document.createElement("span");
+  legend.textContent = t("setting.connection");
+  row.append(legend);
+  const available = state.settings.proxyAvailable === true;
+  const selected = available && (agent.useProxy ?? true);
+  const choices = document.createElement("div");
+  choices.className = "proxy-choices";
+  for (const useProxy of [false, true]) {
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = `proxy-${agent.id}`;
+    input.checked = selected === useProxy;
+    input.disabled = locked || (useProxy && !available);
+    input.addEventListener("change", () => {
+      if (input.checked) void saveProxy(agent.id, useProxy);
+    });
+    label.append(input, document.createTextNode(t(useProxy ? "setting.proxy" : "setting.direct")));
+    choices.append(label);
+  }
+  row.append(choices);
+  if (!available) row.append(statusLine(t("setting.noProxy")));
+  return row;
+}
+
+async function saveProxy(agentId, useProxy) {
+  clearSettingsFieldError(agentId, "defaults");
+  state.savingDefaults.add(agentId);
+  renderSettingsDialog();
+  try {
+    const { settings } = await request("settings.proxy", { agentId, useProxy });
+    applySettings(settings);
+    for (const key of state.settingsCatalogs.keys()) {
+      if (key.startsWith(`${agentId}:`)) state.settingsCatalogs.delete(key);
+    }
+    loadAvailableSettingsCatalogs();
+  } catch (error) {
+    setSettingsError(error, agentId, "defaults");
+  } finally {
+    state.savingDefaults.delete(agentId);
+    renderSettingsDialog();
+  }
+}
+
 function permissionLabel(item) {
   return localText(item.labelText, item.label);
 }
@@ -2234,15 +2284,16 @@ function loadAvailableSettingsCatalogs() {
 async function loadSettingsCatalog(agent) {
   if (agent.kind === null || !configuredKind(agent.kind)) return;
   const kind = agent.kind;
-  const key = settingsCatalogKey(agent.id, kind);
+  const useProxy = agent.useProxy;
+  const key = settingsCatalogKey(agent.id, kind, useProxy);
   if (state.settingsCatalogs.has(key)) return;
   state.settingsCatalogs.set(key, { loading: true });
   renderSettingsDialog();
   try {
     const catalog = await request("settings.catalog", { agentId: agent.id });
-    if (settingsAgent(agent.id)?.kind === kind) state.settingsCatalogs.set(key, { catalog });
+    if (settingsAgent(agent.id)?.kind === kind && settingsAgent(agent.id)?.useProxy === useProxy) state.settingsCatalogs.set(key, { catalog });
   } catch (error) {
-    if (settingsAgent(agent.id)?.kind === kind) {
+    if (settingsAgent(agent.id)?.kind === kind && settingsAgent(agent.id)?.useProxy === useProxy) {
       state.settingsCatalogs.set(key, { error: errorMessage(error) });
     }
   }
@@ -2354,7 +2405,7 @@ function settingsAgentRow(agent) {
   defaultsContent.className = "settings-agent-defaults-content";
   const defaultsLocked = locked || state.savingDefaults.has(agent.id);
   const kindAvailable = agent.kind !== null && configuredKind(agent.kind);
-  const entry = kindAvailable ? state.settingsCatalogs.get(settingsCatalogKey(agent.id, agent.kind)) : null;
+  const entry = kindAvailable ? state.settingsCatalogs.get(settingsCatalogKey(agent.id, agent.kind, agent.useProxy)) : null;
   if (!kindAvailable) {
     defaultsContent.append(...settingControls(
       { models: [], permissions: [] },
@@ -2382,6 +2433,7 @@ function settingsAgentRow(agent) {
       (next) => void saveDefaults(agent.id, next),
     ));
   }
+  defaultsContent.append(proxyControls(agent, defaultsLocked));
   if (error?.field === "defaults") {
     for (const select of defaultsContent.querySelectorAll("select")) select.setAttribute("aria-invalid", "true");
   }

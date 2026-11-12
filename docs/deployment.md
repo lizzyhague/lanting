@@ -176,3 +176,17 @@ of two ways:
 
 If the login expires and ACP Server cannot refresh it, Antigravity's turn in a group fails with a
 message asking you to sign in again. Repeat the steps above; lanting does not need to be restarted.
+
+### Per-member proxy selection
+
+Configure `HTTP_PROXY`, `HTTPS_PROXY` and/or `ALL_PROXY` (or their lowercase forms) in the
+service environment to make **Use proxy** available in member settings. Without a nonempty
+proxy variable, that option is disabled and new groups use direct connections.
+
+The **Direct / Use proxy** radio buttons below Permission apply only to newly created groups.
+Each group saves its own copy of the choice. Direct removes the standard uppercase and lowercase
+proxy variables, including `NO_PROXY`, from CLI subprocess environments. Use proxy inherits the
+deployment environment; it does not override a CLI's own proxy configuration. CLI tools inherit
+that same environment. Groups saved before this option existed retain their previous inherited
+environment behavior. For members without a saved choice, new groups default to using the
+configured deployment proxy, if available.

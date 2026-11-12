@@ -2563,3 +2563,22 @@ html.pull-refresh-enabled {
   font-size: 0.82rem;
   pointer-events: none;
 }
+
+.proxy-setting {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.proxy-choices {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.proxy-choices label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.proxy-choices label:has(input:disabled) { opacity: .5; }
+.proxy-setting > .member-note { grid-column: 2; }

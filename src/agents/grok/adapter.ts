@@ -1,3 +1,4 @@
+import { proxyEnvironment } from "../proxy.ts";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readdir, rm, stat } from "node:fs/promises";
 import os from "node:os";
@@ -60,8 +61,8 @@ export class GrokAdapter implements AgentAdapter {
   readonly features: AgentFeatures = {
     compact: (session) => asOwnSession(session).compact(),
     deleteSession: (nativeId) => this.#deleteSession(nativeId),
-    models: async (cwd) => (await this.#catalog(cwd)).models,
-    permissions: async (cwd) => (await this.#catalog(cwd)).permissions,
+    models: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).models,
+    permissions: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).permissions,
   };
   readonly #options: GrokAdapterOptions;
   readonly #catalogs = new CatalogCache();
@@ -71,9 +72,9 @@ export class GrokAdapter implements AgentAdapter {
   }
 
   /** As in Grok Remote: the model list comes in the initialize response, no session needed. */
-  #catalog(cwd: string): Promise<AgentCatalog> {
-    return this.#catalogs.get("", async () => {
-      const child = spawnGrok(this.#options.executable, cwd);
+  #catalog(cwd: string, useProxy?: boolean): Promise<AgentCatalog> {
+    return this.#catalogs.get(String(useProxy), async () => {
+      const child = spawnGrok(this.#options.executable, cwd, useProxy);
       const client = new AcpClient(child);
       try {
         if (child.pid === undefined) throw new Error("Cannot start Grok.");
@@ -159,7 +160,7 @@ class GrokSession implements AgentSession {
     options: SessionOptions,
     adapter: GrokAdapterOptions,
   ): Promise<GrokSession> {
-    const child = spawnGrok(adapter.executable, options.cwd);
+    const child = spawnGrok(adapter.executable, options.cwd, options.useProxy);
     const session = new GrokSession(child, options);
     const yolo = options.settings.permission === ALWAYS_APPROVE;
     try {
@@ -314,10 +315,10 @@ function resolveGrokHome(env: NodeJS.ProcessEnv = process.env): string {
   return env.GROK_HOME?.trim() || path.join(os.homedir(), ".grok");
 }
 
-function spawnGrok(executable: string, cwd: string): ChildProcessWithoutNullStreams {
+function spawnGrok(executable: string, cwd: string, useProxy?: boolean): ChildProcessWithoutNullStreams {
   const child = spawn(executable, ["agent", "--no-leader", "stdio"], {
     cwd,
-    env: withoutWebLoginToken(process.env),
+    env: withoutWebLoginToken(proxyEnvironment(useProxy)),
     stdio: ["pipe", "pipe", "pipe"],
     detached: true,
     windowsHide: true,

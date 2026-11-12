@@ -1,3 +1,4 @@
+import { proxyEnvironment } from "../proxy.ts";
 import type { AgentFeatures, UsagePart, UsageWindow } from "../../features/index.ts";
 import { localText, type LocalText } from "../../i18n/text.ts";
 import { EventChannel } from "../event-channel.ts";
@@ -36,13 +37,14 @@ export class CodexAdapter implements AgentAdapter {
   readonly closeAfterTurn = true;
   readonly features: AgentFeatures = {
     compact: (session) => asOwnSession(session).compact(),
-    deleteSession: (nativeId, cwd) => this.#deleteSession(nativeId, cwd),
-    models: () => listModels(this.#resident),
-    permissions: (cwd) => listPermissions(this.#resident, cwd),
-    usage: (request) => this.#usage(request.nativeId),
+    deleteSession: (nativeId, cwd, useProxy) => this.#deleteSession(nativeId, cwd, useProxy),
+    models: (_cwd, useProxy) => listModels(useProxy === false ? this.#directResident : this.#resident),
+    permissions: (cwd, useProxy) => listPermissions(useProxy === false ? this.#directResident : this.#resident, cwd),
+    usage: (request) => this.#usage(request.nativeId, request.useProxy),
   };
   readonly #options: CodexAdapterOptions;
   readonly #resident: ResidentAppServer;
+  readonly #directResident: ResidentAppServer;
   /**
    * As in Codex Remote: context is only recorded from thread/tokenUsage/updated during replies; sessions aren't resumed just to read context.
    * Kept only in memory and survives the process closing; after lanting restarts it waits for this member to reply again.
@@ -53,6 +55,11 @@ export class CodexAdapter implements AgentAdapter {
 
   constructor(options: CodexAdapterOptions) {
     this.#options = options;
+    this.#directResident = new ResidentAppServer({
+      executable: options.executable,
+      initializeParams: INITIALIZE_PARAMS,
+      environment: proxyEnvironment(false),
+    });
     this.#resident = new ResidentAppServer({
       executable: options.executable,
       initializeParams: INITIALIZE_PARAMS,
@@ -64,14 +71,15 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   close(): Promise<void> {
-    return this.#resident.close();
+    return Promise.all([this.#resident.close(), this.#directResident.close()]).then(() => {});
   }
 
   /** As in Codex Remote: start a temporary app-server to call thread/delete; one that no longer exists counts as deleted. */
-  async #deleteSession(nativeId: string, cwd: string): Promise<void> {
+  async #deleteSession(nativeId: string, cwd: string, useProxy?: boolean): Promise<void> {
     const client = new AppServerClient({
       codexBinary: this.#options.executable,
       workingDirectory: cwd,
+      environment: proxyEnvironment(useProxy),
       processGroup: true,
     });
     try {
@@ -101,7 +109,10 @@ export class CodexAdapter implements AgentAdapter {
     else this.#contexts.delete(threadId);
   };
 
-  async #usage(threadId: string): Promise<UsagePart[]> {
+  async #usage(threadId: string, useProxy?: boolean): Promise<UsagePart[]> {
+    if (useProxy === false) {
+      return usageParts(this.#contexts.get(threadId) ?? null, await readQuota(this.#directResident));
+    }
     this.#quota ??= readQuota(this.#resident).finally(() => {
       this.#quota = null;
     });
@@ -216,6 +227,7 @@ class CodexSession implements AgentSession {
     const client = new AppServerClient({
       codexBinary: adapter.executable,
       workingDirectory: options.cwd,
+      environment: proxyEnvironment(options.useProxy),
       processGroup: true,
     });
     const session = new CodexSession(client, options, onTokenUsage);

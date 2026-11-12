@@ -20,6 +20,8 @@ export type AgentRecord = {
   kind: AgentKind | null;
   color: PaletteId | null;
   defaults: AgentSettings;
+  /** Undefined preserves the inherited deployment environment for legacy records. */
+  useProxy?: boolean;
 };
 
 export type Settings = {
@@ -186,6 +188,9 @@ function validateSettings(value: unknown, previous?: Settings): asserts value is
     if (item.color !== null && !isPaletteId(item.color)) {
       throw new SettingsError(localText("error.colorNotInPalette"), "color", agentId);
     }
+    if (item.useProxy !== undefined && typeof item.useProxy !== "boolean") {
+      throw new SettingsError(localText("error.defaultsInvalid"), "defaults", agentId);
+    }
     if (!isAgentSettings(item.defaults)) {
       throw new SettingsError(localText("error.defaultsInvalid"), "defaults", agentId);
     }
@@ -264,6 +269,7 @@ function exactSettings(settings: Settings): Settings {
       name: agent.name,
       kind: agent.kind,
       color: agent.color,
+      ...(agent.useProxy === undefined ? {} : { useProxy: agent.useProxy }),
       defaults: {
         model: agent.defaults.model,
         effort: agent.defaults.effort,

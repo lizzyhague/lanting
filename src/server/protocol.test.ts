@@ -230,3 +230,9 @@ test("usage requests carry a member tag or null", () => {
   rejectsWith(JSON.stringify({ type: "group.usage", requestId: "r5", groupId, agent: "Bad" }), "invalid_field", "r5");
   rejectsWith(JSON.stringify({ type: "group.usage.refresh", requestId: "r6", groupId: "x" }), "invalid_field", "r6");
 });
+
+test("proxy choices require a boolean and a valid member id", () => {
+  const request = { type: "settings.proxy", requestId: "proxy", agentId: AGENT_ID, useProxy: false };
+  assert.deepEqual(parseBrowserRequest(JSON.stringify(request)), request);
+  rejectsWith(JSON.stringify({ ...request, useProxy: "false" }), "invalid_field", "proxy");
+});

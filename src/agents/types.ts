@@ -108,6 +108,8 @@ export type SessionOptions = {
   systemPrompt: string;
   /** Applied when opening or resuming a session; if settings change later, the group core closes the session and resumes it with the new settings. */
   settings: AgentSettings;
+  /** Undefined preserves the inherited deployment environment for legacy records. */
+  useProxy?: boolean;
   /**
    * Called when the AI wants to use a tool that needs confirmation; the group owner approves or rejects it on the web page.
    * When the CLI withdraws the request itself, the adapter uses signal to remove the approval from the web page.

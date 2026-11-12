@@ -837,3 +837,32 @@ test("delivery bindings stay in storage and are omitted from snapshots and appen
   assert.equal(appended.length, 1);
   assert.deepEqual(appended[0]!.deliveries, [visible]);
 });
+
+test("proxy defaults persist and affect only newly created groups", async (t) => {
+  const proxyKeys = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"];
+  const saved = proxyKeys.map((key) => [key, process.env[key]] as const);
+  t.after(() => { for (const [key, value] of saved) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } });
+  for (const key of proxyKeys) delete process.env[key];
+  process.env.HTTPS_PROXY = "http://localhost:8080";
+  const { service, store, directory, agentIds, groupId, adapter } = await setup(t);
+  assert.equal(service.settings().proxyAvailable, true);
+  assert.equal(store.get(groupId)!.agents.claude!.useProxy, true);
+  // Saving the connection choice must work even when the model catalog is unavailable.
+  adapter.features.models = async () => { throw new Error("offline"); };
+  await store.update(groupId, (next) => { delete next.agents.claude!.useProxy; });
+  await service.setProxy(agentIds.claude, false);
+  assert.equal(store.get(groupId)!.agents.claude!.useProxy, undefined);
+  const fresh = await service.create({ directory: "demo", members: [agentIds.claude], title: "" });
+  assert.equal(store.get(fresh.id)!.agents.claude!.useProxy, false);
+  await service.startRound(fresh.id, "hello", ["claude"]);
+  await idle(service, fresh.id);
+  assert.equal(adapter.calls.at(-1)?.options.useProxy, false);
+  const reopened = await SettingsStore.open(path.join(directory, "data"), ["claude", "codex"]);
+  assert.equal(reopened.get().agents.find((agent) => agent.id === agentIds.claude)!.useProxy, false);
+  const reopenedGroups = await GroupStore.open(path.join(directory, "data"));
+  assert.equal(reopenedGroups.get(fresh.id)!.agents.claude!.useProxy, false);
+  assert.equal(reopenedGroups.get(groupId)!.agents.claude!.useProxy, undefined);
+  delete process.env.HTTPS_PROXY;
+  assert.equal(service.settings().proxyAvailable, false);
+  await assert.rejects(service.setProxy(agentIds.claude, true), /no proxy configured/);
+});

@@ -25,6 +25,7 @@ export type NewMember = {
   kind: AgentKind;
   color: PaletteId;
   settings: AgentSettings;
+  useProxy?: boolean;
 };
 
 export type NewGroup = {
@@ -94,6 +95,7 @@ export class GroupStore {
         nativeSessionId: null,
         cursor: 0,
         settings: { ...member.settings },
+        ...(member.useProxy === undefined ? {} : { useProxy: member.useProxy }),
       };
     }
     const now = Date.now();
@@ -226,7 +228,9 @@ function parseGroup(value: unknown, id: string): Group {
       nativeSessionId: string | null;
       cursor: number;
       settings: unknown;
+      useProxy?: boolean;
     };
+    if (valid.useProxy !== undefined && typeof valid.useProxy !== "boolean") fail(`invalid agents.${member}.useProxy`);
     const settings = parseSettings(valid.settings) ?? fail(`invalid agents.${member}.settings`);
     agents[member] = {
       kind: valid.kind,
@@ -234,6 +238,7 @@ function parseGroup(value: unknown, id: string): Group {
       nativeSessionId: valid.nativeSessionId,
       cursor: valid.cursor,
       settings,
+      ...(valid.useProxy === undefined ? {} : { useProxy: valid.useProxy as boolean }),
     };
   }
   for (const key of ["title", "cwd", "username", "createdAt"] as const) {
@@ -336,6 +341,7 @@ function validateNewGroup(input: NewGroup): void {
   for (const member of input.members) {
     if (!isAgentKind(member.kind)) throw new Error(`Invalid CLI kind for member ${member.tag}.`);
     if (!isPaletteId(member.color)) throw new Error(`Invalid color for member ${member.tag}.`);
+    if (member.useProxy !== undefined && typeof member.useProxy !== "boolean") throw new Error(`Invalid proxy choice for member ${member.tag}.`);
     if (parseSettings(member.settings) === null) throw new Error(`Invalid settings for member ${member.tag}.`);
   }
   const callOrder = input.callOrder ?? [];

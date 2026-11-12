@@ -1,3 +1,4 @@
+import { proxyEnvironment } from "../proxy.ts";
 import type { AgentFeatures, UsagePart } from "../../features/index.ts";
 import { englishText, localText, LocalizedError } from "../../i18n/text.ts";
 import { CatalogCache } from "../catalog-cache.ts";
@@ -68,11 +69,11 @@ export class KimiAdapter implements AgentAdapter {
   readonly #usage = new Map<string, UsagePart[]>();
 
   readonly features: AgentFeatures = {
-    models: async (cwd) => (await this.#catalog(cwd)).models,
-    permissions: async (cwd) => (await this.#catalog(cwd)).permissions,
+    models: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).models,
+    permissions: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).permissions,
     usage: async ({ nativeId }) => this.#usage.get(nativeId) ?? null,
-    deleteSession: async (nativeId, cwd) => {
-      const client = this.#client(cwd);
+    deleteSession: async (nativeId, cwd, useProxy) => {
+      const client = this.#client(cwd, useProxy);
       try {
         await client.initialize();
         await client.sessionDelete(nativeId).catch((error: unknown) => {
@@ -98,9 +99,9 @@ export class KimiAdapter implements AgentAdapter {
     return KimiSession.open(nativeId, options, this.#options, (id, usage) => this.#usage.set(id, usage));
   }
 
-  #catalog(cwd: string): Promise<AgentCatalog> {
-    return this.#catalogCache.get(cwd, async () => {
-      const client = this.#client(cwd);
+  #catalog(cwd: string, useProxy?: boolean): Promise<AgentCatalog> {
+    return this.#catalogCache.get(`${cwd}\0${useProxy}`, async () => {
+      const client = this.#client(cwd, useProxy);
       let sessionId: string | null = null;
       try {
         await client.initialize();
@@ -114,8 +115,8 @@ export class KimiAdapter implements AgentAdapter {
     });
   }
 
-  #client(cwd: string): KimiAcpClient {
-    return new KimiAcpClient({ executable: this.#options.executable, cwd, env: childEnvironment(process.env) });
+  #client(cwd: string, useProxy?: boolean): KimiAcpClient {
+    return new KimiAcpClient({ executable: this.#options.executable, cwd, env: childEnvironment(proxyEnvironment(useProxy)) });
   }
 }
 
@@ -162,7 +163,7 @@ class KimiSession implements AgentSession {
     const client = new KimiAcpClient({
       executable: adapter.executable,
       cwd: options.cwd,
-      env: childEnvironment(process.env),
+      env: childEnvironment(proxyEnvironment(options.useProxy)),
     });
     const session = new KimiSession(client, options, usage);
     try {

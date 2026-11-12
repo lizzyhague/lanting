@@ -14,6 +14,7 @@ export type UsageWindow = { name?: string; minutes?: number; parenthesized?: boo
 
 export type UsageRequest = {
   nativeId: string;
+  useProxy?: boolean;
   cwd: string;
   /** view: a group was opened or the member switched; turn: this member just finished a reply or compaction; visible: the page returned to the foreground. */
   reason: "view" | "turn" | "visible";
@@ -28,11 +29,11 @@ export type AgentFeatures = {
   /** Compacts this session's context. session is the session lanting opened for this member, of the module's own session type. */
   compact?: (session: AgentSession) => Promise<void>;
   /** Permanently deletes the native session. A session that no longer exists also counts as success. */
-  deleteSession?: (nativeId: string, cwd: string) => Promise<void>;
+  deleteSession?: (nativeId: string, cwd: string, useProxy?: boolean) => Promise<void>;
   /** Selectable models, each with its selectable reasoning efforts. */
-  models?: (cwd: string) => Promise<ModelOption[]>;
+  models?: (cwd: string, useProxy?: boolean) => Promise<ModelOption[]>;
   /** Selectable permission levels. */
-  permissions?: (cwd: string) => Promise<PermissionOption[]>;
+  permissions?: (cwd: string, useProxy?: boolean) => Promise<PermissionOption[]>;
   /** Context and quota segments, in display order. Returning null means no new data this time, and lanting keeps the previous result. */
   usage?: (request: UsageRequest) => Promise<UsagePart[] | null>;
 };

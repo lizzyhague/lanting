@@ -4,6 +4,7 @@ type ResidentOptions = {
   executable: string;
   initializeParams: Parameters<AppServerClient["initialize"]>[0];
   startupTimeoutMs?: number;
+  environment?: NodeJS.ProcessEnv;
 };
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 120_000;
@@ -48,6 +49,7 @@ export class ResidentAppServer {
 
     const client = new AppServerClient({
       codexBinary: this.#options.executable,
+      ...(this.#options.environment ? { environment: this.#options.environment } : {}),
       workingDirectory: process.cwd(),
     });
     this.#started = client;

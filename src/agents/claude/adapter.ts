@@ -1,3 +1,4 @@
+import { proxyEnvironment } from "../proxy.ts";
 import {
   deleteSession,
   type EffortLevel,
@@ -56,8 +57,8 @@ export class ClaudeAdapter implements AgentAdapter {
   readonly features: AgentFeatures = {
     compact: (session) => asOwnSession(session).compact(),
     deleteSession: (nativeId, cwd) => this.#deleteSession(nativeId, cwd),
-    models: async (cwd) => (await this.#catalog(cwd)).models,
-    permissions: async (cwd) => (await this.#catalog(cwd)).permissions,
+    models: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).models,
+    permissions: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).permissions,
     // As in Relayu: opening a group or switching members starts a process if none is running; reply completion and returning to the foreground only read running ones.
     usage: async (request) => {
       const session = await request.session(request.reason === "view");
@@ -71,13 +72,15 @@ export class ClaudeAdapter implements AgentAdapter {
     this.#options = options;
   }
 
-  #catalog(cwd: string): Promise<AgentCatalog> {
-    return this.#catalogs.get(cwd, async () => {
+  #catalog(cwd: string, useProxy?: boolean): Promise<AgentCatalog> {
+    return this.#catalogs.get(`${cwd}\0${useProxy}`, async () => {
       // supportedModels() can only ask a running Claude Code, so start a temporary one that writes nothing to disk and sends no messages.
       const runtime = await ClaudeRuntime.start({
         sessionId: randomUUID(),
         resume: false,
         ephemeral: true,
+        environment: proxyEnvironment(useProxy),
+        ...(useProxy === undefined ? {} : { useProxy }),
         cwd,
         appendSystemPrompt: "",
         pathToClaudeCodeExecutable: this.#options.pathToClaudeCodeExecutable,
@@ -146,6 +149,8 @@ class ClaudeSession implements AgentSession {
       sessionId: nativeId,
       resume,
       cwd: options.cwd,
+      environment: proxyEnvironment(options.useProxy),
+      ...(options.useProxy === undefined ? {} : { useProxy: options.useProxy }),
       appendSystemPrompt: options.systemPrompt,
       pathToClaudeCodeExecutable: adapter.pathToClaudeCodeExecutable,
       permissionMode: permissionMode(options.settings.permission),

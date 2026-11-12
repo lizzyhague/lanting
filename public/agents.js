@@ -97,8 +97,8 @@ export function selectionAfterRemove(ids, removedId) {
   return remaining[index] ?? remaining[index - 1] ?? null;
 }
 
-export function settingsCatalogKey(id, kind) {
-  return `${id}:${kind ?? ""}`;
+export function settingsCatalogKey(id, kind, useProxy) {
+  return `${id}:${kind ?? ""}${useProxy === undefined ? "" : `:${useProxy}`}`;
 }
 
 export function paletteColor(palette, id) {

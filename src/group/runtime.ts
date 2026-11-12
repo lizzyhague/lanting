@@ -294,7 +294,7 @@ export class GroupRuntime {
       return this.#session(current, agent);
     };
     try {
-      const parts = await usage({ nativeId, cwd: group.cwd, reason, session });
+      const parts = await usage({ nativeId, cwd: group.cwd, reason, session, ...(state.useProxy === undefined ? {} : { useProxy: state.useProxy }) });
       return parts ? { status: "ok", parts } : { status: "none" };
     } finally {
       if (opened) this.#touch(groupId, agent);
@@ -581,6 +581,7 @@ export class GroupRuntime {
     const options: SessionOptions = {
       cwd: group.cwd,
       settings: { ...settings },
+      ...(state.useProxy === undefined ? {} : { useProxy: state.useProxy }),
       systemPrompt: buildSystemPrompt({
         projectRoot: this.#projectRoot,
         username: group.username,
