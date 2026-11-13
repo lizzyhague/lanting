@@ -46,6 +46,22 @@ test("an incomplete member can stay selected until it becomes complete again", (
   }), ["b"]);
 });
 
+test("unavailable members stay visible on request but cannot be used to create groups", () => {
+  const settings = { agents: [
+    { id: "ready", name: "Ready", kind: "claude", color: "orange", complete: true },
+    { id: "offline", name: "Offline", kind: "cursor", color: "blue", complete: false },
+    { id: "unnamed", name: "", kind: "cursor", color: "green", complete: false },
+    { id: "no-kind", name: "Draft", kind: null, color: "green", complete: false },
+    { id: "no-color", name: "Draft", kind: "cursor", color: null, complete: false },
+  ] };
+  assert.deepEqual(createCandidates(settings, true).map((agent) => agent.id), ["ready", "offline"]);
+  assert.deepEqual(effectiveCreateMembers(null, settings), ["ready"]);
+  assert.deepEqual(effectiveCreateMembers(["offline"], settings), []);
+  assert.deepEqual(effectiveCreateMembers(["offline"], {
+    agents: settings.agents.map((agent) => agent.id === "offline" ? { ...agent, complete: true } : agent),
+  }), ["offline"]);
+});
+
 test("colors used by other records are disabled but the current color stays available", () => {
   const palette = [{ id: "orange", color: "#f00" }, { id: "blue", color: "#00f" }];
   const agents = [{ id: "a", color: "orange" }, { id: "b", color: "blue" }];

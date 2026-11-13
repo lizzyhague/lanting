@@ -51,8 +51,9 @@ export function reloadDisplayTimezone() {
   return loadDisplayTimezone();
 }
 
-export function createCandidates(settings) {
-  return settings.agents.filter((agent) => agent.complete);
+export function createCandidates(settings, includeUnavailable = false) {
+  return settings.agents.filter((agent) => agent.complete ||
+    (includeUnavailable && agent.name.trim() && agent.kind !== null && agent.color !== null));
 }
 
 export function effectiveCreateMembers(createMembers, settings) {

@@ -656,9 +656,12 @@ function renderCreateForm() {
   select.value = selected;
   stateSet(DIRECTORY_KEY, selected);
 
-  const candidates = state.settings ? createCandidates(state.settings) : [];
+  const candidates = state.settings ? createCandidates(state.settings, true) : [];
   elements.memberPicks.replaceChildren(...candidates.map((agent) => {
-    const pick = agentPick(agent.id, agent.color, agent.name, state.createMembers.has(agent.id));
+    const pick = agentPick(agent.id, agent.color,
+      agent.complete ? agent.name : t("member.notConnected", { member: agent.name }),
+      agent.complete && state.createMembers.has(agent.id));
+    pick.disabled = !agent.complete;
     pick.addEventListener("click", () => {
       const selected = !state.createMembers.has(agent.id);
       if (selected) state.createMembers.add(agent.id);

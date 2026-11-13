@@ -1,12 +1,11 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { AGENT_MODULES } from "../agents/index.ts";
+import { createConfiguredAdapters } from "../agents/startup.ts";
 import { AgentRegistry } from "../agents/registry.ts";
 import { groupAttachmentBinding } from "../attachments/binding.ts";
 import { prepareDeliveries } from "../deliveries/prepare.ts";
 import { SharedUploadClient } from "../attachments/shared-upload-client.ts";
-import type { AgentAdapter } from "../agents/types.ts";
 import { configuredKinds, loadConfig } from "../config/load.ts";
 import { GroupRuntime } from "../group/runtime.ts";
 import { GroupService } from "../group/service.ts";
@@ -24,12 +23,7 @@ export async function main(): Promise<void> {
 
   const configPath = path.resolve(process.env.CONFIG_PATH ?? "config.json");
   const config = await loadConfig(configPath);
-  const adapters: AgentAdapter[] = [];
-  // The list order is the order shown in the interface.
-  for (const module of AGENT_MODULES) {
-    const section = config.agents[module.kind];
-    if (section) adapters.push(await module.create(section, `agents.${module.kind}`));
-  }
+  const adapters = await createConfiguredAdapters(config);
   const previewRoot = await ensurePreviewRoot();
   const dataDirectory = path.resolve(process.env.DATA_DIR ?? "data");
 
