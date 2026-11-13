@@ -555,6 +555,11 @@ function handleEvent(event) {
       current.round.text = "";
       renderLive();
       return;
+    case "agent.activity.updated":
+      if (!current.round || event.index < 0 || event.index >= current.round.activities.length) return;
+      current.round.activities[event.index] = event.activity;
+      renderLive();
+      return;
     case "entry.appended":
       current.transcript.push(event.entry);
       if (event.entry.from.role === "agent" && current.round) {

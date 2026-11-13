@@ -27,6 +27,7 @@ export type GroupEvent =
   | { type: "agent.started"; groupId: string; roundId: string; agent: string }
   | { type: "agent.text"; groupId: string; roundId: string; agent: string; delta: string }
   | { type: "agent.activity"; groupId: string; roundId: string; agent: string; activity: Activity }
+  | { type: "agent.activity.updated"; groupId: string; roundId: string; agent: string; index: number; activity: Activity }
   | { type: "round.ended"; groupId: string; roundId: string; outcome: RoundOutcome }
   | { type: "compact.started"; groupId: string; agents: string[] }
   | { type: "compact.progress"; groupId: string; agent: string }
@@ -476,6 +477,12 @@ export class GroupRuntime {
           stream = redactor.stream();
           if (round.activities.length < MAX_ACTIVITIES) round.activities.push(activity);
           this.#emit({ type: "agent.activity", groupId, roundId: round.id, agent, activity });
+        } else if (event.type === "activity.update") {
+          const index = round.activities.findIndex((activity) => activity.kind === "tool" && activity.toolCallId === event.toolCallId);
+          if (index < 0) continue;
+          const activity = toActivity(redactor.redactDeep(event.activity));
+          round.activities[index] = activity;
+          this.#emit({ type: "agent.activity.updated", groupId, roundId: round.id, agent, index, activity });
         } else {
           final = event;
           break;

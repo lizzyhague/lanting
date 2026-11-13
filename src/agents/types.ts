@@ -122,6 +122,8 @@ export type AgentEvent =
   | { type: "text"; delta: string }
   /** Progress info such as thinking and tool calls: shown only to the group owner, kept out of the chat record and not sent to other AIs. */
   | { type: "activity"; activity: Record<string, unknown> }
+  /** Replaces an existing tool activity without resetting streamed reply text. */
+  | { type: "activity.update"; toolCallId: string; activity: Record<string, unknown> }
   /**
    * This reply has ended; must be the last event. text is the complete plain reply and is what gets written to the chat record.
    * If iteration finishes or throws without an end, the group core treats it as failed.

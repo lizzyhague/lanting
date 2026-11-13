@@ -194,6 +194,7 @@ class KimiSession implements AgentSession {
     if (!this.alive) throw new Error("The Kimi process is closed.");
     if (this.#turn) throw new Error("Kimi is still handling the previous round.");
     const turn: Turn = { channel: new EventChannel<AgentEvent>(), segment: "", interrupted: false };
+    this.#toolCalls.clear();
     this.#turn = turn;
     const prompt = this.#rulesPending ? firstMessage(this.#options.systemPrompt, text) : text;
     this.#rulesPending = false;
@@ -277,11 +278,19 @@ class KimiSession implements AgentSession {
       return;
     }
     if (kind === "tool_call" || kind === "tool_call_update") {
+      const id = typeof update.toolCallId === "string" ? update.toolCallId : "";
+      const previous = id ? this.#toolCalls.get(id) : undefined;
       this.#rememberToolCall(update);
-      if (kind !== "tool_call") return;
+      const toolCall = (id ? this.#toolCalls.get(id) : undefined) ?? update;
+      if (kind === "tool_call_update") {
+        if (previous && JSON.stringify(toolActivity(previous)) !== JSON.stringify(toolActivity(toolCall))) {
+          turn.channel.push({ type: "activity.update", toolCallId: id, activity: { ...toolActivity(toolCall), toolCallId: id } });
+        }
+        return;
+      }
       if (turn.segment.trim()) turn.channel.push({ type: "activity", activity: { kind: "note", text: turn.segment } });
       turn.segment = "";
-      turn.channel.push({ type: "activity", activity: toolActivity(update) });
+      turn.channel.push({ type: "activity", activity: { ...toolActivity(toolCall), ...(id ? { toolCallId: id } : {}) } });
     }
   }
 
@@ -386,12 +395,16 @@ export function toolActivity(toolCall: Record<string, unknown>): { kind: "tool";
   const title = typeof toolCall.title === "string" ? toolCall.title.trim() : "";
   const toolKind = typeof toolCall.kind === "string" ? toolCall.kind : "";
   const input = objectField(toolCall.rawInput);
-  const detail = ["command", "path", "file_path", "absolute_path"].map((key) => input[key])
-    .find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? "";
+  const value = (keys: string[]) => keys.map((key) => input[key])
+    .find((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)?.trim() ?? "";
+  const command = value(["command", "cmd"]);
+  const path = value(["path", "file_path", "absolute_path", "file", "directory"]);
+  const query = value(["pattern", "query", "regex", "glob"]);
+  const detail = (command || [query, path].filter(Boolean).join(" · ")).replaceAll(/\s+/gu, " ").trim().slice(0, 240);
   if (toolKind === "execute" || title.toLowerCase() === "bash") {
-    return { kind: "tool", toolName: "bash", detail: detail.replaceAll(/\s+/gu, " ").trim().slice(0, 240) };
+    return { kind: "tool", toolName: "bash", detail };
   }
-  return { kind: "tool", ...toolNameOr(title || toolKind, "tool.generic"), detail: detail.trim().slice(0, 240) };
+  return { kind: "tool", ...toolNameOr(title || toolKind, "tool.generic"), detail };
 }
 
 function inputFromContent(content: unknown): Record<string, unknown> | null {

@@ -215,8 +215,11 @@ test("drops thought chunks, streams text and tool activity, asks once, and recor
   const events = await turn;
   assert.deepEqual(events.filter((event) => event.type === "activity").map((event) => event.activity), [
     { kind: "note", text: "Let me check" },
-    { kind: "tool", toolName: "bash", detail: "" },
+    { kind: "tool", toolName: "bash", detail: "", toolCallId: "t-1" },
   ]);
+  assert.deepEqual(events.filter((event) => event.type === "activity.update"), [{
+    type: "activity.update", toolCallId: "t-1", activity: { kind: "tool", toolName: "bash", detail: "pwd", toolCallId: "t-1" },
+  }]);
   assert.equal(endOf(events).text, "approve_once");
   assert.deepEqual(await adapter.features.usage!({ nativeId: session.nativeId!, cwd, reason: "turn", session: async () => null }), [
     { kind: "context", percent: 25 },
@@ -291,5 +294,15 @@ test("model and tool helpers tolerate incomplete ACP records", () => {
   assert.deepEqual(modelOptions({ sessionId: "s", configOptions: [], modes: {} }), []);
   assert.deepEqual(toolActivity({ title: "Read", rawInput: { path: "/x" } }), {
     kind: "tool", toolName: "Read", detail: "/x",
+  });
+});
+
+
+test("tool details include search patterns and their scope", () => {
+  assert.deepEqual(toolActivity({ title: "Grep", rawInput: { pattern: "tool_call", path: "src" } }), {
+    kind: "tool", toolName: "Grep", detail: "tool_call · src",
+  });
+  assert.deepEqual(toolActivity({ title: "Glob", rawInput: { glob: "**/*.ts" } }), {
+    kind: "tool", toolName: "Glob", detail: "**/*.ts",
   });
 });

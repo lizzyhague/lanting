@@ -857,3 +857,28 @@ test("delivery results reach the author on its next call and are not repeated af
     assert.doesNotMatch(f.adapters.claude!.received[2]!, /<lanting>/);
   }
 });
+
+
+test("tool updates replace the matching activity and preserve streamed reply text", async (t) => {
+  const { adapters, runtime, events, store, groupId } = await setup(t, ["claude"]);
+  adapters.claude!.script = () => [
+    { type: "activity", activity: { kind: "tool", toolName: "bash", toolCallId: "first", detail: "" } },
+    { type: "activity", activity: { kind: "tool", toolName: "Read", toolCallId: "second", detail: "" } },
+    { type: "text", delta: "Answer" },
+    { type: "activity.update", toolCallId: "first", activity: { kind: "tool", toolName: "bash", toolCallId: "first", detail: "pwd" } },
+    { type: "activity.update", toolCallId: "missing", activity: { kind: "tool", detail: "ignored" } },
+    { type: "end", outcome: "completed", text: "Answer" },
+  ];
+  runtime.onEvent((event) => {
+    if (event.type !== "agent.activity.updated") return;
+    assert.equal(runtime.round(groupId)?.text, "Answer");
+    assert.equal(runtime.round(groupId)?.activities[0]?.detail, "pwd");
+    assert.equal(event.index, 0);
+  });
+  await runtime.startRound(groupId, "q", ["claude"]).done;
+  assert.equal(events.filter((event) => event.type === "agent.activity.updated").length, 1);
+  assert.deepEqual(store.transcript(groupId).at(-1)?.activities, [
+    { kind: "tool", toolName: "bash", toolCallId: "first", detail: "pwd" },
+    { kind: "tool", toolName: "Read", toolCallId: "second", detail: "" },
+  ]);
+});
