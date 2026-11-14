@@ -42,6 +42,15 @@ let waiting = new Map();
 let nextServerId = 100;
 let buffer = "";
 const update = (update) => out({ jsonrpc: "2.0", method: "session/update", params: { sessionId: session, update } });
+const openingReply = (id, result, percent) => {
+  const response = { jsonrpc: "2.0", id, result };
+  if (process.env.FAKE_OPENING_USAGE !== "1") return out(response);
+  const usage = (sessionId, usagePercentage) => ({ jsonrpc: "2.0", method: "session/update", params: {
+    sessionId, update: { sessionUpdate: "session_info_update", _meta: { kiro: { contextUsage: { usagePercentage } } } },
+  } });
+  process.stdout.write([usage(session, percent / 2), response, usage(session, percent), usage("unrelated-session", 99)]
+    .map(message => JSON.stringify(message) + "\\n").join(""));
+};
 const say = (text) => update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
 const end = (reason = "end_turn") => { reply(promptId, { stopReason: reason }); promptId = null; };
 process.stdin.setEncoding("utf8");
@@ -70,7 +79,7 @@ function handle(message) {
       session = "s-" + Date.now() + "-" + Math.random().toString(36).slice(2);
       const store = load(); store[session] = []; save(store);
       const config = options();
-      reply(id, { sessionId: session, configOptions: config.filter(option => option.id !== "model"), modes: { currentModeId: "vibe" } });
+      openingReply(id, { sessionId: session, configOptions: config.filter(option => option.id !== "model"), modes: { currentModeId: "vibe" } }, 0.9);
       setTimeout(() => { modelReady = true; update({ sessionUpdate: "config_option_update", configOptions: config }); }, 20);
       return;
     }
@@ -80,7 +89,7 @@ function handle(message) {
       session = params.sessionId;
       modelReady = true;
       say("old reply replay");
-      return reply(id, { configOptions: options(), modes: { currentModeId: "vibe" } });
+      return openingReply(id, { configOptions: options(), modes: { currentModeId: "vibe" } }, 1.4);
     }
     case "session/set_config_option":
       if ((params.configId === "model" || params.configId === "effortLevel") && !modelReady) return fail(id, -32602, "Model catalog not ready");
@@ -344,4 +353,18 @@ test("strips host credentials and keeps the default model when none is selected"
   assert.deepEqual(JSON.parse(endOf(await drain(session, "environment")).text), { accessToken: false, oauthToken: false });
   const state = JSON.parse(endOf(await drain(session, "state")).text);
   assert.deepEqual(state.settings, { mode: "vibe", autopilot: "off", contentCollection: "disabled" });
+});
+
+
+test("retains opening usage batched with new and loaded session responses", async (t) => {
+  const { adapter, cwd } = await setup(t, { FAKE_OPENING_USAGE: "1" });
+  const session = await adapter.startSession(options(cwd));
+  t.after(() => session.close());
+  const id = session.nativeId!;
+  const usage = () => adapter.features.usage!({ nativeId: id, cwd, reason: "turn", session: async () => null });
+  assert.deepEqual(await usage(), [{ kind: "context", percent: 0.9 }]);
+  await session.close();
+  const resumed = await adapter.resumeSession(id, options(cwd));
+  t.after(() => resumed.close());
+  assert.deepEqual(await usage(), [{ kind: "context", percent: 1.4 }]);
 });

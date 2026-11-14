@@ -135,6 +135,7 @@ class KiroSession implements AgentSession {
   readonly #usage: UsageListener;
   readonly #approvals = new Map<number | string, AbortController>();
   readonly #toolCalls = new Map<string, Record<string, unknown>>();
+  readonly #openingUsage = new Map<string, UsagePart[]>();
   #sessionId = "";
   #rulesPending = false;
   #turn: Turn | null = null;
@@ -173,6 +174,9 @@ class KiroSession implements AgentSession {
         ? await client.sessionLoad(sessionId, options.cwd)
         : await client.sessionNew(options.cwd);
       session.#sessionId = config.sessionId;
+      const openingUsage = session.#openingUsage.get(config.sessionId);
+      if (openingUsage) usage(config.sessionId, openingUsage);
+      session.#openingUsage.clear();
       session.#rulesPending = sessionId === null;
       await client.waitForModelConfig(config);
       await applySettings(client, config.sessionId, options);
@@ -259,17 +263,23 @@ class KiroSession implements AgentSession {
   }
 
   #onUpdate(payload: KiroUpdate): void {
-    if (payload.sessionId !== this.#sessionId) return;
     const update = payload.update;
     const kind = typeof update.sessionUpdate === "string" ? update.sessionUpdate : "";
     if (kind === "session_info_update") {
       const kiro = objectField(objectField(update._meta).kiro);
       const percent = finiteNumber(objectField(kiro.contextUsage).usagePercentage);
       if (percent !== null) {
-        this.#usage(this.#sessionId, [{ kind: "context", percent: Math.max(0, Math.min(100, percent)) }]);
+        const usage: UsagePart[] = [{ kind: "context", percent: Math.max(0, Math.min(100, percent)) }];
+        if (!this.#sessionId && payload.sessionId) {
+          // Session notifications can arrive in the same stdout chunk as the creation response.
+          this.#openingUsage.set(payload.sessionId, usage);
+        } else if (payload.sessionId === this.#sessionId) {
+          this.#usage(this.#sessionId, usage);
+        }
       }
       return;
     }
+    if (payload.sessionId !== this.#sessionId) return;
     const turn = this.#turn;
     if (!turn) return;
     if (kind === "agent_message_chunk") {
