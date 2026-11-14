@@ -101,8 +101,8 @@ window.lantingStrings = {
     en: "lanting first adds a level-1 heading \"User's collaboration rules\", then places the text below it as-is, trimming only leading and trailing whitespace. Plain text is fine; to split it into Markdown sections, start from ##. With #, your sections sit at the same level as lanting's built-in ones, and the AI may not tell that you wrote them.",
   },
   "settings.collaborationInfo5": {
-    zh: "已经开着的会话不受影响。之后什么时候带上新内容，分两种：Claude、Codex、Pi 在会话关闭后再次打开时带上；Grok、Cursor、Antigravity、Kimi 只在新建会话时带上，已有群里的继续用旧内容。",
-    en: "Sessions already open aren't affected. When the new text is picked up depends on the CLI: Claude, Codex and Pi pick it up when a session is reopened after closing; Grok, Cursor, Antigravity and Kimi only when a new session is created, so existing groups keep the old text.",
+    zh: "已经开着的会话不受影响。之后什么时候带上新内容，分两种：Claude、Codex、Pi 在会话关闭后再次打开时带上；Grok、Cursor、Antigravity、Kimi、Kiro 只在新建会话时带上，已有群里的继续用旧内容。",
+    en: "Sessions already open aren't affected. When the new text is picked up depends on the CLI: Claude, Codex and Pi pick it up when a session is reopened after closing; Grok, Cursor, Antigravity, Kimi and Kiro only when a new session is created, so existing groups keep the old text.",
   },
   "settings.collaborationInfo6": { zh: "留空时只使用 lanting 自带的规则。", en: "When left empty, only lanting's built-in rules are used." },
   "settings.collaborationPlaceholder": {
@@ -512,6 +512,14 @@ window.lantingStrings = {
     zh: "Kimi Code 发来的审批直接放行。",
     en: "Approvals from Kimi Code are allowed automatically.",
   },
+  "permission.kiro.ask": {
+    zh: "Kiro CLI 发来的审批由群主在网页上批准。",
+    en: "Approvals from Kiro CLI are decided by you on the web page.",
+  },
+  "permission.kiro.alwaysApprove": {
+    zh: "Kiro CLI 发来的审批直接放行。",
+    en: "Approvals from Kiro CLI are allowed automatically.",
+  },
   "permission.grok.ask": { zh: "需要确认的工具调用都由群主在网页上批准。", en: "Tool calls that need confirmation are decided by you on the web page." },
   "permission.grok.alwaysApprove": { zh: "工具调用不再逐次确认，直接放行。", en: "Tool calls are allowed without confirmation." },
   "permission.codex.readOnly": { zh: "只读", en: "Read only" },
@@ -590,6 +598,10 @@ window.lantingStrings = {
   "error.antigravityLogin": {
     zh: "Antigravity 需要重新登录：请在服务器上完成 ACP Server 登录，见部署文档。",
     en: "Antigravity needs to sign in again: complete the ACP Server sign-in on the server; see the deployment docs.",
+  },
+  "error.kiroLogin": {
+    zh: "Kiro CLI 需要重新登录：请在服务器上运行 kiro-cli login。",
+    en: "Kiro CLI needs to sign in again: run kiro-cli login on the server.",
   },
   "error.kimiLogin": {
     zh: "Kimi Code 需要重新登录：请在服务器上运行 kimi login。",

@@ -17,7 +17,7 @@ Do not commit completed configuration files.
 - A project root directory: when creating a group, its working directory is selected from the
   immediate subdirectories of this root
 - At least one supported AI CLI, installed and signed in: Claude Code, Codex, Grok, Pi, Cursor,
-  Antigravity, or Kimi Code. Pi also requires its permission extension,
+  Antigravity, Kimi Code, or Kiro CLI. Pi also requires its permission extension,
   `pi-minimal-permission-system`, installed through Pi's package manager so lanting can route tool
   confirmations to the web interface.
   Cursor uses the Cursor Agent CLI; install it according to Cursor's documentation and sign in with
@@ -29,6 +29,16 @@ Do not commit completed configuration files.
   Install Kimi Code with its official installer and run `kimi login` as the account that runs
   lanting. lanting can select Kimi's model and thinking level, display context usage, and delete its
   saved session. Kimi's ACP interface does not provide manual context compaction.
+  Install Kiro CLI using the [official installation instructions](https://kiro.dev/docs/getting-started/installation/)
+  and run `kiro-cli login` as the account that runs lanting. lanting starts
+  `kiro-cli acp --agent-engine v3` and supports only the v3 engine, with Default (`vibe`) mode fixed.
+  It uses the CLI's existing login and reads the account's `~/.kiro` configuration and project
+  configuration normally. lanting supports model and reasoning effort selection, tool approvals,
+  context usage, and deletion of saved sessions, but not manual context compaction.
+  Content collection is disabled for every lanting session. Optionally disable content sharing for
+  other CLI sessions too with
+  `kiro-cli settings codeWhisperer.shareCodeWhispererContentWithAWS false`;
+  this setting name comes from `kiro-cli settings list --all`.
 - A random login token of at least 32 characters
 - To upload attachments and deliver files, [ai-remote-upload](https://github.com/lizzyhague/ai-remote-upload) running
   under the same system account, at a version that recognizes `lanting` as a caller and supports retrieving attachment bytes by ID.
@@ -66,7 +76,8 @@ Edit `.env` and set at least the login token. The available environment variable
     "pi": { "executable": "/absolute/path/to/pi" },
     "cursor": { "executable": "/absolute/path/to/cursor-agent" },
     "antigravity": { "executable": "/absolute/path/to/agy_acp_server.par" },
-    "kimi": { "executable": "/absolute/path/to/kimi" }
+    "kimi": { "executable": "/absolute/path/to/kimi" },
+    "kiro": { "executable": "/absolute/path/to/kiro-cli" }
   }
 }
 ```

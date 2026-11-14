@@ -17,7 +17,7 @@ browser can neither reach the CLIs directly nor choose an arbitrary working dire
 
 ## Features
 
-- Supported CLIs: Claude Code, Codex, Grok, Pi, Cursor Agent, Antigravity ACP Server and Kimi Code;
+- Supported CLIs: Claude Code, Codex, Grok, Pi, Cursor Agent, Antigravity ACP Server, Kimi Code and Kiro CLI;
 - Several AIs in one group, including several AIs of the same CLI type, each with its own name and color;
 - In each round you call on one or more AIs, and they reply one at a time in the order you chose; each AI
   receives everything said in the group since it last spoke;

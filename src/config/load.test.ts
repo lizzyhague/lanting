@@ -50,6 +50,7 @@ test("reports configured CLI kinds in their fixed order", async (t) => {
     agents: {
       antigravity: { executable },
       kimi: { executable },
+      kiro: { executable },
       cursor: { executable },
       pi: { executable },
       grok: { executable },
@@ -57,7 +58,7 @@ test("reports configured CLI kinds in their fixed order", async (t) => {
     },
   }));
 
-  assert.deepEqual(configuredKinds(await loadConfig(configPath)), ["claude", "grok", "pi", "cursor", "antigravity", "kimi"]);
+  assert.deepEqual(configuredKinds(await loadConfig(configPath)), ["claude", "grok", "pi", "cursor", "antigravity", "kimi", "kiro"]);
 });
 
 test("rejects a relative, missing, or non-directory project root", async (t) => {
