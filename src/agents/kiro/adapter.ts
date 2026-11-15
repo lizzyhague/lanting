@@ -265,7 +265,9 @@ class KiroSession implements AgentSession {
   #onUpdate(payload: KiroUpdate): void {
     const update = payload.update;
     const kind = typeof update.sessionUpdate === "string" ? update.sessionUpdate : "";
+    const insideSubagent = isInsideSubagent(update);
     if (kind === "session_info_update") {
+      if (insideSubagent) return;
       const kiro = objectField(objectField(update._meta).kiro);
       const percent = finiteNumber(objectField(kiro.contextUsage).usagePercentage);
       if (percent !== null) {
@@ -283,6 +285,7 @@ class KiroSession implements AgentSession {
     const turn = this.#turn;
     if (!turn) return;
     if (kind === "agent_message_chunk") {
+      if (insideSubagent) return;
       const text = contentText(update.content);
       if (!text) return;
       turn.segment += text;
@@ -293,6 +296,8 @@ class KiroSession implements AgentSession {
       const id = typeof update.toolCallId === "string" ? update.toolCallId : "";
       const previous = id ? this.#toolCalls.get(id) : undefined;
       this.#rememberToolCall(update);
+      // A sub-agent's own tool calls stay remembered for approval details but are not shown.
+      if (insideSubagent) return;
       const toolCall = (id ? this.#toolCalls.get(id) : undefined) ?? update;
       if (kind === "tool_call_update") {
         if (previous && JSON.stringify(toolActivity(previous)) !== JSON.stringify(toolActivity(toolCall))) {
@@ -392,6 +397,15 @@ export function modelOptions(config: KiroSessionConfig): ModelOption[] {
       ...(defaultEffort ? { defaultEffort } : {}),
     }];
   });
+}
+
+/**
+ * Kiro tags everything a sub-agent produces with `_meta.kiro.agentSubtaskId`. The parent's own call that
+ * starts the sub-agent carries the same id plus `kind: "agent-subtask"`; only that call is kept.
+ */
+function isInsideSubagent(update: Record<string, unknown>): boolean {
+  const kiro = objectField(objectField(update._meta).kiro);
+  return typeof kiro.agentSubtaskId === "string" && kiro.agentSubtaskId !== "" && kiro.kind !== "agent-subtask";
 }
 
 function permissionOutcome(request: KiroPermissionRequest, answer: ApprovalAnswer): KiroPermissionOutcome {

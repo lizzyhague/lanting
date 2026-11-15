@@ -130,6 +130,22 @@ function prompt(id, text) {
     });
     return;
   }
+  if (command === "subagent") {
+    const parent = { kind: "agent-subtask", agentSubtaskId: "sub-1" };
+    const inside = { agentSubtaskId: "sub-1" };
+    say("Delegating");
+    update({ sessionUpdate: "tool_call", toolCallId: "sa-1", title: "Sub-agent: introspect", kind: "other", status: "pending", rawInput: { name: "introspect", prompt: "look it up" }, _meta: { kiro: parent } });
+    update({ sessionUpdate: "session_info_update", _meta: { kiro: { ...inside, contextUsage: { usagePercentage: 42 } } } });
+    update({ sessionUpdate: "tool_call", toolCallId: "in-1", title: "Bash", kind: "execute", status: "pending", rawInput: { command: "curl example.com" }, _meta: { kiro: inside } });
+    ask({ sessionId: session, toolCall: { toolCallId: "in-1", title: "Bash" }, options: permissionOptions }, () => {
+      update({ sessionUpdate: "tool_call_update", toolCallId: "in-1", status: "completed", _meta: { kiro: inside } });
+      update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Sub-agent report" }, _meta: { kiro: inside } });
+      update({ sessionUpdate: "tool_call_update", toolCallId: "sa-1", status: "completed", rawOutput: "Sub-agent report", _meta: { kiro: parent } });
+      update({ sessionUpdate: "session_info_update", _meta: { kiro: { contextUsage: { usagePercentage: 3 } } } });
+      end();
+    });
+    return;
+  }
   if (command === "question") {
     ask({ sessionId: session, toolCall: { toolCallId: "q-1", title: "AskUserQuestion" }, options: [
       { optionId: "answer-a", name: "Choose A", kind: "allow_once" },
@@ -243,6 +259,28 @@ test("drops thought chunks, streams text and tool activity, asks once, and recor
   assert.equal(endOf(events).text, "approve_once");
   assert.deepEqual(await adapter.features.usage!({ nativeId: session.nativeId!, cwd, reason: "turn", session: async () => null }), [
     { kind: "context", percent: 0.9 },
+  ]);
+});
+
+test("shows only the sub-agent call, keeps its approvals, and keeps its report out of the reply", async (t) => {
+  const { adapter, cwd } = await setup(t);
+  const approvals: Approval[] = [];
+  const session = await adapter.startSession(options(cwd, { model: null, effort: null, permission: "ask" }, approvals));
+  t.after(() => session.close());
+  const turn = drain(session, "subagent");
+  await waitFor(() => approvals.length === 1);
+  assert.deepEqual(approvals[0]!.ask, { toolName: "bash", detail: "curl example.com" });
+  approvals[0]!.resolve({ decision: "allow", message: "" });
+  const events = await turn;
+  assert.deepEqual(events.filter((event) => event.type === "activity").map((event) => event.activity), [
+    { kind: "note", text: "Delegating" },
+    { ...toolActivity({ title: "Sub-agent: introspect", kind: "other" }), toolCallId: "sa-1" },
+  ]);
+  assert.deepEqual(events.filter((event) => event.type === "activity.update"), []);
+  assert.deepEqual(events.filter((event) => event.type === "text").map((event) => event.delta), ["Delegating"]);
+  assert.equal(endOf(events).text, "");
+  assert.deepEqual(await adapter.features.usage!({ nativeId: session.nativeId!, cwd, reason: "turn", session: async () => null }), [
+    { kind: "context", percent: 3 },
   ]);
 });
 
