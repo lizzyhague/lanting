@@ -168,8 +168,8 @@ export class KiroAdapter implements AgentAdapter {
 }
 
 /**
- * The plan's limited breakdowns become ratio segments that reset on the billing date. Bonus and add-on credits
- * are listed one by one in credits and kept out of the ratio; entries with nothing left are left out.
+ * The plan's limited breakdowns are shown as credits left of the limit, resetting on the billing date. Bonus and
+ * add-on credits follow one by one; entries with nothing left are left out.
  */
 export function accountUsageParts(response: unknown): UsagePart[] {
   const data = objectField(objectField(response).data);
@@ -179,15 +179,10 @@ export function accountUsageParts(response: unknown): UsagePart[] {
   const parts: UsagePart[] = list(data.usageBreakdowns).flatMap((breakdown): UsagePart[] => {
     const used = finiteNumber(breakdown.used);
     const limit = finiteNumber(breakdown.limit);
-    if (breakdown.hasLimit === false || limit === null || limit <= 0) return [];
+    if (breakdown.hasLimit === false || used === null || limit === null || limit <= 0) return [];
     const name = typeof breakdown.displayName === "string" && breakdown.displayName.trim()
       ? breakdown.displayName.trim() : "Kiro";
-    return [{
-      kind: "quota",
-      window: { name },
-      left: used === null ? null : Math.max(0, Math.min(100, (limit - used) / limit * 100)),
-      ...(resetsOn ? { resetsOn } : {}),
-    }];
+    return [{ kind: "credits", name, left: Math.max(0, limit - used), total: limit, ...(resetsOn ? { resetsOn } : {}) }];
   });
   for (const entry of [...list(data.bonusCredits), ...list(data.addOnCredits)]) {
     const total = finiteNumber(entry.total);

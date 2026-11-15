@@ -176,6 +176,8 @@ function usagePartText(part) {
   }
   if (part.kind === "credits") {
     const params = { name: part.name, left: creditAmount(part.left), total: creditAmount(part.total) };
+    // A reset date (YYYY-MM-DD) has no time of day, so it is shown as MM-DD without time zone conversion.
+    if (part.resetsOn) return t("usage.creditsReset", { ...params, date: part.resetsOn.slice(5) });
     return part.expiresInDays === undefined
       ? t("usage.credits", params)
       : t("usage.creditsExpiry", { ...params, count: part.expiresInDays });
@@ -185,10 +187,9 @@ function usagePartText(part) {
     window: usageWindowText(part.window),
     left: part.left === null ? t("usage.unknown") : `${part.left.toFixed(1)}%`,
   };
-  if (part.resetsAt) return t("usage.quotaReset", { ...params, time: formatLocalTime(part.resetsAt) });
-  // A reset date (YYYY-MM-DD) has no time of day, so it is shown as MM-DD without time zone conversion.
-  if (part.resetsOn) return t("usage.quotaResetDate", { ...params, date: part.resetsOn.slice(5) });
-  return t("usage.quota", params);
+  return part.resetsAt
+    ? t("usage.quotaReset", { ...params, time: formatLocalTime(part.resetsAt) })
+    : t("usage.quota", params);
 }
 
 /** Credit amounts keep at most two decimals and drop trailing zeros. */

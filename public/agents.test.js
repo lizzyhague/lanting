@@ -164,11 +164,11 @@ test("usage text fills local times, shows only 未启动 before a session, and e
   );
   assert.deepEqual(
     usageTexts({ status: "ok", parts: [
-      { kind: "quota", window: { name: "Credits" }, left: 92.5, resetsOn: "2026-12-01" },
+      { kind: "credits", name: "Credits", left: 1017.24, total: 1100, resetsOn: "2026-12-01" },
       { kind: "credits", name: "Trial credits", left: 500, total: 500, expiresInDays: 364 },
       { kind: "credits", name: "Add-on pack", left: 87.745, total: 100 },
     ] }, null),
-    ["Credits剩余 92.5%，12-01 重置", "Trial credits剩余 500/500，364 天后过期", "Add-on pack剩余 87.75/100", "最后回复时间不可用"],
+    ["Credits 剩余 1017.24/1100，12-01 重置", "Trial credits 剩余 500/500，364 天后过期", "Add-on pack 剩余 87.75/100", "最后回复时间不可用"],
   );
   assert.deepEqual(usageTexts({ status: "unavailable" }, null), ["额度查询不可用", "最后回复时间不可用"]);
   assert.deepEqual(usageTexts(null, null), ["额度查询不可用", "最后回复时间不可用"]);

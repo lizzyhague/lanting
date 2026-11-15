@@ -446,13 +446,13 @@ test("retains opening usage batched with new and loaded session responses", asyn
   assert.deepEqual(await usage(), [{ kind: "context", percent: 1.4 }, { kind: "unavailable" }]);
 });
 
-test("reads account usage once for concurrent calls: plan ratio by date, other credits listed apart", async (t) => {
+test("reads account usage once for concurrent calls: plan credits by reset date, other credits listed after", async (t) => {
   const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "1" });
   const usage = () => adapter.features.usage!({ nativeId: "s-unknown", cwd, reason: "view", session: async () => null });
   const [first, second] = await Promise.all([usage(), usage()]);
   const expected = [
     { kind: "context", percent: null },
-    { kind: "quota", window: { name: "Credits" }, left: 92.5, resetsOn: "2026-12-01" },
+    { kind: "credits", name: "Credits", left: 1017.5, total: 1100, resetsOn: "2026-12-01" },
     { kind: "credits", name: "Trial credits", left: 500, total: 500, expiresInDays: 364 },
     { kind: "credits", name: "Add-on pack", left: 87.745, total: 100 },
   ];
