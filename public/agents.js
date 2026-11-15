@@ -174,14 +174,26 @@ function usagePartText(part) {
     if (part.percent === null) return t("usage.contextPending");
     return t(part.approximate ? "usage.contextApprox" : "usage.context", { percent: part.percent.toFixed(1) });
   }
+  if (part.kind === "credits") {
+    const params = { name: part.name, left: creditAmount(part.left), total: creditAmount(part.total) };
+    return part.expiresInDays === undefined
+      ? t("usage.credits", params)
+      : t("usage.creditsExpiry", { ...params, count: part.expiresInDays });
+  }
   if (part.kind !== "quota") return t("usage.unavailable");
   const params = {
     window: usageWindowText(part.window),
     left: part.left === null ? t("usage.unknown") : `${part.left.toFixed(1)}%`,
   };
-  return part.resetsAt
-    ? t("usage.quotaReset", { ...params, time: formatLocalTime(part.resetsAt) })
-    : t("usage.quota", params);
+  if (part.resetsAt) return t("usage.quotaReset", { ...params, time: formatLocalTime(part.resetsAt) });
+  // A reset date (YYYY-MM-DD) has no time of day, so it is shown as MM-DD without time zone conversion.
+  if (part.resetsOn) return t("usage.quotaResetDate", { ...params, date: part.resetsOn.slice(5) });
+  return t("usage.quota", params);
+}
+
+/** Credit amounts keep at most two decimals and drop trailing zeros. */
+function creditAmount(value) {
+  return String(Number(value.toFixed(2)));
 }
 
 function usageWindowText(window) {

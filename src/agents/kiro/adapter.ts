@@ -28,9 +28,14 @@ import {
   type KiroUpdate,
 } from "./acp-client.ts";
 
-export type KiroAdapterOptions = { executable: string };
+export type KiroAdapterOptions = {
+  executable: string;
+  /** How long one account usage read may take before its process is closed; tests shorten it. */
+  usageTimeoutMs?: number;
+};
 
 const INTERRUPT_TIMEOUT_MS = 10_000;
+const USAGE_TIMEOUT_MS = 15_000;
 const ALWAYS_APPROVE = "always-approve";
 const DEFAULT_MODE = "vibe";
 const HUMAN_TOOL_NAMES = ["askuserquestion", "askuser", "requestuserinput", "elicitation"];
@@ -67,11 +72,13 @@ export class KiroAdapter implements AgentAdapter {
   readonly #options: KiroAdapterOptions;
   readonly #catalogCache = new CatalogCache();
   readonly #usage = new Map<string, UsagePart[]>();
+  /** Only one account usage read per proxy choice is in flight at a time; concurrent calls share it. */
+  readonly #quota = new Map<string, Promise<UsagePart[]>>();
 
   readonly features: AgentFeatures = {
     models: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).models,
     permissions: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).permissions,
-    usage: async ({ nativeId }) => this.#usage.get(nativeId) ?? null,
+    usage: ({ nativeId, cwd, useProxy }) => this.#readUsage(nativeId, cwd, useProxy),
     deleteSession: async (nativeId, cwd, useProxy) => {
       const client = this.#client(cwd, useProxy);
       try {
@@ -119,6 +126,78 @@ export class KiroAdapter implements AgentAdapter {
   #client(cwd: string, useProxy?: boolean): KiroAcpClient {
     return new KiroAcpClient({ executable: this.#options.executable, cwd, env: childEnvironment(proxyEnvironment(useProxy)) });
   }
+
+  /** Context comes from the session's own updates; the account quota is read fresh each time, as Codex does. */
+  async #readUsage(nativeId: string, cwd: string, useProxy?: boolean): Promise<UsagePart[]> {
+    const context = this.#usage.get(nativeId) ?? [{ kind: "context", percent: null }];
+    const key = String(useProxy);
+    let quota = this.#quota.get(key);
+    if (!quota) {
+      quota = this.#readQuota(cwd, useProxy).finally(() => this.#quota.delete(key));
+      this.#quota.set(key, quota);
+    }
+    return [...context, ...await quota];
+  }
+
+  /**
+   * Kiro's processes close after every round, so a short-lived one answers `_kiro/account/getUsage`; it sends no
+   * prompt. Kiro 3.3 answers this method without listing it in its advertised extension methods.
+   */
+  async #readQuota(cwd: string, useProxy?: boolean): Promise<UsagePart[]> {
+    const client = this.#client(cwd, useProxy);
+    // Closing the client rejects its pending requests, so a stuck read ends at the timeout and the next read starts fresh.
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      void client.close();
+    }, this.#options.usageTimeoutMs ?? USAGE_TIMEOUT_MS);
+    try {
+      await client.initialize();
+      const parts = accountUsageParts(await client.request("_kiro/account/getUsage", {}));
+      return parts.length ? parts : [{ kind: "unavailable" }];
+    } catch (error) {
+      const reason = timedOut ? "timed out" : error instanceof Error ? error.message : String(error);
+      console.error(`Reading the Kiro account usage failed: ${reason}`);
+      return [{ kind: "unavailable" }];
+    } finally {
+      clearTimeout(timer);
+      // After a timeout the process is already being closed; don't hold the result back while it exits.
+      if (!timedOut) await client.close();
+    }
+  }
+}
+
+/**
+ * The plan's limited breakdowns become ratio segments that reset on the billing date. Bonus and add-on credits
+ * are listed one by one in credits and kept out of the ratio; entries with nothing left are left out.
+ */
+export function accountUsageParts(response: unknown): UsagePart[] {
+  const data = objectField(objectField(response).data);
+  const resetsOn = typeof data.billingCycleReset === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(data.billingCycleReset)
+    ? data.billingCycleReset : null;
+  const list = (value: unknown) => Array.isArray(value) ? value.map(objectField) : [];
+  const parts: UsagePart[] = list(data.usageBreakdowns).flatMap((breakdown): UsagePart[] => {
+    const used = finiteNumber(breakdown.used);
+    const limit = finiteNumber(breakdown.limit);
+    if (breakdown.hasLimit === false || limit === null || limit <= 0) return [];
+    const name = typeof breakdown.displayName === "string" && breakdown.displayName.trim()
+      ? breakdown.displayName.trim() : "Kiro";
+    return [{
+      kind: "quota",
+      window: { name },
+      left: used === null ? null : Math.max(0, Math.min(100, (limit - used) / limit * 100)),
+      ...(resetsOn ? { resetsOn } : {}),
+    }];
+  });
+  for (const entry of [...list(data.bonusCredits), ...list(data.addOnCredits)]) {
+    const total = finiteNumber(entry.total);
+    const used = finiteNumber(entry.used) ?? 0;
+    const name = typeof entry.name === "string" ? entry.name.trim() : "";
+    if (!name || total === null || total - used <= 0) continue;
+    const days = finiteNumber(entry.daysUntilExpiry);
+    parts.push({ kind: "credits", name, left: total - used, total, ...(days !== null && days >= 0 ? { expiresInDays: days } : {}) });
+  }
+  return parts;
 }
 
 type Turn = {

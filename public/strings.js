@@ -545,6 +545,12 @@ window.lantingStrings = {
   "usage.contextPending": { zh: "上下文等待更新", en: "Context not yet known" },
   "usage.quota": { zh: "{window}剩余 {left}", en: "{window}: {left} left" },
   "usage.quotaReset": { zh: "{window}剩余 {left}，{time} 重置", en: "{window}: {left} left, resets {time}" },
+  "usage.quotaResetDate": { zh: "{window}剩余 {left}，{date} 重置", en: "{window}: {left} left, resets {date}" },
+  "usage.credits": { zh: "{name}剩余 {left}/{total}", en: "{name}: {left} of {total} left" },
+  "usage.creditsExpiry": {
+    zh: "{name}剩余 {left}/{total}，{count} 天后过期",
+    en: { one: "{name}: {left} of {total} left, expires in 1 day", other: "{name}: {left} of {total} left, expires in {count} days" },
+  },
   "usage.unknown": { zh: "未知", en: "unknown" },
   "usage.days": { zh: "{count} 天", en: { one: "1 day", other: "{count} days" } },
   "usage.hours": { zh: "{count} 小时", en: { one: "1 hour", other: "{count} hours" } },

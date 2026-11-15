@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -74,6 +75,29 @@ function handle(message) {
   const { id, method, params } = message;
   switch (method) {
     case "initialize": return reply(id, { protocolVersion: 1 });
+    case "_kiro/account/getUsage": {
+      if (process.env.FAKE_ACCOUNT_USAGE === "hang") {
+        writeFileSync(process.cwd() + "/usage-reads", "h", { flag: "a" });
+        // Ignore stdin closing and SIGTERM so only the process-group kill ends this read.
+        process.stdin.removeAllListeners("end");
+        process.on("SIGTERM", () => {});
+        return;
+      }
+      if (process.env.FAKE_ACCOUNT_USAGE !== "1") return fail(id, -32601, "Method not found");
+      writeFileSync(process.cwd() + "/usage-reads", "x", { flag: "a" });
+      return setTimeout(() => reply(id, { success: true, data: {
+        planName: "KIRO PRO+", billingCycleReset: "2026-12-01",
+        usageBreakdowns: [
+          { resourceType: "CREDIT", displayName: "Credits", used: 82.5, limit: 1100, hasLimit: true },
+          { resourceType: "OTHER", displayName: "Unlimited", used: 3, limit: 0, hasLimit: false },
+        ],
+        bonusCredits: [
+          { name: "Trial credits", used: 0, total: 500, daysUntilExpiry: 364 },
+          { name: "Spent bonus", used: 50, total: 50, daysUntilExpiry: 3 },
+        ],
+        addOnCredits: [{ name: "Add-on pack", used: 12.255, total: 100 }],
+      } }), 100);
+    }
     case "session/new": {
       if (process.env.FAKE_AUTH === "1") return fail(id, -32000, "Authentication required");
       session = "s-" + Date.now() + "-" + Math.random().toString(36).slice(2);
@@ -166,7 +190,11 @@ function prompt(id, text) {
 
 type Approval = { ask: ApprovalAsk; signal: AbortSignal | undefined; resolve: (answer: ApprovalAnswer) => void };
 
-async function setup(t: test.TestContext, env: Record<string, string> = {}): Promise<{ adapter: KiroAdapter; cwd: string }> {
+async function setup(
+  t: test.TestContext,
+  env: Record<string, string> = {},
+  adapterOptions: { usageTimeoutMs?: number } = {},
+): Promise<{ adapter: KiroAdapter; cwd: string }> {
   const cwd = await mkdtemp(path.join(tmpdir(), "lanting-kiro-adapter-"));
   const executable = path.join(cwd, "fake-kiro.mjs");
   await writeFile(executable, FAKE_KIRO, "utf8");
@@ -177,7 +205,7 @@ async function setup(t: test.TestContext, env: Record<string, string> = {}): Pro
     for (const [key, value] of saved) value === undefined ? delete process.env[key] : process.env[key] = value;
     await rm(cwd, { recursive: true, force: true });
   });
-  return { adapter: new KiroAdapter({ executable }), cwd };
+  return { adapter: new KiroAdapter({ executable, ...adapterOptions }), cwd };
 }
 
 function options(cwd: string, settings = { model: null, effort: null, permission: null } as SessionOptions["settings"], approvals: Approval[] = []): SessionOptions {
@@ -203,6 +231,12 @@ function endOf(events: AgentEvent[]): Extract<AgentEvent, { type: "end" }> {
 
 async function waitFor(condition: () => boolean): Promise<void> {
   while (!condition()) await new Promise((resolve) => setTimeout(resolve, 10));
+}
+
+/** Whether any fake Kiro started from this test directory is still running. */
+function fakeKiroRunning(cwd: string): boolean {
+  const result = spawnSync("pgrep", ["-f", path.join(cwd, "fake-kiro.mjs")], { encoding: "utf8" });
+  return result.stdout.trim() !== "";
 }
 
 test("catalog maps Kiro models and thinking levels without leaving its probe session", async (t) => {
@@ -259,6 +293,7 @@ test("drops thought chunks, streams text and tool activity, asks once, and recor
   assert.equal(endOf(events).text, "approve_once");
   assert.deepEqual(await adapter.features.usage!({ nativeId: session.nativeId!, cwd, reason: "turn", session: async () => null }), [
     { kind: "context", percent: 0.9 },
+    { kind: "unavailable" },
   ]);
 });
 
@@ -281,6 +316,7 @@ test("shows only the sub-agent call, keeps its approvals, and keeps its report o
   assert.equal(endOf(events).text, "");
   assert.deepEqual(await adapter.features.usage!({ nativeId: session.nativeId!, cwd, reason: "turn", session: async () => null }), [
     { kind: "context", percent: 3 },
+    { kind: "unavailable" },
   ]);
 });
 
@@ -344,7 +380,10 @@ test("deletes native sessions and rewrites login failure while opening", async (
   await drain(session, "tool");
   await session.close();
   await adapter.features.deleteSession!(id, cwd);
-  assert.equal(await adapter.features.usage!({ nativeId: id, cwd, reason: "turn", session: async () => null }), null);
+  assert.deepEqual(await adapter.features.usage!({ nativeId: id, cwd, reason: "turn", session: async () => null }), [
+    { kind: "context", percent: null },
+    { kind: "unavailable" },
+  ]);
   await adapter.features.deleteSession!(id, cwd);
   assert.deepEqual(JSON.parse(await readFile(path.join(cwd, "sessions.json"), "utf8")), {});
 
@@ -400,9 +439,38 @@ test("retains opening usage batched with new and loaded session responses", asyn
   t.after(() => session.close());
   const id = session.nativeId!;
   const usage = () => adapter.features.usage!({ nativeId: id, cwd, reason: "turn", session: async () => null });
-  assert.deepEqual(await usage(), [{ kind: "context", percent: 0.9 }]);
+  assert.deepEqual(await usage(), [{ kind: "context", percent: 0.9 }, { kind: "unavailable" }]);
   await session.close();
   const resumed = await adapter.resumeSession(id, options(cwd));
   t.after(() => resumed.close());
-  assert.deepEqual(await usage(), [{ kind: "context", percent: 1.4 }]);
+  assert.deepEqual(await usage(), [{ kind: "context", percent: 1.4 }, { kind: "unavailable" }]);
+});
+
+test("reads account usage once for concurrent calls: plan ratio by date, other credits listed apart", async (t) => {
+  const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "1" });
+  const usage = () => adapter.features.usage!({ nativeId: "s-unknown", cwd, reason: "view", session: async () => null });
+  const [first, second] = await Promise.all([usage(), usage()]);
+  const expected = [
+    { kind: "context", percent: null },
+    { kind: "quota", window: { name: "Credits" }, left: 92.5, resetsOn: "2026-12-01" },
+    { kind: "credits", name: "Trial credits", left: 500, total: 500, expiresInDays: 364 },
+    { kind: "credits", name: "Add-on pack", left: 87.745, total: 100 },
+  ];
+  assert.deepEqual(first, expected);
+  assert.deepEqual(second, expected);
+  assert.equal(await readFile(path.join(cwd, "usage-reads"), "utf8"), "x");
+  assert.deepEqual(await usage(), expected);
+  assert.equal(await readFile(path.join(cwd, "usage-reads"), "utf8"), "xx");
+});
+
+test("a stuck account usage read times out, shows unavailable, closes its process, and the next read starts fresh", async (t) => {
+  const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "hang" }, { usageTimeoutMs: 300 });
+  const usage = () => adapter.features.usage!({ nativeId: "s-unknown", cwd, reason: "view", session: async () => null });
+  const started = Date.now();
+  assert.deepEqual(await usage(), [{ kind: "context", percent: null }, { kind: "unavailable" }]);
+  assert.ok(Date.now() - started < 2_000);
+  assert.deepEqual(await usage(), [{ kind: "context", percent: null }, { kind: "unavailable" }]);
+  assert.equal(await readFile(path.join(cwd, "usage-reads"), "utf8"), "hh");
+  // Both stuck processes are killed by their own closing, which ignores SIGTERM and stdin closing here.
+  await waitFor(() => !fakeKiroRunning(cwd));
 });

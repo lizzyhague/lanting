@@ -2,12 +2,15 @@ import type { AgentSession, ModelOption, PermissionOption } from "../agents/type
 
 /**
  * One segment of the usage row as data; the web page words it in its own language. resetsAt is always an ISO
- * string, converted by the module itself, and shown in the browser's local time.
+ * string, converted by the module itself, and shown in the browser's local time. resetsOn is a calendar date
+ * (YYYY-MM-DD) for quotas that reset on a day rather than at a known instant.
  */
 export type UsagePart =
   | { kind: "context"; percent: number | null; approximate?: boolean }
   | { kind: "unavailable" }
-  | { kind: "quota"; window: UsageWindow; left: number | null; resetsAt?: string };
+  | { kind: "quota"; window: UsageWindow; left: number | null; resetsAt?: string; resetsOn?: string }
+  /** Credits outside the plan's ratio, such as trial or bonus credits; amounts are credits, not percentages. */
+  | { kind: "credits"; name: string; left: number; total: number; expiresInDays?: number };
 
 /** A quota window: a model or limit name, a duration, or both (in parentheses when parenthesized). */
 export type UsageWindow = { name?: string; minutes?: number; parenthesized?: boolean };
