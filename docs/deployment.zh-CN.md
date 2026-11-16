@@ -171,3 +171,28 @@ ACP Server 没有单独的登录命令，要由一个 ACP 客户端来触发：
 
 登录失效、Server 又不能自己续期时，Antigravity 在群里的发言会失败，原因写着需要重新登录。
 照上面的步骤重新登录即可，不用重启 lanting。
+
+## 8. 已知限制
+
+### Ubuntu 上 Codex 的沙盒档位
+
+这是 Codex 的 Linux 沙盒与主机系统的限制，不是 lanting 的问题：不经过 lanting 直接运行
+Codex 也一样。lanting 只把选中的权限交给 Codex，自己不另加沙盒。
+
+在 AppArmor 限制非特权用户命名空间的 Ubuntu 上（`kernel.apparmor_restrict_unprivileged_userns = 1`），
+Codex 的沙盒可能无法启动。此时选 **只读** 或 **自动（可修改项目）**，所有命令在执行前就失败，
+只读命令也一样，报错类似：
+
+```text
+bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+```
+
+**完全访问** 不使用沙盒，不受影响。
+
+可行的解决方案（本项目未验证）：Codex [沙盒文档](https://learn.chatgpt.com/codex/sandboxing)
+的 Linux 前置条件里写了做法：安装发行版的 `bubblewrap` 软件包；在 Ubuntu 24.04 上再加载
+`bwrap-userns-restrict` 这条 AppArmor 规则。这些步骤会改动整机的安全设置，需要 root 权限。
+请以 Codex 文档的当前版本为准，不要照抄这里。
+
+不要写 AppArmor 规则去放行 Codex 自带的 `bwrap`：它放在用户账户可写的目录里，这样的规则
+实际上等于给以该账户运行的所有程序解除了限制。

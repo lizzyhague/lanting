@@ -201,3 +201,32 @@ deployment environment; it does not override a CLI's own proxy configuration. CL
 that same environment. Groups saved before this option existed retain their previous inherited
 environment behavior. For members without a saved choice, new groups default to using the
 configured deployment proxy, if available.
+
+## 8. Known limitations
+
+### Codex sandboxed permissions on Ubuntu
+
+This limitation comes from Codex's Linux sandbox and the host system, not from lanting. Codex
+behaves the same way when run outside lanting. lanting passes the selected permission to Codex and
+does not add a sandbox of its own.
+
+On Ubuntu systems where AppArmor restricts unprivileged user namespaces
+(`kernel.apparmor_restrict_unprivileged_userns = 1`), Codex's sandbox may fail to start. Under
+**Read only** or **Auto (can edit the project)**, every command then fails before it runs, including
+read-only ones, with an error such as:
+
+```text
+bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+```
+
+**Full access** does not use the sandbox and is not affected.
+
+Possible fix (not verified by this project): the Linux prerequisites in Codex's
+[sandboxing documentation](https://learn.chatgpt.com/codex/sandboxing) describe installing the
+distribution's `bubblewrap` package and, on Ubuntu 24.04, loading the `bwrap-userns-restrict`
+AppArmor profile. These steps change system-wide security settings and require root. Follow the
+current Codex documentation instead of copying commands from here.
+
+Do not write an AppArmor rule that exempts the `bwrap` bundled with Codex. It is stored in a
+directory the user account can write to, so such a rule effectively lifts the restriction for
+anything running as that account.
