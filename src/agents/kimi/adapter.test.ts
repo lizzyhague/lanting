@@ -113,6 +113,11 @@ function prompt(id, text) {
     });
     return;
   }
+  if (command === "read") {
+    update({ sessionUpdate: "tool_call", toolCallId: "r-1", title: "Read", kind: "read", status: "pending" });
+    update({ sessionUpdate: "tool_call_update", toolCallId: "r-1", title: "Reading /w/a.md", kind: "read", status: "in_progress", rawInput: { path: "/w/a.md" } });
+    return end();
+  }
   if (command === "question") {
     ask({ sessionId: session, toolCall: { toolCallId: "q-1", title: "AskUserQuestion" }, options: [
       { optionId: "answer-a", name: "Choose A", kind: "allow_once" },
@@ -224,6 +229,19 @@ test("drops thought chunks, streams text and tool activity, asks once, and recor
   assert.deepEqual(await adapter.features.usage!({ nativeId: session.nativeId!, cwd, reason: "turn", session: async () => null }), [
     { kind: "context", percent: 25 },
   ]);
+});
+
+test("a later tool update fills in the detail but keeps the first tool name", async (t) => {
+  const { adapter, cwd } = await setup(t);
+  const session = await adapter.startSession(options(cwd));
+  t.after(() => session.close());
+  const events = await drain(session, "read");
+  assert.deepEqual(events.filter((event) => event.type === "activity").map((event) => event.activity), [
+    { kind: "tool", toolName: "Read", detail: "", toolCallId: "r-1" },
+  ]);
+  assert.deepEqual(events.filter((event) => event.type === "activity.update"), [{
+    type: "activity.update", toolCallId: "r-1", activity: { kind: "tool", toolName: "Read", detail: "/w/a.md", toolCallId: "r-1" },
+  }]);
 });
 
 test("always approve and denial both select one-time options", async (t) => {

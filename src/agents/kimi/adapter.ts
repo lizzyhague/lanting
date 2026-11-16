@@ -299,6 +299,9 @@ class KimiSession implements AgentSession {
     if (!id) return;
     const previous = this.#toolCalls.get(id) ?? {};
     const merged = { ...previous, ...update };
+    // Kimi first titles a call with the tool's name, then retitles it with a sentence that already holds the
+    // arguments ("Reading /path"). Keeping the first title stops the name from repeating the detail line.
+    if (typeof previous.title === "string" && previous.title.trim()) merged.title = previous.title;
     const input = inputFromContent(update.content);
     if (input) merged.rawInput = { ...objectField(previous.rawInput), ...objectField(merged.rawInput), ...input };
     this.#toolCalls.set(id, merged);
