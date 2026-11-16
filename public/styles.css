@@ -1822,6 +1822,7 @@ button[aria-invalid="true"] {
 .permission-card {
   flex: none;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
   max-width: 100%;
   min-width: 0;
@@ -1840,6 +1841,7 @@ button[aria-invalid="true"] {
   align-items: center;
   gap: 0.4rem;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .permission-card-body {

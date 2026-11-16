@@ -90,3 +90,8 @@ test("approval cards match the composer width with a 16px gap", () => {
   assert.match(styles, /\.permission-card\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto;[^}]*border:\s*1px solid var\(--agent, var\(--theme\)\);/su);
   assert.match(styles, /\.permission-card-body\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/su);
 });
+
+test("long unbroken approval titles wrap inside the card instead of widening it", () => {
+  assert.match(styles, /\.permission-card\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/su);
+  assert.match(styles, /\.permission-card-title\s*\{[^}]*overflow-wrap:\s*anywhere;/su);
+});
