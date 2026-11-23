@@ -264,6 +264,7 @@ class OpenCodeSession implements AgentSession {
       const previous = id ? this.#toolCalls.get(id) : undefined;
       this.#rememberToolCall(update);
       const toolCall = (id ? this.#toolCalls.get(id) : undefined) ?? update;
+      if (objectField(objectField(toolCall._meta)["opencode/child-session"]).id) return;
       if (kind === "tool_call_update") {
         if (previous && JSON.stringify(toolActivity(previous)) !== JSON.stringify(toolActivity(toolCall))) {
           turn.channel.push({ type: "activity.update", toolCallId: id, activity: { ...toolActivity(toolCall), toolCallId: id } });

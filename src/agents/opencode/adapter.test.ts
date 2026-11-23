@@ -104,8 +104,10 @@ function prompt(id, text) {
   const command = text.split("\\n").at(-1);
   if (command === "child") {
     const meta = { "opencode/child-session": { id: "child-1", parentID: session, depth: 1, title: "Child task" } };
+    update({ sessionUpdate: "tool_call", toolCallId: "parent-1", title: "Subagent", kind: "other" });
     update({ sessionUpdate: "agent_message_chunk", _meta: meta, content: { type: "text", text: "child text" } });
     update({ sessionUpdate: "tool_call", _meta: meta, toolCallId: "child-1:t-1", title: "Child task: Shell", kind: "execute", rawInput: { command: "echo child" } });
+    update({ sessionUpdate: "tool_call_update", _meta: meta, toolCallId: "child-1:t-1", rawInput: { command: "echo child" } });
     ask({ sessionId: session, toolCall: { toolCallId: "child-1:t-1", title: "Child task: Shell", _meta: meta, rawInput: { command: "echo child" } }, options: permissionOptions }, (outcome) => { say(outcome.optionId); end(); });
     return;
   }
@@ -284,7 +286,9 @@ test("keeps child text out of the reply and attributes child tool approval", asy
   approvals[0]!.resolve({ decision: "allow", message: "" });
   const events = await turn;
   assert.equal(endOf(events).text, "approve_once");
-  assert.ok(events.some((event) => event.type === "activity" && event.activity.toolCallId === "child-1:t-1"));
+  assert.ok(events.some((event) => event.type === "activity" && event.activity.toolCallId === "parent-1"));
+  assert.ok(!events.some((event) => (event.type === "activity" && event.activity.toolCallId === "child-1:t-1") ||
+    (event.type === "activity.update" && event.toolCallId === "child-1:t-1")));
   assert.ok(!events.some((event) => event.type === "text" && event.delta.includes("child text")));
 });
 
