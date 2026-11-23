@@ -100,7 +100,7 @@ export class AntigravityAdapter implements AgentAdapter {
   /**
    * The ACP Server has no model-list request and no way to delete a session; the list only comes with `session/new` and `session/resume`.
    * So models come from one catalog session that is created once, its id saved in the state directory, and resumed for each lookup.
-   * The model choice doesn't persist across processes, so it is set again with `session/set_config_option` every time a session opens.
+   * The model and thinking-level choices don't persist across processes, so they are set again with `session/set_config_option` every time a session opens.
    * usage is the context share from the Server's `usage_update`, kept in memory per session; there is no data before a session's first round.
    * deleteSession and compact aren't implemented: the ACP Server has no delete-session or compaction API.
    */
@@ -169,7 +169,7 @@ export class AntigravityAdapter implements AgentAdapter {
         config = await client.sessionNew(directory);
         await writeJsonAtomically(file, { sessionId: config.sessionId });
       }
-      const models = modelOptions(config.configOptions);
+      const models = await readModels(client, config);
       // The Server leaves the list out when it can't list models; failing keeps the empty result out of the cache.
       if (models.length === 0) throw new Error("Antigravity returned no model list.");
       return { models, permissions: [...ANTIGRAVITY_PERMISSIONS] };
@@ -271,8 +271,7 @@ class AntigravitySession implements AgentSession {
       session.#sessionId = config.sessionId;
       session.#rulesPending = sessionId === null;
       await client.sessionSetMode(session.#sessionId, DEFAULT_MODE);
-      const model = modelValue(config.configOptions, options.settings);
-      if (model !== null) await client.sessionSetConfigOption(session.#sessionId, "model", model);
+      await applyModelSettings(client, config, options.settings);
       return session;
     } catch (error) {
       if (client.stderrTail.trim()) console.error(`Antigravity stderr: ${client.stderrTail.trim()}`);
@@ -443,96 +442,130 @@ function permissionOutcome(request: AntigravityPermissionRequest, answer: Approv
   return option ? { outcome: "selected", optionId: option.optionId } : { outcome: "cancelled" };
 }
 
-type ModelEntry = {
-  option: ModelOption;
-  /** The Server's model value for each effort, keyed by the lowercase effort. */
-  values: Map<string, string>;
-  /** The value used when no effort is chosen. */
-  defaultValue: string;
-};
-
-/** A model name with its effort in parentheses at the end, such as "Gemini 3.8 Flash (High)". */
-const EFFORT_SUFFIX = /^(.*\S)\s*\(([^()]+)\)$/u;
+type SelectChoice = { value: string; name: string; description: string };
+type ConfigSelect = { id: string; currentValue: string; choices: SelectChoice[] };
 
 /**
- * The Server lists every model and effort pair as one value, such as `gemini-3.8-flash-high` named "Gemini 3.8 Flash (High)".
- * Names that share a base and differ only in the parenthesized effort become one model with those efforts; the id is the base name in
- * lowercase with dashes, because the values themselves don't share a pattern (`gemini-pro-agent` is "Gemini 3.1 Pro (High)").
- * A model with a single variant keeps its own value and name and has no effort to choose.
- * The default effort is the one in the Server's current value, or the first listed for other models.
+ * ACP Server 1.5.2 groups thinking-level variants into model families and reports `thinking_level` only for the active model.
+ * Switching models is local in-memory (the agent is rebuilt on the next turn), so probing each model in the catalog session reads
+ * its supported levels and default effort. When a probe changes the active thinking level, the initial selection is restored before
+ * probing the next model so each model's default effort matches opening a session with no effort chosen.
  */
-function modelEntries(configOptions: unknown[]): ModelEntry[] {
-  const { currentValue, choices } = modelSelect(configOptions);
-  const variants = new Map<string, Array<{ effort: string; value: string }>>();
-  for (const choice of choices) {
-    const match = EFFORT_SUFFIX.exec(choice.name);
-    if (!match) continue;
-    const list = variants.get(match[1]!) ?? [];
-    list.push({ effort: match[2]!.trim().toLowerCase(), value: choice.value });
-    variants.set(match[1]!, list);
-  }
-  const entries: ModelEntry[] = [];
+async function readModels(client: AntigravityAcpClient, config: AntigravitySessionConfig): Promise<ModelOption[]> {
+  const model = modelSelect(config.configOptions);
+  if (!model) return [];
+  const choices: SelectChoice[] = [];
   const seen = new Set<string>();
-  for (const choice of choices) {
-    const base = EFFORT_SUFFIX.exec(choice.name)?.[1];
-    const group = base === undefined ? undefined : variants.get(base);
-    if (base !== undefined && group && group.length > 1 && new Set(group.map((item) => item.effort)).size === group.length) {
-      const id = base.toLowerCase().replaceAll(/\s+/gu, "-");
-      if (seen.has(id)) continue;
-      seen.add(id);
-      const current = group.find((item) => item.value === currentValue) ?? group[0]!;
-      entries.push({
-        option: { id, label: base, description: "", efforts: group.map((item) => item.effort), defaultEffort: current.effort },
-        values: new Map(group.map((item) => [item.effort, item.value])),
-        defaultValue: current.value,
-      });
-      continue;
-    }
+  for (const choice of model.choices) {
     if (seen.has(choice.value)) continue;
     seen.add(choice.value);
-    entries.push({
-      option: { id: choice.value, label: choice.name || choice.value, description: choice.description, efforts: [] },
-      values: new Map(),
-      defaultValue: choice.value,
-    });
+    choices.push(choice);
   }
-  return entries;
-}
+  if (choices.length === 0) return [];
 
-export function modelOptions(configOptions: unknown[]): ModelOption[] {
-  return modelEntries(configOptions).map((entry) => entry.option);
+  const initialModel = model.currentValue;
+  const canRestoreInitial = Boolean(initialModel) && choices.some((choice) => choice.value === initialModel);
+  const initialEffort = thinkingSelect(config.configOptions)?.currentValue ?? "";
+  let currentModel = initialModel;
+  let currentEffort = initialEffort;
+  const models: ModelOption[] = [];
+
+  for (const choice of choices) {
+    if (choice.value === initialModel) {
+      models.push(modelOption(choice, config.configOptions));
+      continue;
+    }
+    if (canRestoreInitial && currentModel !== initialModel && currentEffort !== initialEffort) {
+      let restored = await client.sessionSetConfigOption(config.sessionId, model.id, initialModel);
+      const restoredThinking = thinkingSelect(restored);
+      if (
+        initialEffort
+        && restoredThinking
+        && restoredThinking.currentValue !== initialEffort
+        && restoredThinking.choices.some((item) => item.value === initialEffort)
+      ) {
+        restored = await client.sessionSetConfigOption(config.sessionId, restoredThinking.id, initialEffort);
+      }
+      currentModel = initialModel;
+      currentEffort = thinkingSelect(restored)?.currentValue ?? "";
+    }
+    const updated = await client.sessionSetConfigOption(config.sessionId, model.id, choice.value);
+    currentModel = choice.value;
+    currentEffort = thinkingSelect(updated)?.currentValue ?? "";
+    models.push(modelOption(choice, updated));
+  }
+  return models;
 }
 
 /**
- * The Server's value for the group's model and effort, or null when no model is chosen or it is already the current one.
- * A model the session doesn't offer fails the session instead of quietly running another model.
+ * Applies the group's model and thinking-level settings to an opened or resumed session.
+ * A model or thinking level the session doesn't offer fails the session instead of quietly running another one.
  */
-export function modelValue(configOptions: unknown[], settings: AgentSettings): string | null {
-  if (!settings.model) return null;
-  const entry = modelEntries(configOptions).find((candidate) => candidate.option.id === settings.model);
-  const value = entry && (entry.values.size > 0 && settings.effort
-    ? entry.values.get(settings.effort.toLowerCase())
-    : entry.defaultValue);
-  if (!value) {
-    throw new Error(`Antigravity doesn't offer the model ${settings.model}${settings.effort ? ` (${settings.effort})` : ""} in this session.`);
+async function applyModelSettings(
+  client: AntigravityAcpClient,
+  config: AntigravitySessionConfig,
+  settings: AgentSettings,
+): Promise<void> {
+  if (!settings.model) return;
+  const model = modelSelect(config.configOptions);
+  if (!model || !model.choices.some((choice) => choice.value === settings.model)) {
+    throw unavailableModelError(settings);
   }
-  return value === modelSelect(configOptions).currentValue ? null : value;
+  const activeConfig = settings.model === model.currentValue
+    ? config.configOptions
+    : await client.sessionSetConfigOption(config.sessionId, model.id, settings.model);
+  if (!settings.effort) return;
+  const thinking = thinkingSelect(activeConfig);
+  if (!thinking || !thinking.choices.some((choice) => choice.value === settings.effort)) {
+    throw unavailableModelError(settings);
+  }
+  if (settings.effort !== thinking.currentValue) {
+    await client.sessionSetConfigOption(config.sessionId, thinking.id, settings.effort);
+  }
 }
 
-function modelSelect(configOptions: unknown[]): {
-  currentValue: string;
-  choices: Array<{ value: string; name: string; description: string }>;
-} {
-  const entry = configOptions.map(objectField).find((candidate) => candidate.id === "model") ?? {};
-  const choices = Array.isArray(entry.options) ? entry.options.map(objectField).flatMap((option) =>
+function unavailableModelError(settings: AgentSettings): Error {
+  return new Error(`Antigravity doesn't offer the model ${settings.model}${settings.effort ? ` (${settings.effort})` : ""} in this session.`);
+}
+
+function modelOption(choice: SelectChoice, configOptions: unknown[]): ModelOption {
+  const thinking = thinkingSelect(configOptions);
+  const efforts = thinking ? [...new Set(thinking.choices.map((item) => item.value))] : [];
+  const defaultEffort = thinking && efforts.includes(thinking.currentValue) ? thinking.currentValue : "";
+  return {
+    id: choice.value,
+    label: choice.name || choice.value,
+    description: choice.description,
+    efforts,
+    ...(defaultEffort ? { defaultEffort } : {}),
+  };
+}
+
+function modelSelect(configOptions: unknown[]): ConfigSelect | null {
+  return selectOption(configOptions, "model", "model");
+}
+
+function thinkingSelect(configOptions: unknown[]): ConfigSelect | null {
+  return selectOption(configOptions, "thinking_level", "thought_level");
+}
+
+function selectOption(configOptions: unknown[], id: string, category: string): ConfigSelect | null {
+  const entries = configOptions.map(objectField);
+  const entry = entries.find((candidate) => candidate.id === id)
+    ?? entries.find((candidate) => candidate.category === category);
+  if (!entry || typeof entry.id !== "string" || !entry.id) return null;
+  const rawOptions = Array.isArray(entry.options)
+    ? entry.options.map(objectField).flatMap((item) => Array.isArray(item.options) ? item.options.map(objectField) : [item])
+    : [];
+  const choices = rawOptions.flatMap((option) =>
     typeof option.value === "string" && option.value
       ? [{
         value: option.value,
         name: typeof option.name === "string" ? option.name.trim() : "",
         description: typeof option.description === "string" ? option.description : "",
       }]
-      : []) : [];
-  return { currentValue: typeof entry.currentValue === "string" ? entry.currentValue : "", choices };
+      : []);
+  return { id: entry.id, currentValue: typeof entry.currentValue === "string" ? entry.currentValue : "", choices };
 }
 
 function finiteNumber(value: unknown): number | null {

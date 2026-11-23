@@ -43,7 +43,7 @@ export type AntigravityPromptContent =
 
 export type AntigravityExit = { code: number | null; signal: NodeJS.Signals | null; error?: string };
 
-/** A session id with the session's configOptions (model and mode selects), as returned by session/new or session/resume. */
+/** A session id with the session's configOptions (model, thinking_level and mode selects), as returned by session/new or session/resume. */
 export type AntigravitySessionConfig = { sessionId: string; configOptions: unknown[] };
 
 /** ACP auth_required: not logged in, or the login has expired. */
@@ -182,8 +182,9 @@ export class AntigravityAcpClient extends EventEmitter {
     await this.request("session/set_mode", { sessionId, modeId });
   }
 
-  async sessionSetConfigOption(sessionId: string, configId: string, value: string): Promise<void> {
-    await this.request("session/set_config_option", { sessionId, configId, value });
+  async sessionSetConfigOption(sessionId: string, configId: string, value: string): Promise<unknown[]> {
+    const result = objectOf(await this.request("session/set_config_option", { sessionId, configId, value }));
+    return configOptionsOf(result);
   }
 
   async sessionPrompt(

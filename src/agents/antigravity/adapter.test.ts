@@ -11,31 +11,32 @@ import {
   AntigravityAdapter,
   firstMessage,
   LOGIN_REQUIRED,
-  modelOptions,
   toolActivity,
 } from "./adapter.ts";
 
-/** The model select as ACP Server 1.3.0 returned it for a personal account (probe record), trimmed, plus a single-variant model. */
-const MODEL_CHOICES = [
-  { value: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)", description: "gemini-3.8-flash-high" },
-  { value: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash (Medium)", description: "gemini-3.8-flash-medium" },
-  { value: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)", description: "gemini-3.8-flash-low" },
-  { value: "gemini-pro-agent", name: "Gemini 3.1 Pro (High)", description: "gemini-pro-agent" },
-  { value: "gemini-3.1-pro-low", name: "Gemini 3.1 Pro (Low)", description: "gemini-3.1-pro-low" },
-  { value: "solo-preview", name: "Solo Preview (Experimental)", description: "solo-preview" },
+/** Models as ACP Server 1.5.2 exposes them: families with separate thinking_level options plus a single-variant model. */
+const MODELS = [
+  { value: "gemini-4-neon", name: "Gemini 4 Neon", efforts: ["low", "medium", "high", "xhigh"], firstEffort: "high" },
+  { value: "solo-preview", name: "Solo Preview (Experimental)", description: "solo-preview", efforts: [] },
+  { value: "gemini-3.1-pro", name: "Gemini 3.1 Pro", efforts: ["low", "high"], firstEffort: "high" },
+  { value: "gemini-3.8-flash", name: "Gemini 3.8 Flash", efforts: ["low", "medium", "high"], firstEffort: "high" },
 ];
-const DEFAULT_MODEL = "gemini-3.8-flash-high";
+const DEFAULT_MODEL = "gemini-4-neon";
+const DEFAULT_EFFORT = "medium";
 
 /**
  * Fake ACP Server: the prompt text decides how the round goes; session records are stored in cwd, so they can be resumed across processes.
- * Each process starts on the default model; session/new and session/resume both return the model select.
+ * Each process starts on the default model and thinking level; session/new and session/resume both return configOptions.
  * With `login-on-new` in cwd, session/new prints an authorization URL as if credentials expired, then waits forever;
  * with `auth-required`, session/new returns auth_required.
  */
 const FAKE_SERVER = `#!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-const MODEL_CHOICES = ${JSON.stringify(MODEL_CHOICES)};
+const MODELS = ${JSON.stringify(MODELS)};
 const DEFAULT_MODEL = ${JSON.stringify(DEFAULT_MODEL)};
+const DEFAULT_EFFORT = ${JSON.stringify(DEFAULT_EFFORT)};
+const LEVEL_ORDER = ["minimal", "low", "medium", "high", "xhigh", "extra_high", "max"];
+const LEVEL_NAMES = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra" };
 if (!process.argv.includes("--uid=")) process.exit(2);
 const storePath = process.cwd() + "/sessions.json";
 const load = () => { try { return JSON.parse(readFileSync(storePath, "utf8")); } catch { return {}; } };
@@ -47,10 +48,45 @@ const loginPrompt = () => process.stderr.write("Open the following link to authe
 let session = null;
 let mode = null;
 let model = DEFAULT_MODEL;
-const configOptions = () => [
-  { id: "model", name: "Model", category: "model", type: "select", currentValue: model, options: MODEL_CHOICES },
-  { id: "mode", name: "Session Mode", category: "mode", type: "select", currentValue: "default", options: [] },
-];
+let effort = DEFAULT_EFFORT;
+const nearestEffort = (levels, wanted) => {
+  if (levels.includes(wanted)) return wanted;
+  const targetRank = LEVEL_ORDER.indexOf(wanted);
+  return levels.slice().sort((a, b) => {
+    const rankA = LEVEL_ORDER.indexOf(a);
+    const rankB = LEVEL_ORDER.indexOf(b);
+    return Math.abs(rankA - targetRank) - Math.abs(rankB - targetRank) || rankB - rankA;
+  })[0];
+};
+const configOptions = () => {
+  const current = MODELS.find((item) => item.value === model);
+  const options = [
+    {
+      id: "model",
+      name: "Model",
+      category: "model",
+      type: "select",
+      currentValue: model,
+      options: MODELS.map((item) => ({
+        value: item.value,
+        name: item.name,
+        ...(item.description ? { description: item.description } : {}),
+      })),
+    },
+  ];
+  if (current && current.efforts.length > 0) {
+    options.push({
+      id: "thinking_level",
+      name: "Thinking Level",
+      category: "thought_level",
+      type: "select",
+      currentValue: effort,
+      options: current.efforts.map((level) => ({ value: level, name: LEVEL_NAMES[level] ?? level })),
+    });
+  }
+  options.push({ id: "mode", name: "Session Mode", category: "mode", type: "select", currentValue: "default", options: [] });
+  return options;
+};
 let calls = [];
 let promptId = null;
 let ignoreEof = false;
@@ -111,9 +147,26 @@ function handle(message) {
       mode = params.modeId;
       return reply(id, {});
     case "session/set_config_option":
-      if (params.configId !== "model" || !MODEL_CHOICES.some((choice) => choice.value === params.value)) return fail(id, -32602, "Invalid value");
-      model = params.value;
-      return reply(id, { configOptions: configOptions() });
+      if (params.configId === "model") {
+        const target = MODELS.find((item) => item.value === params.value);
+        if (!target) return fail(id, -32602, "Invalid value");
+        if (target.efforts.length === 0) {
+          effort = null;
+        } else if (effort !== null) {
+          effort = nearestEffort(target.efforts, effort);
+        } else {
+          effort = target.firstEffort;
+        }
+        model = target.value;
+        return reply(id, { configOptions: configOptions() });
+      }
+      if (params.configId === "thinking_level") {
+        const current = MODELS.find((item) => item.value === model);
+        if (!current || !current.efforts.includes(params.value)) return fail(id, -32602, "Invalid value");
+        effort = params.value;
+        return reply(id, { configOptions: configOptions() });
+      }
+      return fail(id, -32602, "Invalid value");
     case "session/cancel":
       // Pending approvals are answered cancelled by the client, and the round ends then.
       if (waiting.size === 0 && promptId !== null) end("cancelled");
@@ -145,7 +198,7 @@ function prompt(id, text) {
   const command = text.split("\\n").at(-1);
   if (command === "state") {
     const env = Object.fromEntries(["TERM", "BROWSER", "ACCESS_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"].map((key) => [key, key in process.env]));
-    say(JSON.stringify({ session, mode, model, calls, prompts: store[session], env }));
+    say(JSON.stringify({ session, mode, model, effort, calls, prompts: store[session], env }));
     return end();
   }
   if (command === "tool") {
@@ -258,26 +311,15 @@ test("declares models, permissions and usage", async () => {
   assert.equal(ANTIGRAVITY_PERMISSIONS.find((option) => option.id === "always-approve")?.danger, true);
 });
 
-test("turns effort variants into one model with efforts and keeps single variants as they are", () => {
-  const options = (current: string) => modelOptions([
-    { id: "mode", currentValue: "default", options: [{ value: "default", name: "Default" }] },
-    { id: "model", currentValue: current, options: MODEL_CHOICES },
-  ]);
-  assert.deepEqual(options(DEFAULT_MODEL), [
-    { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", description: "", efforts: ["high", "medium", "low"], defaultEffort: "high" },
-    { id: "gemini-3.1-pro", label: "Gemini 3.1 Pro", description: "", efforts: ["high", "low"], defaultEffort: "high" },
-    { id: "solo-preview", label: "Solo Preview (Experimental)", description: "solo-preview", efforts: [] },
-  ]);
-  const pro = options("gemini-3.1-pro-low");
-  assert.equal(pro.find((option) => option.id === "gemini-3.1-pro")?.defaultEffort, "low");
-  assert.equal(pro.find((option) => option.id === "gemini-3.8-flash")?.defaultEffort, "high");
-  assert.deepEqual(modelOptions([]), []);
-});
-
-test("reads models from one catalog session that later lookups and restarts resume", async (t) => {
+test("reads models and per-model thinking levels from one catalog session that later lookups and restarts resume", async (t) => {
   const { adapter, cwd, executable, stateDirectory } = await setup(t);
   const models = await adapter.features.models!(cwd);
-  assert.deepEqual(models.map((option) => option.id), ["gemini-3.8-flash", "gemini-3.1-pro", "solo-preview"]);
+  assert.deepEqual(models, [
+    { id: "gemini-4-neon", label: "Gemini 4 Neon", description: "", efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "medium" },
+    { id: "solo-preview", label: "Solo Preview (Experimental)", description: "solo-preview", efforts: [] },
+    { id: "gemini-3.1-pro", label: "Gemini 3.1 Pro", description: "", efforts: ["low", "high"], defaultEffort: "high" },
+    { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", description: "", efforts: ["low", "medium", "high"], defaultEffort: "medium" },
+  ]);
   const sessions = await storedSessions(stateDirectory);
   assert.equal(sessions.length, 1);
   assert.equal(await catalogSessionId(stateDirectory), sessions[0]);
@@ -301,7 +343,7 @@ test("replaces a catalog session only when the server reports it not found", asy
   const { adapter, cwd, stateDirectory } = await setup(t);
   await mkdir(stateDirectory, { recursive: true });
   await writeFile(path.join(stateDirectory, "catalog-session.json"), JSON.stringify({ sessionId: "missing" }));
-  assert.equal((await adapter.features.models!(cwd)).length, 3);
+  assert.equal((await adapter.features.models!(cwd)).length, MODELS.length);
   const sessions = await storedSessions(stateDirectory);
   assert.equal(sessions.length, 1);
   assert.equal(await catalogSessionId(stateDirectory), sessions[0]);
@@ -336,7 +378,7 @@ test("does not cache an empty model list", async (t) => {
   await writeFile(path.join(stateDirectory, "no-models"), "");
   await assert.rejects(adapter.features.models!(cwd, true), /Antigravity returned no model list/u);
   await rm(path.join(stateDirectory, "no-models"));
-  assert.equal((await adapter.features.models!(cwd, true)).length, 3);
+  assert.equal((await adapter.features.models!(cwd, true)).length, MODELS.length);
 });
 
 test("a catalog lookup that needs a login fails with the login hint", async (t) => {
@@ -348,41 +390,62 @@ test("a catalog lookup that needs a login fails with the login hint", async (t) 
   }
 });
 
-test("sets the chosen model and effort every time a session opens", async (t) => {
+test("sets the chosen model and thinking level every time a session opens", async (t) => {
   const { adapter, cwd } = await setup(t);
   const choice = { model: "gemini-3.8-flash", effort: "low" };
   const session = await adapter.startSession(sessionOptions(cwd, null, [], choice));
   t.after(() => session.close());
   const state = JSON.parse(endOf(await drain(session, "state")).text) as Record<string, unknown>;
-  assert.equal(state.model, "gemini-3.8-flash-low");
-  assert.deepEqual(state.calls, ["initialize", "session/new", "session/set_mode", "session/set_config_option", "session/prompt"]);
+  assert.equal(state.model, "gemini-3.8-flash");
+  assert.equal(state.effort, "low");
+  assert.deepEqual(state.calls, [
+    "initialize",
+    "session/new",
+    "session/set_mode",
+    "session/set_config_option",
+    "session/set_config_option",
+    "session/prompt",
+  ]);
   await session.close();
 
   const resumed = await adapter.resumeSession(session.nativeId!, sessionOptions(cwd, null, [], choice));
   t.after(() => resumed.close());
   const after = JSON.parse(endOf(await drain(resumed, "state")).text) as Record<string, unknown>;
-  assert.equal(after.model, "gemini-3.8-flash-low");
-  assert.deepEqual(after.calls, ["initialize", "session/resume", "session/set_mode", "session/set_config_option", "session/prompt"]);
+  assert.equal(after.model, "gemini-3.8-flash");
+  assert.equal(after.effort, "low");
+  assert.deepEqual(after.calls, [
+    "initialize",
+    "session/resume",
+    "session/set_mode",
+    "session/set_config_option",
+    "session/set_config_option",
+    "session/prompt",
+  ]);
   await resumed.close();
 });
 
-test("uses the default effort when none is chosen and skips a model that is already current", async (t) => {
+test("skips config updates that already match the session state and ignores effort without a model", async (t) => {
   const { adapter, cwd } = await setup(t);
-  for (const [model, expected, calls] of [
-    ["gemini-3.1-pro", "gemini-pro-agent", ["initialize", "session/new", "session/set_mode", "session/set_config_option", "session/prompt"]],
-    ["solo-preview", "solo-preview", ["initialize", "session/new", "session/set_mode", "session/set_config_option", "session/prompt"]],
-    ["gemini-3.8-flash", DEFAULT_MODEL, ["initialize", "session/new", "session/set_mode", "session/prompt"]],
+  for (const [choice, expectedModel, expectedEffort, calls] of [
+    [{ model: "gemini-4-neon", effort: "xhigh" }, "gemini-4-neon", "xhigh", ["initialize", "session/new", "session/set_mode", "session/set_config_option", "session/prompt"]],
+    [{ model: "gemini-4-neon", effort: "medium" }, "gemini-4-neon", "medium", ["initialize", "session/new", "session/set_mode", "session/prompt"]],
+    [{ model: "gemini-4-neon", effort: null }, "gemini-4-neon", "medium", ["initialize", "session/new", "session/set_mode", "session/prompt"]],
+    [{ model: "gemini-3.8-flash", effort: "medium" }, "gemini-3.8-flash", "medium", ["initialize", "session/new", "session/set_mode", "session/set_config_option", "session/prompt"]],
+    [{ model: "gemini-3.1-pro", effort: null }, "gemini-3.1-pro", "high", ["initialize", "session/new", "session/set_mode", "session/set_config_option", "session/prompt"]],
+    [{ model: "solo-preview", effort: null }, "solo-preview", null, ["initialize", "session/new", "session/set_mode", "session/set_config_option", "session/prompt"]],
+    [{ model: null, effort: "high" }, DEFAULT_MODEL, DEFAULT_EFFORT, ["initialize", "session/new", "session/set_mode", "session/prompt"]],
   ] as const) {
-    const session = await adapter.startSession(sessionOptions(cwd, null, [], { model, effort: null }));
+    const session = await adapter.startSession(sessionOptions(cwd, null, [], choice));
     t.after(() => session.close());
     const state = JSON.parse(endOf(await drain(session, "state")).text) as Record<string, unknown>;
-    assert.equal(state.model, expected);
+    assert.equal(state.model, expectedModel);
+    assert.equal(state.effort, expectedEffort);
     assert.deepEqual(state.calls, calls);
     await session.close();
   }
 });
 
-test("fails to open a session with a model the server does not offer", async (t) => {
+test("fails to open a session with a model or thinking level the server does not offer", async (t) => {
   const { adapter, cwd } = await setup(t);
   await assert.rejects(
     adapter.startSession(sessionOptions(cwd, null, [], { model: "gemini-0-retired", effort: null })),
@@ -391,6 +454,10 @@ test("fails to open a session with a model the server does not offer", async (t)
   await assert.rejects(
     adapter.startSession(sessionOptions(cwd, null, [], { model: "gemini-3.1-pro", effort: "medium" })),
     /Antigravity doesn't offer the model gemini-3.1-pro \(medium\) in this session/u,
+  );
+  await assert.rejects(
+    adapter.startSession(sessionOptions(cwd, null, [], { model: "solo-preview", effort: "low" })),
+    /Antigravity doesn't offer the model solo-preview \(low\) in this session/u,
   );
 });
 
