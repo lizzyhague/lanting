@@ -16,8 +16,8 @@ Do not commit completed configuration files.
 - Node.js 24 or later
 - A project root directory: when creating a group, its working directory is selected from the
   immediate subdirectories of this root
-- At least one supported AI CLI, installed and signed in: Claude Code, Codex, Grok, Pi, Cursor,
-  Antigravity, Kimi Code, or Kiro CLI. Pi also requires its permission extension,
+- At least one supported AI CLI installed: Claude Code, Codex, Grok, Pi, Cursor,
+  Antigravity, Kimi Code, Kiro CLI, or OpenCode. Sign in as required by the selected provider. Pi also requires its permission extension,
   `pi-minimal-permission-system`, installed through Pi's package manager so lanting can route tool
   confirmations to the web interface.
   Cursor uses the Cursor Agent CLI; install it according to Cursor's documentation and sign in with
@@ -39,6 +39,10 @@ Do not commit completed configuration files.
   other CLI sessions too with
   `kiro-cli settings codeWhisperer.shareCodeWhispererContentWithAWS false`;
   this setting name comes from `kiro-cli settings list --all`.
+  OpenCode uses `opencode acp` and its own permission configuration determines which actions require
+  approval. lanting supports model and reasoning effort selection, context usage, and native session
+  deletion, but not compaction. It closes the process after each turn; unfinished background
+  subagents stop.
 - A random login token of at least 32 characters
 - To upload attachments and deliver files, [ai-remote-upload](https://github.com/lizzyhague/ai-remote-upload) running
   under the same system account, at a version that recognizes `lanting` as a caller and supports retrieving attachment bytes by ID.
@@ -77,7 +81,8 @@ Edit `.env` and set at least the login token. The available environment variable
     "cursor": { "executable": "/absolute/path/to/cursor-agent" },
     "antigravity": { "executable": "/absolute/path/to/agy_acp_server.par" },
     "kimi": { "executable": "/absolute/path/to/kimi" },
-    "kiro": { "executable": "/absolute/path/to/kiro-cli" }
+    "kiro": { "executable": "/absolute/path/to/kiro-cli" },
+    "opencode": { "executable": "/absolute/path/to/opencode" }
   }
 }
 ```

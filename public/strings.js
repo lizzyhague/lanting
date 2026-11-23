@@ -101,8 +101,8 @@ window.lantingStrings = {
     en: "lanting first adds a level-1 heading \"User's collaboration rules\", then places the text below it as-is, trimming only leading and trailing whitespace. Plain text is fine; to split it into Markdown sections, start from ##. With #, your sections sit at the same level as lanting's built-in ones, and the AI may not tell that you wrote them.",
   },
   "settings.collaborationInfo5": {
-    zh: "已经开着的会话不受影响。之后什么时候带上新内容，分两种：Claude、Codex、Pi 在会话关闭后再次打开时带上；Grok、Cursor、Antigravity、Kimi、Kiro 只在新建会话时带上，已有群里的继续用旧内容。",
-    en: "Sessions already open aren't affected. When the new text is picked up depends on the CLI: Claude, Codex and Pi pick it up when a session is reopened after closing; Grok, Cursor, Antigravity, Kimi and Kiro only when a new session is created, so existing groups keep the old text.",
+    zh: "已经开着的会话不受影响。之后什么时候带上新内容，分两种：Claude、Codex、Pi 在会话关闭后再次打开时带上；Grok、Cursor、Antigravity、Kimi、Kiro、OpenCode 只在新建会话时带上，已有群里的继续用旧内容。",
+    en: "Sessions already open aren't affected. When the new text is picked up depends on the CLI: Claude, Codex and Pi pick it up when a session is reopened after closing; Grok, Cursor, Antigravity, Kimi, Kiro and OpenCode only when a new session is created, so existing groups keep the old text.",
   },
   "settings.collaborationInfo6": { zh: "留空时只使用 lanting 自带的规则。", en: "When left empty, only lanting's built-in rules are used." },
   "settings.collaborationPlaceholder": {
@@ -520,6 +520,14 @@ window.lantingStrings = {
     zh: "Kiro CLI 发来的审批直接放行。",
     en: "Approvals from Kiro CLI are allowed automatically.",
   },
+  "permission.opencode.ask": {
+    zh: "OpenCode 发来的审批由群主在网页上决定；哪些操作需要审批由 OpenCode 自身的权限配置决定。",
+    en: "You decide approval requests from OpenCode on the web page. OpenCode's permission configuration determines which actions require approval.",
+  },
+  "permission.opencode.alwaysApprove": {
+    zh: "OpenCode 发来的审批自动允许一次；哪些操作被允许、拒绝或发起审批仍由 OpenCode 自身的权限配置决定。",
+    en: "Automatically allow each approval request from OpenCode once. OpenCode's permission configuration still determines which actions are allowed, denied, or sent for approval.",
+  },
   "permission.grok.ask": { zh: "需要确认的工具调用都由群主在网页上批准。", en: "Tool calls that need confirmation are decided by you on the web page." },
   "permission.grok.alwaysApprove": { zh: "工具调用不再逐次确认，直接放行。", en: "Tool calls are allowed without confirmation." },
   "permission.codex.readOnly": { zh: "只读", en: "Read only" },
@@ -612,5 +620,9 @@ window.lantingStrings = {
   "error.kimiLogin": {
     zh: "Kimi Code 需要重新登录：请在服务器上运行 kimi login。",
     en: "Kimi Code needs to sign in again: run kimi login on the server.",
+  },
+  "error.opencodeLogin": {
+    zh: "所选模型需要身份验证：请在服务器上运行 opencode auth login。",
+    en: "The selected model requires authentication: run opencode auth login on the server.",
   },
 };

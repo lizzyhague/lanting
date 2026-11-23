@@ -5,7 +5,8 @@ import { cursorModule } from "./cursor/index.ts";
 import { grokModule } from "./grok/index.ts";
 import { kiroModule } from "./kiro/index.ts";
 import { kimiModule } from "./kimi/index.ts";
+import { opencodeModule } from "./opencode/index.ts";
 import { piModule } from "./pi/index.ts";
 import type { AgentModule } from "./module.ts";
 
-export const AGENT_MODULES: readonly AgentModule[] = [claudeModule, codexModule, grokModule, piModule, cursorModule, antigravityModule, kimiModule, kiroModule];
+export const AGENT_MODULES: readonly AgentModule[] = [claudeModule, codexModule, grokModule, piModule, cursorModule, antigravityModule, kimiModule, kiroModule, opencodeModule];

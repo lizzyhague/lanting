@@ -118,6 +118,7 @@ test("summaries list the features of configured CLIs", async (t) => {
     { kind: "antigravity", displayName: "Antigravity", configured: false, features: [] },
     { kind: "kimi", displayName: "Kimi Code", configured: false, features: [] },
     { kind: "kiro", displayName: "Kiro CLI", configured: false, features: [] },
+    { kind: "opencode", displayName: "OpenCode", configured: false, features: [] },
   ]);
 });
 

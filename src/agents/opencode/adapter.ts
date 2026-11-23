@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 
 import { proxyEnvironment } from "../proxy.ts";
 import type { AgentFeatures, UsagePart } from "../../features/index.ts";
-import { localText } from "../../i18n/text.ts";
+import { englishText, localText, LocalizedError } from "../../i18n/text.ts";
 import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
 import {
@@ -20,7 +20,9 @@ import {
   toolNameOr,
 } from "../types.ts";
 import {
+  AUTH_REQUIRED_CODE,
   OpenCodeAcpClient,
+  OpenCodeRpcError,
   type OpenCodePermissionOutcome,
   type OpenCodePermissionRequest,
   type OpenCodeUpdate,
@@ -36,15 +38,17 @@ export const OPENCODE_PERMISSIONS: readonly PermissionOption[] = [
   localizedPermission({
     id: "ask",
     label: localText("permission.ask"),
-    description: "Ask about permission requests sent by OpenCode. OpenCode settings determine which actions require approval.",
+    description: localText("permission.opencode.ask"),
   }),
   localizedPermission({
     id: ALWAYS_APPROVE,
     label: "Always approve",
-    description: "Automatically allow permission requests sent by OpenCode once. OpenCode settings still determine which actions are allowed, denied, or sent for approval.",
+    description: localText("permission.opencode.alwaysApprove"),
     danger: true,
   }),
 ];
+
+export const LOGIN_REQUIRED = localText("error.opencodeLogin");
 
 export function firstMessage(systemPrompt: string, text: string): string {
   return [
@@ -158,7 +162,7 @@ class OpenCodeSession implements AgentSession {
     } catch (error) {
       if (client.stderrTail.trim()) console.error(`OpenCode stderr: ${client.stderrTail.trim()}`);
       await session.close();
-      throw error;
+      throw isAuthRequired(error) ? new LocalizedError(LOGIN_REQUIRED) : error;
     }
   }
 
@@ -196,7 +200,9 @@ class OpenCodeSession implements AgentSession {
           type: "end",
           outcome: turn.interrupted ? "interrupted" : "failed",
           text: turn.segment,
-          ...(turn.interrupted ? {} : { error: errorText(error) }),
+          ...(turn.interrupted ? {} : isAuthRequired(error)
+            ? { error: englishText(LOGIN_REQUIRED), errorText: LOGIN_REQUIRED }
+            : { error: errorText(error) }),
         });
       },
     );
@@ -393,6 +399,10 @@ function contentText(content: unknown): string {
 
 function permissionReason(toolCall: Record<string, unknown>): string {
   return contentText(toolCall.content).replace(/^Requesting approval to\s*/u, "").trim().slice(0, 240);
+}
+
+function isAuthRequired(error: unknown): boolean {
+  return error instanceof OpenCodeRpcError && error.code === AUTH_REQUIRED_CODE && /auth(?:entication)?[ _-]+required/i.test(error.message);
 }
 
 function errorText(error: unknown): string {

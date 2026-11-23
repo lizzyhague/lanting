@@ -14,6 +14,7 @@ test("lists every supported CLI kind in its fixed order", () => {
     { kind: "antigravity", displayName: "Antigravity" },
     { kind: "kimi", displayName: "Kimi Code" },
     { kind: "kiro", displayName: "Kiro CLI" },
+    { kind: "opencode", displayName: "OpenCode" },
   ]);
 });
 

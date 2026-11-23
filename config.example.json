@@ -8,6 +8,7 @@
     "cursor": { "executable": "/absolute/path/to/cursor-agent" },
     "antigravity": { "executable": "/absolute/path/to/agy_acp_server.par" },
     "kimi": { "executable": "/absolute/path/to/kimi" },
-    "kiro": { "executable": "/absolute/path/to/kiro-cli" }
+    "kiro": { "executable": "/absolute/path/to/kiro-cli" },
+    "opencode": { "executable": "/absolute/path/to/opencode" }
   }
 }

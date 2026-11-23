@@ -13,7 +13,7 @@
 
 - Node.js 24 或更高版本
 - 一个项目根目录：新建群时，工作目录从它下面的第一层文件夹里选
-- 要拉进群的 AI 的 CLI，已安装并登录：Claude Code、Codex、Grok、Pi、Cursor、Antigravity、Kimi Code、Kiro CLI，至少一个。
+- 要拉进群的 AI 的 CLI，至少安装一个：Claude Code、Codex、Grok、Pi、Cursor、Antigravity、Kimi Code、Kiro CLI、OpenCode。所选模型需要认证时，按对应 CLI 的说明登录。
   Pi 还要用它自己的包管理命令安装权限扩展 `pi-minimal-permission-system`，lanting 才能把工具确认接到网页审批。
   Cursor 用 Cursor Agent CLI，按 Cursor 官方说明安装后运行 `cursor-agent login` 登录；
   lanting 不切换 Cursor 的模型，用的是 Cursor 当前的默认模型。
@@ -31,6 +31,7 @@
   lanting 每个会话都会关闭内容共享；也可以选择执行
   `kiro-cli settings codeWhisperer.shareCodeWhispererContentWithAWS false`，
   为其他 CLI 会话关闭内容共享。这个设置名来自 `kiro-cli settings list --all`。
+  OpenCode 使用 `opencode acp`；它自己的权限配置决定哪些操作需要审批。lanting 支持模型、思考档位、上下文用量和原生会话删除，暂不支持压缩。每轮结束后关闭进程，尚未完成的后台子代理会停止。
 - 一个至少 32 字符的随机登录令牌
 - 要上传附件和交付文件的话：同一个系统账户下运行的 [ai-remote-upload](https://github.com/lizzyhague/ai-remote-upload)，
   版本要认得调用方 `lanting`，并支持按 ID 取回附件字节。不装也能用，只是不能上传附件和交付文件
@@ -68,7 +69,8 @@ chmod 600 .env config.json
     "cursor": { "executable": "/absolute/path/to/cursor-agent" },
     "antigravity": { "executable": "/absolute/path/to/agy_acp_server.par" },
     "kimi": { "executable": "/absolute/path/to/kimi" },
-    "kiro": { "executable": "/absolute/path/to/kiro-cli" }
+    "kiro": { "executable": "/absolute/path/to/kiro-cli" },
+    "opencode": { "executable": "/absolute/path/to/opencode" }
   }
 }
 ```

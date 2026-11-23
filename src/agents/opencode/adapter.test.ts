@@ -4,11 +4,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { englishText } from "../../i18n/text.ts";
 import type { AgentEvent, AgentSession, ApprovalAnswer, ApprovalAsk, SessionOptions } from "../types.ts";
 import {
   firstMessage,
   OPENCODE_PERMISSIONS,
   OpenCodeAdapter,
+  LOGIN_REQUIRED,
   modelOptions,
   toolActivity,
 } from "./adapter.ts";
@@ -145,6 +147,7 @@ function prompt(id, text) {
   }
   if (command === "hold") return say("working");
   if (command === "unauthorized") { promptId = null; return fail(id, -32000, "Authentication required"); }
+  if (command === "other-error") { promptId = null; return fail(id, -32000, "Provider unavailable"); }
   if (command === "refuse") { say("half"); return end("refusal"); }
   if (command === "crash") { say("before crash"); return process.exit(3); }
   say("echo:" + text); end();
@@ -327,7 +330,9 @@ test("interrupts a turn and maps auth, early stops and crashes", async (t) => {
   await session.interrupt();
   assert.deepEqual(endOf(await held), { type: "end", outcome: "interrupted", text: "working" });
   const unauthorized = endOf(await drain(session, "unauthorized"));
-  assert.match(unauthorized.error ?? "", /Authentication required/);
+  assert.equal(unauthorized.error, englishText(LOGIN_REQUIRED));
+  assert.deepEqual(unauthorized.errorText, LOGIN_REQUIRED);
+  assert.match(endOf(await drain(session, "other-error")).error ?? "", /Provider unavailable/);
   assert.equal(endOf(await drain(session, "refuse")).outcome, "failed");
   assert.match(endOf(await drain(session, "crash")).error ?? "", /The OpenCode process exited \(3\)/);
 });
@@ -341,6 +346,12 @@ test("deletes native sessions", async (t) => {
   assert.deepEqual(JSON.parse(await readFile(path.join(cwd, "sessions.json"), "utf8")), {});
 
 
+});
+
+test("localizes authentication errors while opening a session", async (t) => {
+  const { adapter, cwd } = await setup(t, { FAKE_AUTH: "1" });
+  await assert.rejects(adapter.startSession(options(cwd)), (error: unknown) =>
+    error instanceof Error && error.message === englishText(LOGIN_REQUIRED));
 });
 
 test("model and tool helpers tolerate incomplete ACP records", () => {
