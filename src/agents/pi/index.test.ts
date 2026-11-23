@@ -12,9 +12,9 @@ test("validates the Pi executable when creating its adapter", async (t) => {
   const executable = path.join(directory, "pi");
   await writeFile(executable, "#!/bin/sh\n", { mode: 0o700 });
 
-  assert.equal((await piModule.create({ executable }, "agents.pi")).kind, "pi");
-  await assert.rejects(piModule.create({}, "agents.pi"), /must be a non-empty string/u);
-  await assert.rejects(piModule.create({ executable: "pi" }, "agents.pi"), /must be an absolute path/u);
+  assert.equal((await piModule.create({ executable }, "agents.pi", { stateDirectory: directory })).kind, "pi");
+  await assert.rejects(piModule.create({}, "agents.pi", { stateDirectory: directory }), /must be a non-empty string/u);
+  await assert.rejects(piModule.create({ executable: "pi" }, "agents.pi", { stateDirectory: directory }), /must be an absolute path/u);
   await chmod(executable, 0o600);
-  await assert.rejects(piModule.create({ executable }, "agents.pi"), /does not exist or is not executable/u);
+  await assert.rejects(piModule.create({ executable }, "agents.pi", { stateDirectory: directory }), /does not exist or is not executable/u);
 });

@@ -23,9 +23,9 @@ export async function main(): Promise<void> {
 
   const configPath = path.resolve(process.env.CONFIG_PATH ?? "config.json");
   const config = await loadConfig(configPath);
-  const adapters = await createConfiguredAdapters(config);
-  const previewRoot = await ensurePreviewRoot();
   const dataDirectory = path.resolve(process.env.DATA_DIR ?? "data");
+  const adapters = await createConfiguredAdapters(config, dataDirectory);
+  const previewRoot = await ensurePreviewRoot();
 
   // Exit immediately if group data can't be read or fails validation; never overwrite the original files with an empty state.
   const store = await GroupStore.open(dataDirectory);

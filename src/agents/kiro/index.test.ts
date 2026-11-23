@@ -12,9 +12,9 @@ test("validates the Kiro executable when creating its adapter", async (t) => {
   const executable = path.join(directory, "kiro");
   await writeFile(executable, "#!/bin/sh\n", { mode: 0o700 });
 
-  assert.equal((await kiroModule.create({ executable }, "agents.kiro")).kind, "kiro");
-  await assert.rejects(kiroModule.create({}, "agents.kiro"), /must be a non-empty string/u);
-  await assert.rejects(kiroModule.create({ executable: "kiro" }, "agents.kiro"), /must be an absolute path/u);
+  assert.equal((await kiroModule.create({ executable }, "agents.kiro", { stateDirectory: directory })).kind, "kiro");
+  await assert.rejects(kiroModule.create({}, "agents.kiro", { stateDirectory: directory }), /must be a non-empty string/u);
+  await assert.rejects(kiroModule.create({ executable: "kiro" }, "agents.kiro", { stateDirectory: directory }), /must be an absolute path/u);
   await chmod(executable, 0o600);
-  await assert.rejects(kiroModule.create({ executable }, "agents.kiro"), /does not exist or is not executable/u);
+  await assert.rejects(kiroModule.create({ executable }, "agents.kiro", { stateDirectory: directory }), /does not exist or is not executable/u);
 });

@@ -12,9 +12,9 @@ test("validates the OpenCode executable when creating its adapter", async (t) =>
   const executable = path.join(directory, "opencode");
   await writeFile(executable, "#!/bin/sh\n", { mode: 0o700 });
 
-  assert.equal((await opencodeModule.create({ executable }, "agents.opencode")).kind, "opencode");
-  await assert.rejects(opencodeModule.create({}, "agents.opencode"), /must be a non-empty string/u);
-  await assert.rejects(opencodeModule.create({ executable: "opencode" }, "agents.opencode"), /must be an absolute path/u);
+  assert.equal((await opencodeModule.create({ executable }, "agents.opencode", { stateDirectory: directory })).kind, "opencode");
+  await assert.rejects(opencodeModule.create({}, "agents.opencode", { stateDirectory: directory }), /must be a non-empty string/u);
+  await assert.rejects(opencodeModule.create({ executable: "opencode" }, "agents.opencode", { stateDirectory: directory }), /must be an absolute path/u);
   await chmod(executable, 0o600);
-  await assert.rejects(opencodeModule.create({ executable }, "agents.opencode"), /does not exist or is not executable/u);
+  await assert.rejects(opencodeModule.create({ executable }, "agents.opencode", { stateDirectory: directory }), /does not exist or is not executable/u);
 });

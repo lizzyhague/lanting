@@ -12,9 +12,9 @@ test("validates the Codex executable when creating its adapter", async (t) => {
   const executable = path.join(directory, "codex");
   await writeFile(executable, "#!/bin/sh\n", { mode: 0o700 });
 
-  assert.equal((await codexModule.create({ executable }, "agents.codex")).kind, "codex");
-  await assert.rejects(codexModule.create({}, "agents.codex"), /must be a non-empty string/u);
-  await assert.rejects(codexModule.create({ executable: "codex" }, "agents.codex"), /must be an absolute path/u);
+  assert.equal((await codexModule.create({ executable }, "agents.codex", { stateDirectory: directory })).kind, "codex");
+  await assert.rejects(codexModule.create({}, "agents.codex", { stateDirectory: directory }), /must be a non-empty string/u);
+  await assert.rejects(codexModule.create({ executable: "codex" }, "agents.codex", { stateDirectory: directory }), /must be an absolute path/u);
   await chmod(executable, 0o600);
-  await assert.rejects(codexModule.create({ executable }, "agents.codex"), /does not exist or is not executable/u);
+  await assert.rejects(codexModule.create({ executable }, "agents.codex", { stateDirectory: directory }), /does not exist or is not executable/u);
 });

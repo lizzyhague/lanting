@@ -12,9 +12,9 @@ test("validates the Antigravity executable when creating its adapter", async (t)
   const executable = path.join(directory, "agy_acp_server.par");
   await writeFile(executable, "#!/bin/sh\n", { mode: 0o700 });
 
-  assert.equal((await antigravityModule.create({ executable }, "agents.antigravity")).kind, "antigravity");
-  await assert.rejects(antigravityModule.create({}, "agents.antigravity"), /must be a non-empty string/u);
-  await assert.rejects(antigravityModule.create({ executable: "agy_acp_server.par" }, "agents.antigravity"), /must be an absolute path/u);
+  assert.equal((await antigravityModule.create({ executable }, "agents.antigravity", { stateDirectory: directory })).kind, "antigravity");
+  await assert.rejects(antigravityModule.create({}, "agents.antigravity", { stateDirectory: directory }), /must be a non-empty string/u);
+  await assert.rejects(antigravityModule.create({ executable: "agy_acp_server.par" }, "agents.antigravity", { stateDirectory: directory }), /must be an absolute path/u);
   await chmod(executable, 0o600);
-  await assert.rejects(antigravityModule.create({ executable }, "agents.antigravity"), /does not exist or is not executable/u);
+  await assert.rejects(antigravityModule.create({ executable }, "agents.antigravity", { stateDirectory: directory }), /does not exist or is not executable/u);
 });

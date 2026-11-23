@@ -12,9 +12,9 @@ test("validates the Claude executable when creating its adapter", async (t) => {
   const executable = path.join(directory, "claude");
   await writeFile(executable, "#!/bin/sh\n", { mode: 0o700 });
 
-  assert.equal((await claudeModule.create({ executable }, "agents.claude")).kind, "claude");
-  await assert.rejects(claudeModule.create({}, "agents.claude"), /must be a non-empty string/u);
-  await assert.rejects(claudeModule.create({ executable: "claude" }, "agents.claude"), /must be an absolute path/u);
+  assert.equal((await claudeModule.create({ executable }, "agents.claude", { stateDirectory: directory })).kind, "claude");
+  await assert.rejects(claudeModule.create({}, "agents.claude", { stateDirectory: directory }), /must be a non-empty string/u);
+  await assert.rejects(claudeModule.create({ executable: "claude" }, "agents.claude", { stateDirectory: directory }), /must be an absolute path/u);
   await chmod(executable, 0o600);
-  await assert.rejects(claudeModule.create({ executable }, "agents.claude"), /does not exist or is not executable/u);
+  await assert.rejects(claudeModule.create({ executable }, "agents.claude", { stateDirectory: directory }), /does not exist or is not executable/u);
 });

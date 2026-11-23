@@ -12,9 +12,9 @@ test("validates the Kimi executable when creating its adapter", async (t) => {
   const executable = path.join(directory, "kimi");
   await writeFile(executable, "#!/bin/sh\n", { mode: 0o700 });
 
-  assert.equal((await kimiModule.create({ executable }, "agents.kimi")).kind, "kimi");
-  await assert.rejects(kimiModule.create({}, "agents.kimi"), /must be a non-empty string/u);
-  await assert.rejects(kimiModule.create({ executable: "kimi" }, "agents.kimi"), /must be an absolute path/u);
+  assert.equal((await kimiModule.create({ executable }, "agents.kimi", { stateDirectory: directory })).kind, "kimi");
+  await assert.rejects(kimiModule.create({}, "agents.kimi", { stateDirectory: directory }), /must be a non-empty string/u);
+  await assert.rejects(kimiModule.create({ executable: "kimi" }, "agents.kimi", { stateDirectory: directory }), /must be an absolute path/u);
   await chmod(executable, 0o600);
-  await assert.rejects(kimiModule.create({ executable }, "agents.kimi"), /does not exist or is not executable/u);
+  await assert.rejects(kimiModule.create({ executable }, "agents.kimi", { stateDirectory: directory }), /does not exist or is not executable/u);
 });

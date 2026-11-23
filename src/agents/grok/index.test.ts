@@ -12,9 +12,9 @@ test("validates the Grok executable when creating its adapter", async (t) => {
   const executable = path.join(directory, "grok");
   await writeFile(executable, "#!/bin/sh\n", { mode: 0o700 });
 
-  assert.equal((await grokModule.create({ executable }, "agents.grok")).kind, "grok");
-  await assert.rejects(grokModule.create({}, "agents.grok"), /must be a non-empty string/u);
-  await assert.rejects(grokModule.create({ executable: "grok" }, "agents.grok"), /must be an absolute path/u);
+  assert.equal((await grokModule.create({ executable }, "agents.grok", { stateDirectory: directory })).kind, "grok");
+  await assert.rejects(grokModule.create({}, "agents.grok", { stateDirectory: directory }), /must be a non-empty string/u);
+  await assert.rejects(grokModule.create({ executable: "grok" }, "agents.grok", { stateDirectory: directory }), /must be an absolute path/u);
   await chmod(executable, 0o600);
-  await assert.rejects(grokModule.create({ executable }, "agents.grok"), /does not exist or is not executable/u);
+  await assert.rejects(grokModule.create({ executable }, "agents.grok", { stateDirectory: directory }), /does not exist or is not executable/u);
 });
