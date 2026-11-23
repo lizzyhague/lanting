@@ -49,6 +49,7 @@ let session = null;
 let mode = null;
 let model = DEFAULT_MODEL;
 let effort = DEFAULT_EFFORT;
+let additionalDirectories = null;
 const nearestEffort = (levels, wanted) => {
   if (levels.includes(wanted)) return wanted;
   const targetRank = LEVEL_ORDER.indexOf(wanted);
@@ -129,6 +130,8 @@ function handle(message) {
     case "session/new": {
       if (existsSync(process.cwd() + "/login-on-new")) { ignoreEof = true; loginPrompt(); setInterval(() => {}, 1000); return; }
       if (existsSync(process.cwd() + "/auth-required")) return fail(id, -32000, "Authentication required");
+      additionalDirectories = params.additionalDirectories ?? null;
+      writeFileSync(process.cwd() + "/last-open.json", JSON.stringify({ method, additionalDirectories }));
       session = "s-" + Date.now() + "-" + Math.random().toString(36).slice(2);
       const store = load();
       store[session] = [];
@@ -139,6 +142,8 @@ function handle(message) {
       const store = load();
       if (existsSync(process.cwd() + "/resume-fails")) return fail(id, -32603, "Internal error");
       if (!store[params.sessionId]) return fail(id, -32002, "Session not found");
+      additionalDirectories = params.additionalDirectories ?? null;
+      writeFileSync(process.cwd() + "/last-open.json", JSON.stringify({ method, additionalDirectories }));
       session = params.sessionId;
       if (existsSync(process.cwd() + "/no-models")) return reply(id, { modes: { currentModeId: "default" } });
       return reply(id, { modes: { currentModeId: "default" }, configOptions: configOptions() });
@@ -198,7 +203,7 @@ function prompt(id, text) {
   const command = text.split("\\n").at(-1);
   if (command === "state") {
     const env = Object.fromEntries(["TERM", "BROWSER", "ACCESS_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"].map((key) => [key, key in process.env]));
-    say(JSON.stringify({ session, mode, model, effort, calls, prompts: store[session], env }));
+    say(JSON.stringify({ session, mode, model, effort, calls, prompts: store[session], env, additionalDirectories }));
     return end();
   }
   if (command === "tool") {
@@ -709,6 +714,31 @@ test("fails to open a session when the server starts a browser login", async (t)
   const { adapter, cwd } = await setup(t);
   await writeFile(path.join(cwd, "login-on-new"), "");
   await assert.rejects(adapter.startSession(sessionOptions(cwd)), { message: englishText(LOGIN_REQUIRED), text: LOGIN_REQUIRED });
+});
+
+test("passes additionalDirectories on group session start and resume but not for the catalog session", async (t) => {
+  const { executable, cwd, stateDirectory } = await setup(t);
+  const extraDirs = [path.join(cwd, "projects"), path.join(cwd, "preview"), path.join(cwd, "blobs")];
+  const adapter = new AntigravityAdapter({ executable, stateDirectory, additionalDirectories: extraDirs });
+
+  await adapter.features.models!(cwd);
+  assert.deepEqual(
+    JSON.parse(await readFile(path.join(stateDirectory, "last-open.json"), "utf8")),
+    { method: "session/new", additionalDirectories: null },
+  );
+
+  const session = await adapter.startSession(sessionOptions(cwd));
+  t.after(() => session.close());
+  const firstState = JSON.parse(endOf(await drain(session, "state")).text) as Record<string, unknown>;
+  assert.deepEqual(firstState.additionalDirectories, extraDirs);
+  const nativeId = session.nativeId!;
+  await session.close();
+
+  const resumed = await adapter.resumeSession(nativeId, sessionOptions(cwd));
+  t.after(() => resumed.close());
+  const resumedState = JSON.parse(endOf(await drain(resumed, "state")).text) as Record<string, unknown>;
+  assert.deepEqual(resumedState.additionalDirectories, extraDirs);
+  await resumed.close();
 });
 
 test("reports a missing executable when opening a session", async () => {

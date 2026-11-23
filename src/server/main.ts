@@ -5,7 +5,7 @@ import { createConfiguredAdapters } from "../agents/startup.ts";
 import { AgentRegistry } from "../agents/registry.ts";
 import { groupAttachmentBinding } from "../attachments/binding.ts";
 import { prepareDeliveries } from "../deliveries/prepare.ts";
-import { SharedUploadClient } from "../attachments/shared-upload-client.ts";
+import { defaultUploadBlobsDirectory, SharedUploadClient } from "../attachments/shared-upload-client.ts";
 import { configuredKinds, loadConfig } from "../config/load.ts";
 import { GroupRuntime } from "../group/runtime.ts";
 import { GroupService } from "../group/service.ts";
@@ -24,8 +24,9 @@ export async function main(): Promise<void> {
   const configPath = path.resolve(process.env.CONFIG_PATH ?? "config.json");
   const config = await loadConfig(configPath);
   const dataDirectory = path.resolve(process.env.DATA_DIR ?? "data");
-  const adapters = await createConfiguredAdapters(config, dataDirectory);
   const previewRoot = await ensurePreviewRoot();
+  const defaultAdditionalDirectories = [config.projectRoot, previewRoot, defaultUploadBlobsDirectory()];
+  const adapters = await createConfiguredAdapters(config, dataDirectory, { defaultAdditionalDirectories });
 
   // Exit immediately if group data can't be read or fails validation; never overwrite the original files with an empty state.
   const store = await GroupStore.open(dataDirectory);

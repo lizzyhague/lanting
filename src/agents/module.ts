@@ -6,6 +6,11 @@ export type AgentModuleContext = {
    * It isn't created in advance; a module that needs it creates it with ensurePrivateDirectory.
    */
   stateDirectory: string;
+  /**
+   * Platform-managed directories that workspace-scoped CLIs need access to across groups
+   * (such as the project root, the preview directory, and the shared upload blobs directory).
+   */
+  defaultAdditionalDirectories?: readonly string[];
 };
 
 export type AgentModule = {

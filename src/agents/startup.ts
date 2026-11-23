@@ -3,6 +3,7 @@ import { setTimeout } from "node:timers/promises";
 import type { AppConfig } from "../config/load.ts";
 import { ExecutableUnavailableError } from "../config/fields.ts";
 import { AGENT_MODULES } from "./index.ts";
+import type { AgentModuleContext } from "./module.ts";
 import type { AgentAdapter } from "./types.ts";
 
 /**
@@ -13,6 +14,7 @@ export async function createConfiguredAdapters(
   config: Pick<AppConfig, "agents">,
   dataDirectory: string,
   options: {
+    defaultAdditionalDirectories?: readonly string[];
     wait?: () => Promise<void>;
     warn?: (message: string) => void;
   } = {},
@@ -24,7 +26,10 @@ export async function createConfiguredAdapters(
   for (const module of AGENT_MODULES) {
     const section = config.agents[module.kind];
     if (!section) continue;
-    const context = { stateDirectory: path.join(dataDirectory, "agents", module.kind) };
+    const context: AgentModuleContext = {
+      stateDirectory: path.join(dataDirectory, "agents", module.kind),
+      ...(options.defaultAdditionalDirectories ? { defaultAdditionalDirectories: options.defaultAdditionalDirectories } : {}),
+    };
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         adapters.push(await module.create(section, `agents.${module.kind}`, context));

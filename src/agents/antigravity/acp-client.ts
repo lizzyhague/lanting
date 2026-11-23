@@ -161,8 +161,10 @@ export class AntigravityAcpClient extends EventEmitter {
     }));
   }
 
-  async sessionNew(cwd: string): Promise<AntigravitySessionConfig> {
-    const result = objectOf(await this.request("session/new", { cwd, mcpServers: [] }));
+  async sessionNew(cwd: string, additionalDirectories: readonly string[] = []): Promise<AntigravitySessionConfig> {
+    const params: Record<string, unknown> = { cwd, mcpServers: [] };
+    if (additionalDirectories.length > 0) params.additionalDirectories = [...additionalDirectories];
+    const result = objectOf(await this.request("session/new", params));
     if (typeof result.sessionId !== "string" || !result.sessionId) {
       throw new Error("Antigravity returned no session id.");
     }
@@ -172,9 +174,16 @@ export class AntigravityAcpClient extends EventEmitter {
   /**
    * Uses resume rather than load: resume doesn't replay history, and context is still kept.
    * The response carries the same configOptions as session/new; the model choice is back to the Server's default.
+   * `additionalDirectories` must be passed again on resume: ACP clears stored roots when the field is omitted.
    */
-  async sessionResume(sessionId: string, cwd: string): Promise<AntigravitySessionConfig> {
-    const result = objectOf(await this.request("session/resume", { sessionId, cwd, mcpServers: [] }));
+  async sessionResume(
+    sessionId: string,
+    cwd: string,
+    additionalDirectories: readonly string[] = [],
+  ): Promise<AntigravitySessionConfig> {
+    const params: Record<string, unknown> = { sessionId, cwd, mcpServers: [] };
+    if (additionalDirectories.length > 0) params.additionalDirectories = [...additionalDirectories];
+    const result = objectOf(await this.request("session/resume", params));
     return { sessionId, configOptions: configOptionsOf(result) };
   }
 

@@ -35,6 +35,8 @@ export type AntigravityAdapterOptions = {
   executable: string;
   /** Holds the catalog session's id; it is also that session's working directory. */
   stateDirectory: string;
+  /** Extra workspace roots passed to group sessions on both session/new and session/resume. */
+  additionalDirectories?: readonly string[];
 };
 
 /** Stores the id of the one session used only to read the model list. */
@@ -266,8 +268,11 @@ class AntigravitySession implements AgentSession {
     const session = new AntigravitySession(client, options, usage);
     try {
       await client.initialize();
-      // resume doesn't replay history, and context is still kept.
-      const config = sessionId ? await client.sessionResume(sessionId, options.cwd) : await client.sessionNew(options.cwd);
+      const additionalDirectories = adapter.additionalDirectories ?? [];
+      // resume doesn't replay history, and context is still kept; additionalDirectories must be sent again because ACP clears stored roots when omitted.
+      const config = sessionId
+        ? await client.sessionResume(sessionId, options.cwd, additionalDirectories)
+        : await client.sessionNew(options.cwd, additionalDirectories);
       session.#sessionId = config.sessionId;
       session.#rulesPending = sessionId === null;
       await client.sessionSetMode(session.#sessionId, DEFAULT_MODE);

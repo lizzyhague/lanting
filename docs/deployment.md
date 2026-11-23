@@ -69,6 +69,7 @@ Edit `.env` and set at least the login token. The available environment variable
 | `CONFIG_PATH` | Path to the JSON configuration; defaults to `./config.json` |
 | `DATA_DIR` | Directory for groups, transcripts, settings, and state kept by CLI integrations; defaults to `./data` |
 | `AI_REMOTE_UPLOAD_SOCKET` | Unix socket for ai-remote-upload; defaults to `~/.local/share/ai-remote/upload.sock` |
+| `AI_REMOTE_UPLOAD_ROOT` | Storage directory for ai-remote-upload; used when deriving the default `blobs` directory passed to Antigravity (defaults to `${XDG_DATA_HOME:-~/.local/share}/ai-remote/uploads`) |
 | `ALLOWED_ORIGINS` | Additional allowed browser origins, separated by commas |
 
 `config.json` defines the project root and the path to each AI CLI:
@@ -92,6 +93,12 @@ Edit `.env` and set at least the login token. The available environment variable
 
 The `agents` object determines which CLI types are available on this machine. Types that are not
 listed appear unavailable in Settings. Paths may start with `~/`.
+
+For `antigravity`, lanting automatically passes `projectRoot`, `~/preview`, and the shared
+ai-remote-upload `blobs` directory as additional workspace roots on every group session so its
+built-in file tools can read attachments, write previews, and access sibling repositories. To allow
+more directories, set an optional `additionalDirectories` array of existing directory paths under
+`agents.antigravity` (paths may start with `~/`, and `/` is not allowed).
 
 Manage the AIs that can join groups in the web interface's Settings page. Each AI has one CLI type
 and one primary color, and multiple AIs may use the same CLI type. On first startup, lanting creates

@@ -58,8 +58,10 @@ function handle(message) {
     case "initialize":
       return reply(id, { protocolVersion: 1, echo: params });
     case "session/new":
+      answers.push({ method, params });
       return reply(id, params.cwd === "/no-id" ? {} : { sessionId: "s-1", configOptions: [{ id: "model", currentValue: "m-1" }], echo: params });
     case "session/resume":
+      answers.push({ method, params });
       return reply(id, params.cwd === "/no-options" ? {} : { modes: { currentModeId: "default" }, configOptions: [{ id: "model", currentValue: "m-2" }], echo: params });
     case "session/set_config_option":
       answers.push({ method, params });
@@ -158,12 +160,26 @@ test("starts with --uid= and runs the handshake without authenticate", async (t)
   assert.deepEqual(await client.sessionSetConfigOption("s-1", "model", "m-3"), [{ id: "model", currentValue: "m-3" }]);
   assert.deepEqual(await client.sessionSetConfigOption("s-1", "thinking_level", "no-options"), []);
   assert.deepEqual(await client.request("answers", {}), [
+    { method: "session/new", params: { cwd: "/work", mcpServers: [] } },
+    { method: "session/resume", params: { sessionId: "s-1", cwd: "/work", mcpServers: [] } },
+    { method: "session/resume", params: { sessionId: "s-1", cwd: "/no-options", mcpServers: [] } },
     { method: "session/set_config_option", params: { sessionId: "s-1", configId: "model", value: "m-3" } },
     { method: "session/set_config_option", params: { sessionId: "s-1", configId: "thinking_level", value: "no-options" } },
   ]);
   assert.deepEqual(await client.sessionPrompt("s-1", "hello"), { stopReason: "end_turn" });
   assert.deepEqual(updates.map((item) => item.update.sessionUpdate), ["agent_message_chunk"]);
   assert.equal(updates[0]?.sessionId, "s-1");
+});
+
+test("passes additionalDirectories on session/new and session/resume when provided", async (t) => {
+  const client = await setup(t);
+  await client.initialize();
+  await client.sessionNew("/work", ["/projects", "/preview"]);
+  await client.sessionResume("s-1", "/work", ["/projects", "/preview"]);
+  assert.deepEqual(await client.request("answers", {}), [
+    { method: "session/new", params: { cwd: "/work", mcpServers: [], additionalDirectories: ["/projects", "/preview"] } },
+    { method: "session/resume", params: { sessionId: "s-1", cwd: "/work", mcpServers: [], additionalDirectories: ["/projects", "/preview"] } },
+  ]);
 });
 
 test("rejects a session/new result without a session id", async (t) => {

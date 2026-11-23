@@ -169,17 +169,37 @@ export class SharedUploadClient {
   }
 }
 
+/**
+ * Default blob storage directory used by ai-remote-upload.
+ * Follows `AI_REMOTE_UPLOAD_ROOT` and `XDG_DATA_HOME` the same way ai-remote-upload resolves its paths.
+ */
+export function defaultUploadBlobsDirectory(
+  environment: NodeJS.ProcessEnv = process.env,
+  homeDirectory: string = homedir(),
+): string {
+  const configuredRoot = environment.AI_REMOTE_UPLOAD_ROOT?.trim();
+  if (configuredRoot) {
+    return path.join(path.resolve(configuredRoot), "blobs");
+  }
+  const configuredDataHome = environment.XDG_DATA_HOME?.trim();
+  const dataHome = configuredDataHome
+    ? path.resolve(configuredDataHome)
+    : path.join(homeDirectory, ".local", "share");
+  return path.join(dataHome, "ai-remote", "uploads", "blobs");
+}
+
 function defaultSocketPath(): string {
   const configured = process.env.AI_REMOTE_UPLOAD_SOCKET?.trim();
   if (!configured) {
     return path.join(homedir(), ".local", "share", "ai-remote", "upload.sock");
   }
-  const expanded = configured === "~"
-    ? homedir()
-    : configured.startsWith("~/")
-    ? path.join(homedir(), configured.slice(2))
-    : configured;
-  return path.resolve(expanded);
+  return path.resolve(expandTilde(configured, homedir()));
+}
+
+function expandTilde(value: string, homeDirectory: string): string {
+  if (value === "~") return homeDirectory;
+  if (value.startsWith("~/")) return path.join(homeDirectory, value.slice(2));
+  return value;
 }
 
 async function collectResponse<Result>(response: IncomingMessage): Promise<Result> {

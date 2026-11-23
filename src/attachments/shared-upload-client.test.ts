@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { SharedUploadClient } from "./shared-upload-client.ts";
+import { defaultUploadBlobsDirectory, SharedUploadClient } from "./shared-upload-client.ts";
 import { SharedUploadError } from "./types.ts";
 
 async function fixture(t: test.TestContext, handler: (request: IncomingMessage, response: ServerResponse) => void) {
@@ -98,4 +98,19 @@ test("propagates a source failure and closes the upload request", async (t) => {
     yield Buffer.alloc(1024);
     throw new Error("file changed");
   })(), new AbortController().signal), /file changed/);
+});
+
+test("resolves the default upload blobs directory from environment overrides or home", () => {
+  assert.equal(
+    defaultUploadBlobsDirectory({}, "/home/tester"),
+    path.join("/home/tester", ".local", "share", "ai-remote", "uploads", "blobs"),
+  );
+  assert.equal(
+    defaultUploadBlobsDirectory({ XDG_DATA_HOME: "/custom-data" }, "/home/tester"),
+    path.join("/custom-data", "ai-remote", "uploads", "blobs"),
+  );
+  assert.equal(
+    defaultUploadBlobsDirectory({ XDG_DATA_HOME: "/ignored", AI_REMOTE_UPLOAD_ROOT: "/uploads-root" }, "/home/tester"),
+    path.join("/uploads-root", "blobs"),
+  );
 });

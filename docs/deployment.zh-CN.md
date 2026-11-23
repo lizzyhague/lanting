@@ -56,6 +56,7 @@ chmod 600 .env config.json
 | `CONFIG_PATH` | JSON 配置路径，默认 `./config.json` |
 | `DATA_DIR` | 群、群聊记录、设置以及各 CLI 接入保存的状态的存放目录，默认 `./data` |
 | `AI_REMOTE_UPLOAD_SOCKET` | ai-remote-upload 的 Unix socket，默认 `~/.local/share/ai-remote/upload.sock` |
+| `AI_REMOTE_UPLOAD_ROOT` | ai-remote-upload 的存储目录；用于推导默认传给 Antigravity 的 `blobs` 目录，默认 `${XDG_DATA_HOME:-~/.local/share}/ai-remote/uploads` |
 | `ALLOWED_ORIGINS` | 额外允许的浏览器 Origin，逗号分隔 |
 
 `config.json` 提供项目根目录和各 AI 的 CLI 路径：
@@ -79,6 +80,11 @@ chmod 600 .env config.json
 
 `agents` 只决定这台机器能用哪几种 CLI，没写的种类在设置页里显示为不可选。路径可以用
 `~/` 开头。
+
+对于 `antigravity`，lanting 会在每次群聊会话新建和恢复时自动把 `projectRoot`、`~/preview`
+和 ai-remote-upload 的 `blobs` 目录作为额外工作目录传给 ACP Server，使内置文件工具能读取附件、
+写预览以及跨项目读写。若还要放行其他目录，可在 `agents.antigravity` 下加可选数组
+`additionalDirectories`，填入已存在的目录路径（可用 `~/` 开头，不能填系统根目录 `/`）。
 
 群里有哪些 AI，在页面的设置里管理：每个 AI 选一种 CLI 和一个主色，同一种 CLI 可以给
 多个 AI 用。第一次启动时，会按 `config.json` 里已配置的 CLI 各生成一个 AI；之后不再

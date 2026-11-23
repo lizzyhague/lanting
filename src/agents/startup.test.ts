@@ -47,11 +47,21 @@ test("startup can continue with no available CLIs", async (t) => {
   } }, directory, { wait: async () => {}, warn: () => {} }), []);
 });
 
-test("malformed CLI configuration still fails without retries", async () => {
+test("malformed CLI configuration still fails without retries", async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "lanting-startup-invalid-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const executable = path.join(directory, "fake-antigravity");
+  await writeFile(executable, "#!/bin/sh\n", { mode: 0o700 });
   for (const section of [{}, { executable: "relative-cli" }]) {
     await assert.rejects(createConfiguredAdapters({ agents: { cursor: section } }, "/nonexistent-data", {
       wait: async () => { assert.fail("invalid configuration must not be retried"); },
       warn: () => { assert.fail("invalid configuration must not be skipped"); },
     }), /must be/u);
   }
+  await assert.rejects(createConfiguredAdapters({
+    agents: { antigravity: { executable, additionalDirectories: ["relative-dir"] } },
+  }, directory, {
+    wait: async () => { assert.fail("invalid configuration must not be retried"); },
+    warn: () => { assert.fail("invalid configuration must not be skipped"); },
+  }), /must be an absolute path/u);
 });
