@@ -1,13 +1,21 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
 import { proxyEnvironment } from "../proxy.ts";
-import type { AgentFeatures } from "../../features/index.ts";
+import type { AgentFeatures, UsagePart } from "../../features/index.ts";
 import { englishText, localText, LocalizedError } from "../../i18n/text.ts";
+import { ensurePrivateDirectory, isMissingFile, writeJsonAtomically } from "../../state/atomic-json.ts";
+import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
 import {
   type AgentAdapter,
+  type AgentCatalog,
   type AgentEvent,
   type AgentSession,
+  type AgentSettings,
   type ApprovalAnswer,
   localizedPermission,
+  type ModelOption,
   type PermissionOption,
   type SessionOptions,
   type ToolName,
@@ -19,12 +27,23 @@ import {
   AUTH_REQUIRED_CODE,
   type AntigravityPermissionOutcome,
   type AntigravityPermissionRequest,
+  type AntigravitySessionConfig,
   type AntigravityUpdate,
 } from "./acp-client.ts";
 
 export type AntigravityAdapterOptions = {
   executable: string;
+  /** Holds the catalog session's id; it is also that session's working directory. */
+  stateDirectory: string;
 };
+
+/** Stores the id of the one session used only to read the model list. */
+const CATALOG_SESSION_FILE = "catalog-session.json";
+
+/** ACP resource_not_found: session/resume found no saved session with that id (server.py `_restore_session`, 1.5.2). */
+const SESSION_NOT_FOUND_CODE = -32002;
+
+type UsageListener = (sessionId: string, usage: UsagePart[]) => void;
 
 /** If the round hasn't ended this long after session/cancel, the Antigravity process is closed outright. */
 const INTERRUPT_TIMEOUT_MS = 10_000;
@@ -79,27 +98,114 @@ export class AntigravityAdapter implements AgentAdapter {
   /** Closes the ACP process after every round and resumes by session id next time, same as Codex, Grok, Pi and Cursor. */
   readonly closeAfterTurn = true;
   /**
-   * models isn't implemented: the model list only comes in the `session/new` response, so fetching it leaves an empty session behind;
-   * the model choice also doesn't persist across processes and must be reset with `session/set_config_option` on every resume.
-   * usage isn't implemented: the Server sends `usage_update` (context used and limit) every round, but the first version doesn't use it.
+   * The ACP Server has no model-list request and no way to delete a session; the list only comes with `session/new` and `session/resume`.
+   * So models come from one catalog session that is created once, its id saved in the state directory, and resumed for each lookup.
+   * The model choice doesn't persist across processes, so it is set again with `session/set_config_option` every time a session opens.
+   * usage is the context share from the Server's `usage_update`, kept in memory per session; there is no data before a session's first round.
    * deleteSession and compact aren't implemented: the ACP Server has no delete-session or compaction API.
    */
   readonly features: AgentFeatures = {
+    models: async (_cwd, useProxy) => (await this.#catalog(useProxy)).models,
     permissions: async () => [...ANTIGRAVITY_PERMISSIONS],
+    usage: async ({ nativeId }) => this.#usage.get(nativeId) ?? null,
   };
   readonly #options: AntigravityAdapterOptions;
+  readonly #catalogCache = new CatalogCache();
+  readonly #usage = new Map<string, UsagePart[]>();
+  /** Catalog lookups run one at a time, so concurrent lookups never create two catalog sessions. */
+  #catalogQueue: Promise<unknown> = Promise.resolve();
 
   constructor(options: AntigravityAdapterOptions) {
     this.#options = options;
   }
 
   startSession(options: SessionOptions): Promise<AgentSession> {
-    return AntigravitySession.open(null, options, this.#options);
+    return AntigravitySession.open(null, options, this.#options, (id, usage) => this.#usage.set(id, usage));
   }
 
   resumeSession(nativeId: string, options: SessionOptions): Promise<AgentSession> {
-    return AntigravitySession.open(nativeId, options, this.#options);
+    return AntigravitySession.open(nativeId, options, this.#options, (id, usage) => this.#usage.set(id, usage));
   }
+
+  /** The model list doesn't depend on the group's directory; only the proxy choice changes how the Server is reached. */
+  #catalog(useProxy?: boolean): Promise<AgentCatalog> {
+    return this.#catalogCache.get(String(useProxy), () => {
+      const next = this.#catalogQueue.then(() => this.#readCatalog(useProxy));
+      this.#catalogQueue = next.catch(() => {});
+      return next;
+    });
+  }
+
+  async #readCatalog(useProxy?: boolean): Promise<AgentCatalog> {
+    const directory = this.#options.stateDirectory;
+    await ensurePrivateDirectory(directory);
+    const file = path.join(directory, CATALOG_SESSION_FILE);
+    const stored = await readCatalogSessionId(file);
+    const client = new AntigravityAcpClient({
+      executable: this.#options.executable,
+      cwd: directory,
+      env: childEnvironment(proxyEnvironment(useProxy)),
+    });
+    let loginRequired = false;
+    client.on("diagnostic", () => {
+      if (loginRequired || !client.stderrTail.includes(LOGIN_PROMPT)) return;
+      // Don't wait out the 5-minute login; closing rejects the pending request.
+      loginRequired = true;
+      void client.close();
+    });
+    try {
+      await client.initialize();
+      let config: AntigravitySessionConfig | null = null;
+      if (stored) {
+        try {
+          config = await client.sessionResume(stored, directory);
+        } catch (error) {
+          // Only a session the Server confirms is gone is replaced. Any other failure keeps the saved id and fails this lookup,
+          // so a passing error never leaves an unreachable empty session behind.
+          if (!(error instanceof AntigravityRpcError) || error.code !== SESSION_NOT_FOUND_CODE) throw error;
+        }
+      }
+      if (!config) {
+        config = await client.sessionNew(directory);
+        await writeJsonAtomically(file, { sessionId: config.sessionId });
+      }
+      const models = modelOptions(config.configOptions);
+      // The Server leaves the list out when it can't list models; failing keeps the empty result out of the cache.
+      if (models.length === 0) throw new Error("Antigravity returned no model list.");
+      return { models, permissions: [...ANTIGRAVITY_PERMISSIONS] };
+    } catch (error) {
+      if (client.stderrTail.trim()) console.error(`Antigravity stderr: ${client.stderrTail.trim()}`);
+      throw loginRequired || isAuthRequired(error) ? new LocalizedError(LOGIN_REQUIRED) : error;
+    } finally {
+      await client.close();
+    }
+  }
+}
+
+/**
+ * Only a missing file means there is no catalog session yet. A file that can't be read or has no session id fails the lookup
+ * and is left as it is, rather than being overwritten by a new session.
+ */
+async function readCatalogSessionId(file: string): Promise<string | null> {
+  // Reads the file itself: readJsonIfPresent also returns null for a file whose content is JSON null.
+  let source: string;
+  try {
+    source = await readFile(file, "utf8");
+  } catch (error) {
+    if (isMissingFile(error)) return null;
+    throw error;
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(source);
+  } catch (error) {
+    throw new Error(`State file is not valid JSON: ${file}`, { cause: error });
+  }
+  const sessionId = typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as { sessionId?: unknown }).sessionId
+    : undefined;
+  if (typeof sessionId !== "string" || !sessionId) throw new Error(`State file has no session id: ${file}`);
+  return sessionId;
 }
 
 type Turn = {
@@ -117,6 +223,7 @@ type Turn = {
 class AntigravitySession implements AgentSession {
   readonly #client: AntigravityAcpClient;
   readonly #options: SessionOptions;
+  readonly #usage: UsageListener;
   /** Approvals not yet answered on the web page, keyed by the Server's JSON-RPC id. */
   readonly #approvals = new Map<number | string, AbortController>();
   #sessionId = "";
@@ -126,9 +233,10 @@ class AntigravitySession implements AgentSession {
   #loginRequired = false;
   #turn: Turn | null = null;
 
-  private constructor(client: AntigravityAcpClient, options: SessionOptions) {
+  private constructor(client: AntigravityAcpClient, options: SessionOptions, usage: UsageListener) {
     this.#client = client;
     this.#options = options;
+    this.#usage = usage;
     client.on("update", (payload: AntigravityUpdate) => this.#onUpdate(payload));
     client.on("permission", (request: AntigravityPermissionRequest) => this.#onPermission(request));
     client.on("diagnostic", () => {
@@ -148,24 +256,23 @@ class AntigravitySession implements AgentSession {
     sessionId: string | null,
     options: SessionOptions,
     adapter: AntigravityAdapterOptions,
+    usage: UsageListener,
   ): Promise<AntigravitySession> {
     const client = new AntigravityAcpClient({
       executable: adapter.executable,
       cwd: options.cwd,
       env: childEnvironment(proxyEnvironment(options.useProxy)),
     });
-    const session = new AntigravitySession(client, options);
+    const session = new AntigravitySession(client, options, usage);
     try {
       await client.initialize();
-      if (sessionId) {
-        // resume doesn't replay history, and context is still kept.
-        await client.sessionResume(sessionId, options.cwd);
-        session.#sessionId = sessionId;
-      } else {
-        session.#sessionId = await client.sessionNew(options.cwd);
-        session.#rulesPending = true;
-      }
+      // resume doesn't replay history, and context is still kept.
+      const config = sessionId ? await client.sessionResume(sessionId, options.cwd) : await client.sessionNew(options.cwd);
+      session.#sessionId = config.sessionId;
+      session.#rulesPending = sessionId === null;
       await client.sessionSetMode(session.#sessionId, DEFAULT_MODE);
+      const model = modelValue(config.configOptions, options.settings);
+      if (model !== null) await client.sessionSetConfigOption(session.#sessionId, "model", model);
       return session;
     } catch (error) {
       if (client.stderrTail.trim()) console.error(`Antigravity stderr: ${client.stderrTail.trim()}`);
@@ -259,10 +366,20 @@ class AntigravitySession implements AgentSession {
   }
 
   #onUpdate(payload: AntigravityUpdate): void {
-    const turn = this.#turn;
-    if (!turn || payload.sessionId !== this.#sessionId) return;
+    if (payload.sessionId !== this.#sessionId) return;
     const update = payload.update;
     const kind = typeof update.sessionUpdate === "string" ? update.sessionUpdate : "";
+    if (kind === "usage_update") {
+      // For example {"used":11324,"size":1048576}: tokens in context and the context limit.
+      const used = finiteNumber(update.used);
+      const size = finiteNumber(update.size);
+      if (used !== null && size !== null && size > 0) {
+        this.#usage(this.#sessionId, [{ kind: "context", percent: Math.max(0, Math.min(100, used / size * 100)) }]);
+      }
+      return;
+    }
+    const turn = this.#turn;
+    if (!turn) return;
     if (kind === "agent_message_chunk") {
       const text = contentText(update.content);
       if (!text) return;
@@ -324,6 +441,102 @@ function permissionOutcome(request: AntigravityPermissionRequest, answer: Approv
   const kind = answer.decision === "allow" ? "allow_once" : "reject_once";
   const option = request.options.find((candidate) => candidate.kind === kind);
   return option ? { outcome: "selected", optionId: option.optionId } : { outcome: "cancelled" };
+}
+
+type ModelEntry = {
+  option: ModelOption;
+  /** The Server's model value for each effort, keyed by the lowercase effort. */
+  values: Map<string, string>;
+  /** The value used when no effort is chosen. */
+  defaultValue: string;
+};
+
+/** A model name with its effort in parentheses at the end, such as "Gemini 3.8 Flash (High)". */
+const EFFORT_SUFFIX = /^(.*\S)\s*\(([^()]+)\)$/u;
+
+/**
+ * The Server lists every model and effort pair as one value, such as `gemini-3.8-flash-high` named "Gemini 3.8 Flash (High)".
+ * Names that share a base and differ only in the parenthesized effort become one model with those efforts; the id is the base name in
+ * lowercase with dashes, because the values themselves don't share a pattern (`gemini-pro-agent` is "Gemini 3.1 Pro (High)").
+ * A model with a single variant keeps its own value and name and has no effort to choose.
+ * The default effort is the one in the Server's current value, or the first listed for other models.
+ */
+function modelEntries(configOptions: unknown[]): ModelEntry[] {
+  const { currentValue, choices } = modelSelect(configOptions);
+  const variants = new Map<string, Array<{ effort: string; value: string }>>();
+  for (const choice of choices) {
+    const match = EFFORT_SUFFIX.exec(choice.name);
+    if (!match) continue;
+    const list = variants.get(match[1]!) ?? [];
+    list.push({ effort: match[2]!.trim().toLowerCase(), value: choice.value });
+    variants.set(match[1]!, list);
+  }
+  const entries: ModelEntry[] = [];
+  const seen = new Set<string>();
+  for (const choice of choices) {
+    const base = EFFORT_SUFFIX.exec(choice.name)?.[1];
+    const group = base === undefined ? undefined : variants.get(base);
+    if (base !== undefined && group && group.length > 1 && new Set(group.map((item) => item.effort)).size === group.length) {
+      const id = base.toLowerCase().replaceAll(/\s+/gu, "-");
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const current = group.find((item) => item.value === currentValue) ?? group[0]!;
+      entries.push({
+        option: { id, label: base, description: "", efforts: group.map((item) => item.effort), defaultEffort: current.effort },
+        values: new Map(group.map((item) => [item.effort, item.value])),
+        defaultValue: current.value,
+      });
+      continue;
+    }
+    if (seen.has(choice.value)) continue;
+    seen.add(choice.value);
+    entries.push({
+      option: { id: choice.value, label: choice.name || choice.value, description: choice.description, efforts: [] },
+      values: new Map(),
+      defaultValue: choice.value,
+    });
+  }
+  return entries;
+}
+
+export function modelOptions(configOptions: unknown[]): ModelOption[] {
+  return modelEntries(configOptions).map((entry) => entry.option);
+}
+
+/**
+ * The Server's value for the group's model and effort, or null when no model is chosen or it is already the current one.
+ * A model the session doesn't offer fails the session instead of quietly running another model.
+ */
+export function modelValue(configOptions: unknown[], settings: AgentSettings): string | null {
+  if (!settings.model) return null;
+  const entry = modelEntries(configOptions).find((candidate) => candidate.option.id === settings.model);
+  const value = entry && (entry.values.size > 0 && settings.effort
+    ? entry.values.get(settings.effort.toLowerCase())
+    : entry.defaultValue);
+  if (!value) {
+    throw new Error(`Antigravity doesn't offer the model ${settings.model}${settings.effort ? ` (${settings.effort})` : ""} in this session.`);
+  }
+  return value === modelSelect(configOptions).currentValue ? null : value;
+}
+
+function modelSelect(configOptions: unknown[]): {
+  currentValue: string;
+  choices: Array<{ value: string; name: string; description: string }>;
+} {
+  const entry = configOptions.map(objectField).find((candidate) => candidate.id === "model") ?? {};
+  const choices = Array.isArray(entry.options) ? entry.options.map(objectField).flatMap((option) =>
+    typeof option.value === "string" && option.value
+      ? [{
+        value: option.value,
+        name: typeof option.name === "string" ? option.name.trim() : "",
+        description: typeof option.description === "string" ? option.description : "",
+      }]
+      : []) : [];
+  return { currentValue: typeof entry.currentValue === "string" ? entry.currentValue : "", choices };
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function isAuthRequired(error: unknown): boolean {

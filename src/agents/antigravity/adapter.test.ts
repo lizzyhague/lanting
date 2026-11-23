@@ -1,26 +1,41 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { englishText } from "../../i18n/text.ts";
-import type { AgentEvent, AgentSession, ApprovalAnswer, ApprovalAsk, SessionOptions } from "../types.ts";
+import type { AgentEvent, AgentSession, AgentSettings, ApprovalAnswer, ApprovalAsk, SessionOptions } from "../types.ts";
 import {
   ANTIGRAVITY_PERMISSIONS,
   AntigravityAdapter,
   firstMessage,
   LOGIN_REQUIRED,
+  modelOptions,
   toolActivity,
 } from "./adapter.ts";
 
+/** The model select as ACP Server 1.3.0 returned it for a personal account (probe record), trimmed, plus a single-variant model. */
+const MODEL_CHOICES = [
+  { value: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)", description: "gemini-3.8-flash-high" },
+  { value: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash (Medium)", description: "gemini-3.8-flash-medium" },
+  { value: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)", description: "gemini-3.8-flash-low" },
+  { value: "gemini-pro-agent", name: "Gemini 3.1 Pro (High)", description: "gemini-pro-agent" },
+  { value: "gemini-3.1-pro-low", name: "Gemini 3.1 Pro (Low)", description: "gemini-3.1-pro-low" },
+  { value: "solo-preview", name: "Solo Preview (Experimental)", description: "solo-preview" },
+];
+const DEFAULT_MODEL = "gemini-3.8-flash-high";
+
 /**
  * Fake ACP Server: the prompt text decides how the round goes; session records are stored in cwd, so they can be resumed across processes.
+ * Each process starts on the default model; session/new and session/resume both return the model select.
  * With `login-on-new` in cwd, session/new prints an authorization URL as if credentials expired, then waits forever;
  * with `auth-required`, session/new returns auth_required.
  */
 const FAKE_SERVER = `#!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+const MODEL_CHOICES = ${JSON.stringify(MODEL_CHOICES)};
+const DEFAULT_MODEL = ${JSON.stringify(DEFAULT_MODEL)};
 if (!process.argv.includes("--uid=")) process.exit(2);
 const storePath = process.cwd() + "/sessions.json";
 const load = () => { try { return JSON.parse(readFileSync(storePath, "utf8")); } catch { return {}; } };
@@ -31,6 +46,11 @@ const fail = (id, code, message) => out({ jsonrpc: "2.0", id, error: { code, mes
 const loginPrompt = () => process.stderr.write("Open the following link to authenticate the ACP server: https://accounts.example/o/oauth2/auth?x=1\\n");
 let session = null;
 let mode = null;
+let model = DEFAULT_MODEL;
+const configOptions = () => [
+  { id: "model", name: "Model", category: "model", type: "select", currentValue: model, options: MODEL_CHOICES },
+  { id: "mode", name: "Session Mode", category: "mode", type: "select", currentValue: "default", options: [] },
+];
 let calls = [];
 let promptId = null;
 let ignoreEof = false;
@@ -77,17 +97,23 @@ function handle(message) {
       const store = load();
       store[session] = [];
       save(store);
-      return reply(id, { sessionId: session });
+      return reply(id, { sessionId: session, modes: { currentModeId: "default" }, configOptions: configOptions() });
     }
     case "session/resume": {
       const store = load();
+      if (existsSync(process.cwd() + "/resume-fails")) return fail(id, -32603, "Internal error");
       if (!store[params.sessionId]) return fail(id, -32002, "Session not found");
       session = params.sessionId;
-      return reply(id, { modes: { currentModeId: "default" } });
+      if (existsSync(process.cwd() + "/no-models")) return reply(id, { modes: { currentModeId: "default" } });
+      return reply(id, { modes: { currentModeId: "default" }, configOptions: configOptions() });
     }
     case "session/set_mode":
       mode = params.modeId;
       return reply(id, {});
+    case "session/set_config_option":
+      if (params.configId !== "model" || !MODEL_CHOICES.some((choice) => choice.value === params.value)) return fail(id, -32602, "Invalid value");
+      model = params.value;
+      return reply(id, { configOptions: configOptions() });
     case "session/cancel":
       // Pending approvals are answered cancelled by the client, and the round ends then.
       if (waiting.size === 0 && promptId !== null) end("cancelled");
@@ -119,7 +145,7 @@ function prompt(id, text) {
   const command = text.split("\\n").at(-1);
   if (command === "state") {
     const env = Object.fromEntries(["TERM", "BROWSER", "ACCESS_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"].map((key) => [key, key in process.env]));
-    say(JSON.stringify({ session, mode, calls, prompts: store[session], env }));
+    say(JSON.stringify({ session, mode, model, calls, prompts: store[session], env }));
     return end();
   }
   if (command === "tool") {
@@ -154,6 +180,12 @@ function prompt(id, text) {
   }
   if (command === "login") { ignoreEof = true; setInterval(() => {}, 1000); say("thinking"); return loginPrompt(); }
   if (command === "stubborn") { ignoreEof = true; setInterval(() => {}, 1000); say("working"); return; }
+  if (command === "usage") {
+    update({ sessionUpdate: "usage_update", used: 262144, size: 1048576 });
+    update({ sessionUpdate: "usage_update", used: 5, size: 0 });
+    say("counted");
+    return end();
+  }
   if (command === "refuse") { say("half"); return end("refusal"); }
   if (command === "error") { promptId = null; return fail(id, -32603, "Upstream refused"); }
   if (command === "unauthorized") { promptId = null; return fail(id, -32000, "Authentication required"); }
@@ -165,24 +197,27 @@ function prompt(id, text) {
 
 type Approval = { ask: ApprovalAsk; signal: AbortSignal | undefined; resolve: (answer: ApprovalAnswer) => void };
 
-async function setup(t: test.TestContext): Promise<{ adapter: AntigravityAdapter; cwd: string }> {
+async function setup(t: test.TestContext): Promise<{ adapter: AntigravityAdapter; cwd: string; executable: string; stateDirectory: string }> {
   const cwd = await mkdtemp(path.join(tmpdir(), "lanting-antigravity-adapter-"));
   const executable = path.join(cwd, "fake-antigravity.mjs");
   await writeFile(executable, FAKE_SERVER, "utf8");
   await chmod(executable, 0o700);
   t.after(() => rm(cwd, { recursive: true, force: true }));
-  return { adapter: new AntigravityAdapter({ executable }), cwd };
+  // Not created in advance, as at startup.
+  const stateDirectory = path.join(cwd, "state", "agents", "antigravity");
+  return { adapter: new AntigravityAdapter({ executable, stateDirectory }), cwd, executable, stateDirectory };
 }
 
 function sessionOptions(
   cwd: string,
   permission: string | null = null,
   approvals: Approval[] = [],
+  model: Pick<AgentSettings, "model" | "effort"> = { model: null, effort: null },
 ): SessionOptions {
   return {
     cwd,
     systemPrompt: "GROUP RULES",
-    settings: { model: null, effort: null, permission },
+    settings: { ...model, permission },
     requestApproval: (ask, signal) => new Promise((resolve) => approvals.push({ ask, signal, resolve })),
   };
 }
@@ -206,13 +241,168 @@ async function waitFor(condition: () => boolean): Promise<void> {
   while (!condition()) await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
-test("declares only the permission catalog", async () => {
-  const adapter = new AntigravityAdapter({ executable: "/unused" });
+async function storedSessions(directory: string): Promise<string[]> {
+  return Object.keys(JSON.parse(await readFile(path.join(directory, "sessions.json"), "utf8")) as Record<string, unknown>);
+}
+
+async function catalogSessionId(stateDirectory: string): Promise<unknown> {
+  return (JSON.parse(await readFile(path.join(stateDirectory, "catalog-session.json"), "utf8")) as { sessionId: unknown }).sessionId;
+}
+
+test("declares models, permissions and usage", async () => {
+  const adapter = new AntigravityAdapter({ executable: "/unused", stateDirectory: "/unused" });
   assert.equal(adapter.kind, "antigravity");
   assert.equal(adapter.closeAfterTurn, true);
-  assert.deepEqual(Object.keys(adapter.features), ["permissions"]);
+  assert.deepEqual(Object.keys(adapter.features), ["models", "permissions", "usage"]);
   assert.deepEqual(await adapter.features.permissions!("/tmp"), [...ANTIGRAVITY_PERMISSIONS]);
   assert.equal(ANTIGRAVITY_PERMISSIONS.find((option) => option.id === "always-approve")?.danger, true);
+});
+
+test("turns effort variants into one model with efforts and keeps single variants as they are", () => {
+  const options = (current: string) => modelOptions([
+    { id: "mode", currentValue: "default", options: [{ value: "default", name: "Default" }] },
+    { id: "model", currentValue: current, options: MODEL_CHOICES },
+  ]);
+  assert.deepEqual(options(DEFAULT_MODEL), [
+    { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", description: "", efforts: ["high", "medium", "low"], defaultEffort: "high" },
+    { id: "gemini-3.1-pro", label: "Gemini 3.1 Pro", description: "", efforts: ["high", "low"], defaultEffort: "high" },
+    { id: "solo-preview", label: "Solo Preview (Experimental)", description: "solo-preview", efforts: [] },
+  ]);
+  const pro = options("gemini-3.1-pro-low");
+  assert.equal(pro.find((option) => option.id === "gemini-3.1-pro")?.defaultEffort, "low");
+  assert.equal(pro.find((option) => option.id === "gemini-3.8-flash")?.defaultEffort, "high");
+  assert.deepEqual(modelOptions([]), []);
+});
+
+test("reads models from one catalog session that later lookups and restarts resume", async (t) => {
+  const { adapter, cwd, executable, stateDirectory } = await setup(t);
+  const models = await adapter.features.models!(cwd);
+  assert.deepEqual(models.map((option) => option.id), ["gemini-3.8-flash", "gemini-3.1-pro", "solo-preview"]);
+  const sessions = await storedSessions(stateDirectory);
+  assert.equal(sessions.length, 1);
+  assert.equal(await catalogSessionId(stateDirectory), sessions[0]);
+
+  // Another proxy choice is a separate cache entry, so the Server is asked again; it resumes the same session.
+  assert.deepEqual(await adapter.features.models!(cwd, true), models);
+  const restarted = new AntigravityAdapter({ executable, stateDirectory });
+  assert.deepEqual(await restarted.features.models!("/elsewhere"), models);
+  assert.deepEqual(await storedSessions(stateDirectory), sessions);
+  // The catalog session lives in the state directory, never in a group's directory.
+  await assert.rejects(readFile(path.join(cwd, "sessions.json")), { code: "ENOENT" });
+});
+
+test("concurrent catalog lookups create only one catalog session", async (t) => {
+  const { adapter, cwd, stateDirectory } = await setup(t);
+  await Promise.all([adapter.features.models!(cwd), adapter.features.models!(cwd, true), adapter.features.models!(cwd, false)]);
+  assert.equal((await storedSessions(stateDirectory)).length, 1);
+});
+
+test("replaces a catalog session only when the server reports it not found", async (t) => {
+  const { adapter, cwd, stateDirectory } = await setup(t);
+  await mkdir(stateDirectory, { recursive: true });
+  await writeFile(path.join(stateDirectory, "catalog-session.json"), JSON.stringify({ sessionId: "missing" }));
+  assert.equal((await adapter.features.models!(cwd)).length, 3);
+  const sessions = await storedSessions(stateDirectory);
+  assert.equal(sessions.length, 1);
+  assert.equal(await catalogSessionId(stateDirectory), sessions[0]);
+});
+
+test("keeps the saved catalog session when resuming it fails for another reason", async (t) => {
+  const { adapter, executable, cwd, stateDirectory } = await setup(t);
+  await adapter.features.models!(cwd);
+  const saved = await catalogSessionId(stateDirectory);
+  await writeFile(path.join(stateDirectory, "resume-fails"), "");
+  const restarted = new AntigravityAdapter({ executable, stateDirectory });
+  await assert.rejects(restarted.features.models!(cwd), /Antigravity session\/resume failed: Internal error/u);
+  assert.equal(await catalogSessionId(stateDirectory), saved);
+  assert.deepEqual(await storedSessions(stateDirectory), [saved]);
+});
+
+test("leaves an unreadable catalog record in place and creates no session", async (t) => {
+  for (const record of ["not json", JSON.stringify({ other: 1 }), "[]", "null", ""]) {
+    const { adapter, cwd, stateDirectory } = await setup(t);
+    await mkdir(stateDirectory, { recursive: true });
+    const file = path.join(stateDirectory, "catalog-session.json");
+    await writeFile(file, record);
+    await assert.rejects(adapter.features.models!(cwd), /State file/u);
+    assert.equal(await readFile(file, "utf8"), record);
+    await assert.rejects(readFile(path.join(stateDirectory, "sessions.json")), { code: "ENOENT" });
+  }
+});
+
+test("does not cache an empty model list", async (t) => {
+  const { adapter, cwd, stateDirectory } = await setup(t);
+  await adapter.features.models!(cwd);
+  await writeFile(path.join(stateDirectory, "no-models"), "");
+  await assert.rejects(adapter.features.models!(cwd, true), /Antigravity returned no model list/u);
+  await rm(path.join(stateDirectory, "no-models"));
+  assert.equal((await adapter.features.models!(cwd, true)).length, 3);
+});
+
+test("a catalog lookup that needs a login fails with the login hint", async (t) => {
+  for (const flag of ["login-on-new", "auth-required"]) {
+    const { adapter, cwd, stateDirectory } = await setup(t);
+    await mkdir(stateDirectory, { recursive: true });
+    await writeFile(path.join(stateDirectory, flag), "");
+    await assert.rejects(adapter.features.models!(cwd), { message: englishText(LOGIN_REQUIRED), text: LOGIN_REQUIRED });
+  }
+});
+
+test("sets the chosen model and effort every time a session opens", async (t) => {
+  const { adapter, cwd } = await setup(t);
+  const choice = { model: "gemini-3.8-flash", effort: "low" };
+  const session = await adapter.startSession(sessionOptions(cwd, null, [], choice));
+  t.after(() => session.close());
+  const state = JSON.parse(endOf(await drain(session, "state")).text) as Record<string, unknown>;
+  assert.equal(state.model, "gemini-3.8-flash-low");
+  assert.deepEqual(state.calls, ["initialize", "session/new", "session/set_mode", "session/set_config_option", "session/prompt"]);
+  await session.close();
+
+  const resumed = await adapter.resumeSession(session.nativeId!, sessionOptions(cwd, null, [], choice));
+  t.after(() => resumed.close());
+  const after = JSON.parse(endOf(await drain(resumed, "state")).text) as Record<string, unknown>;
+  assert.equal(after.model, "gemini-3.8-flash-low");
+  assert.deepEqual(after.calls, ["initialize", "session/resume", "session/set_mode", "session/set_config_option", "session/prompt"]);
+  await resumed.close();
+});
+
+test("uses the default effort when none is chosen and skips a model that is already current", async (t) => {
+  const { adapter, cwd } = await setup(t);
+  for (const [model, expected, calls] of [
+    ["gemini-3.1-pro", "gemini-pro-agent", ["initialize", "session/new", "session/set_mode", "session/set_config_option", "session/prompt"]],
+    ["solo-preview", "solo-preview", ["initialize", "session/new", "session/set_mode", "session/set_config_option", "session/prompt"]],
+    ["gemini-3.8-flash", DEFAULT_MODEL, ["initialize", "session/new", "session/set_mode", "session/prompt"]],
+  ] as const) {
+    const session = await adapter.startSession(sessionOptions(cwd, null, [], { model, effort: null }));
+    t.after(() => session.close());
+    const state = JSON.parse(endOf(await drain(session, "state")).text) as Record<string, unknown>;
+    assert.equal(state.model, expected);
+    assert.deepEqual(state.calls, calls);
+    await session.close();
+  }
+});
+
+test("fails to open a session with a model the server does not offer", async (t) => {
+  const { adapter, cwd } = await setup(t);
+  await assert.rejects(
+    adapter.startSession(sessionOptions(cwd, null, [], { model: "gemini-0-retired", effort: null })),
+    /Antigravity doesn't offer the model gemini-0-retired in this session/u,
+  );
+  await assert.rejects(
+    adapter.startSession(sessionOptions(cwd, null, [], { model: "gemini-3.1-pro", effort: "medium" })),
+    /Antigravity doesn't offer the model gemini-3.1-pro \(medium\) in this session/u,
+  );
+});
+
+test("reports the context share from usage updates", async (t) => {
+  const { adapter, cwd } = await setup(t);
+  const request = (nativeId: string) => ({ nativeId, cwd, reason: "turn" as const, session: async () => null });
+  assert.equal(await adapter.features.usage!(request("unknown")), null);
+  const session = await adapter.startSession(sessionOptions(cwd));
+  t.after(() => session.close());
+  assert.equal(endOf(await drain(session, "usage")).text, "counted");
+  assert.deepEqual(await adapter.features.usage!(request(session.nativeId!)), [{ kind: "context", percent: 25 }]);
+  await session.close();
 });
 
 test("sends the group rules once in a new session and not after resume", async (t) => {
@@ -455,7 +645,7 @@ test("fails to open a session when the server starts a browser login", async (t)
 });
 
 test("reports a missing executable when opening a session", async () => {
-  const adapter = new AntigravityAdapter({ executable: "/nonexistent/agy_acp_server.par" });
+  const adapter = new AntigravityAdapter({ executable: "/nonexistent/agy_acp_server.par", stateDirectory: "/unused" });
   await assert.rejects(adapter.startSession(sessionOptions(tmpdir())), /Cannot start Antigravity/);
 });
 

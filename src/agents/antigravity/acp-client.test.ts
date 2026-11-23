@@ -58,9 +58,12 @@ function handle(message) {
     case "initialize":
       return reply(id, { protocolVersion: 1, echo: params });
     case "session/new":
-      return reply(id, params.cwd === "/no-id" ? {} : { sessionId: "s-1", echo: params });
+      return reply(id, params.cwd === "/no-id" ? {} : { sessionId: "s-1", configOptions: [{ id: "model", currentValue: "m-1" }], echo: params });
     case "session/resume":
-      return reply(id, { modes: { currentModeId: "default" }, echo: params });
+      return reply(id, params.cwd === "/no-options" ? {} : { modes: { currentModeId: "default" }, configOptions: [{ id: "model", currentValue: "m-2" }], echo: params });
+    case "session/set_config_option":
+      answers.push({ method, params });
+      return reply(id, {});
     case "session/prompt":
       update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: params.prompt[0].text } });
       return reply(id, { stopReason: "end_turn" });
@@ -148,10 +151,14 @@ test("starts with --uid= and runs the handshake without authenticate", async (t)
     fs: { readTextFile: false, writeTextFile: false },
     terminal: false,
   });
-  assert.equal(await client.sessionNew("/work"), "s-1");
-  const resumed = await client.sessionResume("s-1", "/work");
-  assert.deepEqual(resumed.echo, { sessionId: "s-1", cwd: "/work", mcpServers: [] });
+  assert.deepEqual(await client.sessionNew("/work"), { sessionId: "s-1", configOptions: [{ id: "model", currentValue: "m-1" }] });
+  assert.deepEqual(await client.sessionResume("s-1", "/work"), { sessionId: "s-1", configOptions: [{ id: "model", currentValue: "m-2" }] });
+  assert.deepEqual(await client.sessionResume("s-1", "/no-options"), { sessionId: "s-1", configOptions: [] });
   await client.sessionSetMode("s-1", "default");
+  await client.sessionSetConfigOption("s-1", "model", "m-3");
+  assert.deepEqual(await client.request("answers", {}), [
+    { method: "session/set_config_option", params: { sessionId: "s-1", configId: "model", value: "m-3" } },
+  ]);
   assert.deepEqual(await client.sessionPrompt("s-1", "hello"), { stopReason: "end_turn" });
   assert.deepEqual(updates.map((item) => item.update.sessionUpdate), ["agent_message_chunk"]);
   assert.equal(updates[0]?.sessionId, "s-1");

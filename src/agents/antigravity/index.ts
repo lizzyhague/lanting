@@ -5,8 +5,8 @@ import { AntigravityAdapter } from "./adapter.ts";
 export const antigravityModule: AgentModule = {
   kind: "antigravity",
   displayName: "Antigravity",
-  async create(section, label) {
+  async create(section, label, context) {
     const executable = await requireExecutable(section.executable, `${label}.executable`);
-    return new AntigravityAdapter({ executable });
+    return new AntigravityAdapter({ executable, stateDirectory: context.stateDirectory });
   },
 };

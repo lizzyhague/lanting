@@ -23,9 +23,12 @@ Do not commit completed configuration files.
   Cursor uses the Cursor Agent CLI; install it according to Cursor's documentation and sign in with
   `cursor-agent login`. lanting does not select a Cursor model and uses Cursor's current default.
   Antigravity uses Google's Antigravity ACP Server (`agy_acp_server.par`); install it according to
-  Google's documentation. It has no separate login command, so follow section 7. lanting uses its
-  default model, does not display context usage, cannot compact its context, and does not delete
-  Antigravity's saved session when a group is permanently deleted.
+  Google's documentation. It has no separate login command, so follow section 7. lanting can select
+  Antigravity's model and thinking level and display context usage. ACP Server only returns its model
+  list when a session is opened, so lanting creates one empty Antigravity session for this, keeps its
+  id under `DATA_DIR/agents/antigravity/`, and reuses it for later lookups. lanting cannot compact
+  Antigravity's context and does not delete Antigravity's saved session when a group is permanently
+  deleted.
   Install Kimi Code with its official installer and run `kimi login` as the account that runs
   lanting. lanting can select Kimi's model and thinking level, display context usage, and delete its
   saved session. Kimi's ACP interface does not provide manual context compaction.
@@ -64,7 +67,7 @@ Edit `.env` and set at least the login token. The available environment variable
 | `ACCESS_TOKEN` | Browser login credential; must be at least 32 characters |
 | `PORT` | Listening port; defaults to `3010` |
 | `CONFIG_PATH` | Path to the JSON configuration; defaults to `./config.json` |
-| `DATA_DIR` | Directory for groups, transcripts, and settings; defaults to `./data` |
+| `DATA_DIR` | Directory for groups, transcripts, settings, and state kept by CLI integrations; defaults to `./data` |
 | `AI_REMOTE_UPLOAD_SOCKET` | Unix socket for ai-remote-upload; defaults to `~/.local/share/ai-remote/upload.sock` |
 | `ALLOWED_ORIGINS` | Additional allowed browser origins, separated by commas |
 

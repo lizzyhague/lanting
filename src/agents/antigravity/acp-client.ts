@@ -43,6 +43,9 @@ export type AntigravityPromptContent =
 
 export type AntigravityExit = { code: number | null; signal: NodeJS.Signals | null; error?: string };
 
+/** A session id with the session's configOptions (model and mode selects), as returned by session/new or session/resume. */
+export type AntigravitySessionConfig = { sessionId: string; configOptions: unknown[] };
+
 /** ACP auth_required: not logged in, or the login has expired. */
 export const AUTH_REQUIRED_CODE = -32000;
 
@@ -158,21 +161,29 @@ export class AntigravityAcpClient extends EventEmitter {
     }));
   }
 
-  async sessionNew(cwd: string): Promise<string> {
+  async sessionNew(cwd: string): Promise<AntigravitySessionConfig> {
     const result = objectOf(await this.request("session/new", { cwd, mcpServers: [] }));
     if (typeof result.sessionId !== "string" || !result.sessionId) {
       throw new Error("Antigravity returned no session id.");
     }
-    return result.sessionId;
+    return { sessionId: result.sessionId, configOptions: configOptionsOf(result) };
   }
 
-  /** Uses resume rather than load: resume doesn't replay history, and context is still kept. */
-  async sessionResume(sessionId: string, cwd: string): Promise<Record<string, unknown>> {
-    return objectOf(await this.request("session/resume", { sessionId, cwd, mcpServers: [] }));
+  /**
+   * Uses resume rather than load: resume doesn't replay history, and context is still kept.
+   * The response carries the same configOptions as session/new; the model choice is back to the Server's default.
+   */
+  async sessionResume(sessionId: string, cwd: string): Promise<AntigravitySessionConfig> {
+    const result = objectOf(await this.request("session/resume", { sessionId, cwd, mcpServers: [] }));
+    return { sessionId, configOptions: configOptionsOf(result) };
   }
 
   async sessionSetMode(sessionId: string, modeId: string): Promise<void> {
     await this.request("session/set_mode", { sessionId, modeId });
+  }
+
+  async sessionSetConfigOption(sessionId: string, configId: string, value: string): Promise<void> {
+    await this.request("session/set_config_option", { sessionId, configId, value });
   }
 
   async sessionPrompt(
@@ -387,4 +398,8 @@ function isPermissionOption(value: unknown): value is AntigravityPermissionOptio
 
 function objectOf(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function configOptionsOf(result: Record<string, unknown>): unknown[] {
+  return Array.isArray(result.configOptions) ? result.configOptions : [];
 }
