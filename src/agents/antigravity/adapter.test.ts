@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -37,7 +37,7 @@ const DEFAULT_MODEL = ${JSON.stringify(DEFAULT_MODEL)};
 const DEFAULT_EFFORT = ${JSON.stringify(DEFAULT_EFFORT)};
 const LEVEL_ORDER = ["minimal", "low", "medium", "high", "xhigh", "extra_high", "max"];
 const LEVEL_NAMES = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra" };
-if (!process.argv.includes("--uid=")) process.exit(2);
+if (process.argv.includes("--uid=") !== (process.platform === "linux")) process.exit(2);
 const storePath = process.cwd() + "/sessions.json";
 const load = () => { try { return JSON.parse(readFileSync(storePath, "utf8")); } catch { return {}; } };
 const save = (store) => writeFileSync(storePath, JSON.stringify(store));
@@ -259,7 +259,7 @@ function prompt(id, text) {
 type Approval = { ask: ApprovalAsk; signal: AbortSignal | undefined; resolve: (answer: ApprovalAnswer) => void };
 
 async function setup(t: test.TestContext): Promise<{ adapter: AntigravityAdapter; cwd: string; executable: string; stateDirectory: string }> {
-  const cwd = await mkdtemp(path.join(tmpdir(), "lanting-antigravity-adapter-"));
+  const cwd = await realpath(await mkdtemp(path.join(tmpdir(), "lanting-antigravity-adapter-")));
   const executable = path.join(cwd, "fake-antigravity.mjs");
   await writeFile(executable, FAKE_SERVER, "utf8");
   await chmod(executable, 0o700);

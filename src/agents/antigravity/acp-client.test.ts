@@ -22,8 +22,8 @@ const update = (update) => out({ jsonrpc: "2.0", method: "session/update", param
 let buffer = "";
 let held = null;
 const answers = [];
-if (!process.argv.includes("--uid=")) {
-  process.stderr.write("Group nobody not found\\n");
+if (process.argv.includes("--uid=") !== (process.platform === "linux")) {
+  process.stderr.write("Incorrect server arguments\\n");
   process.exit(2);
 }
 process.stdin.setEncoding("utf8");
@@ -145,7 +145,7 @@ function collect<T>(client: AntigravityAcpClient, name: string): T[] {
   return items;
 }
 
-test("starts with --uid= and runs the handshake without authenticate", async (t) => {
+test("starts with platform-specific arguments and runs the handshake without authenticate", async (t) => {
   const client = await setup(t);
   const updates = collect<AntigravityUpdate>(client, "update");
   const init = await client.initialize();

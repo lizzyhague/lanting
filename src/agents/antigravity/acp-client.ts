@@ -76,9 +76,10 @@ type Pending = {
 };
 
 /**
- * Without `--uid=` the Server tries to switch to the nobody group after starting and exits with SIGABRT if it can't find it.
+ * On Linux, without `--uid=` the Server tries to switch to the nobody group and may exit.
+ * The macOS Server does not accept this flag.
  */
-const SERVER_ARGS = ["--uid="];
+const SERVER_ARGS = process.platform === "linux" ? ["--uid="] : [];
 
 /** How long to wait for the Server to exit on its own after stdin closes (under 1 second in practice); after that the whole process group is killed. */
 const CLOSE_WAIT_MS = 3_000;

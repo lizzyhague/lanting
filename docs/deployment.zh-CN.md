@@ -165,7 +165,8 @@ ACP Server 用运行账户主目录下的登录状态，lanting 自己不发起�
 
 ACP Server 没有单独的登录命令，要由一个 ACP 客户端来触发：
 
-1. 启动 `agy_acp_server.par --uid=`（不带 `--uid=` 时它会尝试切换用户组，可能直接退出）。
+1. Linux 上启动 `agy_acp_server.par --uid=`（不带此参数时它会尝试切换用户组，可能直接退出）；
+   macOS 上启动 `agy_acp_server.par`，不带此参数。
    它从 stdin 读、往 stdout 写 JSON-RPC 2.0，一行一条消息。
 2. 发 `initialize`，再发 `authenticate`，`methodId` 为 `oauth-personal`（个人 Google 账号）。
 3. 授权地址打印在 stderr，形如 `Open the following link to authenticate the ACP server: <地址>`。

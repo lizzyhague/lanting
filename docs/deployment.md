@@ -182,7 +182,8 @@ that will run lanting.
 
 ACP Server has no separate login command, so an ACP client must initiate the process:
 
-1. Start `agy_acp_server.par --uid=`. Without `--uid=`, it tries to switch user groups and may exit.
+1. On Linux, start `agy_acp_server.par --uid=`; without this flag, it tries to switch user groups and may exit.
+   On macOS, start `agy_acp_server.par` without the flag.
    It reads newline-delimited JSON-RPC 2.0 messages from stdin and writes them to stdout.
 2. Send `initialize`, then `authenticate` with `methodId` set to `oauth-personal` for a personal
    Google account.
