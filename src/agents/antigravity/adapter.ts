@@ -74,6 +74,12 @@ const ALWAYS_APPROVE = "always-approve";
 const DEFAULT_MODE = "default";
 
 /**
+ * Disables `run_workflow`, whose built-in skill is otherwise materialized into `<cwd>/skills/system/run-workflow/SKILL.md`
+ * whenever ACP Server opens or resumes a session. Sent on resume as well so earlier sessions pick up the filter too.
+ */
+const DISABLED_TOOLS: readonly string[] = ["run_workflow"];
+
+/**
  * When credentials expire and can't be refreshed silently, the Server doesn't error; it prints this authorization URL line on stderr and waits up to 5 minutes for a browser callback.
  * The callback must reach the server machine itself, which the group owner on the web page can't complete, so the round ends when this line appears.
  */
@@ -160,7 +166,7 @@ export class AntigravityAdapter implements AgentAdapter {
       let config: AntigravitySessionConfig | null = null;
       if (stored) {
         try {
-          config = await client.sessionResume(stored, directory);
+          config = await client.sessionResume(stored, directory, { disabledTools: DISABLED_TOOLS });
         } catch (error) {
           // Only a session the Server confirms is gone is replaced. Any other failure keeps the saved id and fails this lookup,
           // so a passing error never leaves an unreachable empty session behind.
@@ -168,7 +174,7 @@ export class AntigravityAdapter implements AgentAdapter {
         }
       }
       if (!config) {
-        config = await client.sessionNew(directory);
+        config = await client.sessionNew(directory, { disabledTools: DISABLED_TOOLS });
         await writeJsonAtomically(file, { sessionId: config.sessionId });
       }
       const models = await readModels(client, config);
@@ -269,10 +275,11 @@ class AntigravitySession implements AgentSession {
     try {
       await client.initialize();
       const additionalDirectories = adapter.additionalDirectories ?? [];
+      const openOptions = { additionalDirectories, disabledTools: DISABLED_TOOLS };
       // resume doesn't replay history, and context is still kept; additionalDirectories must be sent again because ACP clears stored roots when omitted.
       const config = sessionId
-        ? await client.sessionResume(sessionId, options.cwd, additionalDirectories)
-        : await client.sessionNew(options.cwd, additionalDirectories);
+        ? await client.sessionResume(sessionId, options.cwd, openOptions)
+        : await client.sessionNew(options.cwd, openOptions);
       session.#sessionId = config.sessionId;
       session.#rulesPending = sessionId === null;
       await client.sessionSetMode(session.#sessionId, DEFAULT_MODE);

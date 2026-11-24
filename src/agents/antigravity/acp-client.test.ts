@@ -171,14 +171,33 @@ test("starts with --uid= and runs the handshake without authenticate", async (t)
   assert.equal(updates[0]?.sessionId, "s-1");
 });
 
-test("passes additionalDirectories on session/new and session/resume when provided", async (t) => {
+test("passes additionalDirectories and disabledTools on session/new and session/resume when provided", async (t) => {
   const client = await setup(t);
   await client.initialize();
-  await client.sessionNew("/work", ["/projects", "/preview"]);
-  await client.sessionResume("s-1", "/work", ["/projects", "/preview"]);
+  await client.sessionNew("/work", { additionalDirectories: ["/projects", "/preview"], disabledTools: ["run_workflow"] });
+  await client.sessionResume("s-1", "/work", { additionalDirectories: ["/projects", "/preview"], disabledTools: ["run_workflow"] });
+  await client.sessionNew("/work", { additionalDirectories: [], disabledTools: [] });
   assert.deepEqual(await client.request("answers", {}), [
-    { method: "session/new", params: { cwd: "/work", mcpServers: [], additionalDirectories: ["/projects", "/preview"] } },
-    { method: "session/resume", params: { sessionId: "s-1", cwd: "/work", mcpServers: [], additionalDirectories: ["/projects", "/preview"] } },
+    {
+      method: "session/new",
+      params: {
+        cwd: "/work",
+        mcpServers: [],
+        additionalDirectories: ["/projects", "/preview"],
+        _meta: { antigravity: { disabledTools: ["run_workflow"] } },
+      },
+    },
+    {
+      method: "session/resume",
+      params: {
+        sessionId: "s-1",
+        cwd: "/work",
+        mcpServers: [],
+        additionalDirectories: ["/projects", "/preview"],
+        _meta: { antigravity: { disabledTools: ["run_workflow"] } },
+      },
+    },
+    { method: "session/new", params: { cwd: "/work", mcpServers: [] } },
   ]);
 });
 

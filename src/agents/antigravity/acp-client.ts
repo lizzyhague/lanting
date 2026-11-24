@@ -46,6 +46,11 @@ export type AntigravityExit = { code: number | null; signal: NodeJS.Signals | nu
 /** A session id with the session's configOptions (model, thinking_level and mode selects), as returned by session/new or session/resume. */
 export type AntigravitySessionConfig = { sessionId: string; configOptions: unknown[] };
 
+export type AntigravitySessionOpenOptions = {
+  additionalDirectories?: readonly string[];
+  disabledTools?: readonly string[];
+};
+
 /** ACP auth_required: not logged in, or the login has expired. */
 export const AUTH_REQUIRED_CODE = -32000;
 
@@ -161,10 +166,8 @@ export class AntigravityAcpClient extends EventEmitter {
     }));
   }
 
-  async sessionNew(cwd: string, additionalDirectories: readonly string[] = []): Promise<AntigravitySessionConfig> {
-    const params: Record<string, unknown> = { cwd, mcpServers: [] };
-    if (additionalDirectories.length > 0) params.additionalDirectories = [...additionalDirectories];
-    const result = objectOf(await this.request("session/new", params));
+  async sessionNew(cwd: string, options: AntigravitySessionOpenOptions = {}): Promise<AntigravitySessionConfig> {
+    const result = objectOf(await this.request("session/new", sessionOpenParams(cwd, options)));
     if (typeof result.sessionId !== "string" || !result.sessionId) {
       throw new Error("Antigravity returned no session id.");
     }
@@ -179,11 +182,9 @@ export class AntigravityAcpClient extends EventEmitter {
   async sessionResume(
     sessionId: string,
     cwd: string,
-    additionalDirectories: readonly string[] = [],
+    options: AntigravitySessionOpenOptions = {},
   ): Promise<AntigravitySessionConfig> {
-    const params: Record<string, unknown> = { sessionId, cwd, mcpServers: [] };
-    if (additionalDirectories.length > 0) params.additionalDirectories = [...additionalDirectories];
-    const result = objectOf(await this.request("session/resume", params));
+    const result = objectOf(await this.request("session/resume", { sessionId, ...sessionOpenParams(cwd, options) }));
     return { sessionId, configOptions: configOptionsOf(result) };
   }
 
@@ -412,4 +413,15 @@ function objectOf(value: unknown): Record<string, unknown> {
 
 function configOptionsOf(result: Record<string, unknown>): unknown[] {
   return Array.isArray(result.configOptions) ? result.configOptions : [];
+}
+
+function sessionOpenParams(cwd: string, options: AntigravitySessionOpenOptions): Record<string, unknown> {
+  const params: Record<string, unknown> = { cwd, mcpServers: [] };
+  if (options.additionalDirectories && options.additionalDirectories.length > 0) {
+    params.additionalDirectories = [...options.additionalDirectories];
+  }
+  if (options.disabledTools && options.disabledTools.length > 0) {
+    params._meta = { antigravity: { disabledTools: [...options.disabledTools] } };
+  }
+  return params;
 }
