@@ -38,7 +38,8 @@ Do not commit completed configuration files.
   `kiro-cli acp --agent-engine v3` and supports only the v3 engine, with Default (`vibe`) mode fixed.
   It uses the CLI's existing login and reads the account's `~/.kiro` configuration and project
   configuration normally. lanting supports model and reasoning effort selection, tool approvals,
-  context usage, and deletion of saved sessions, but not manual context compaction.
+  context and account credit usage, and deletion of saved sessions, but not manual context
+  compaction. lanting keeps one resident Kiro ACP process for account usage queries.
   Content collection is disabled for every lanting session. Optionally disable content sharing for
   other CLI sessions too with
   `kiro-cli settings codeWhisperer.shareCodeWhispererContentWithAWS false`;

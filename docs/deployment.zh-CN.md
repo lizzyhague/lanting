@@ -29,7 +29,8 @@
   并用运行 lanting 的同一个账户执行 `kiro-cli login`。lanting 通过
   `kiro-cli acp --agent-engine v3` 启动，只支持 v3 引擎，固定使用 Default（`vibe`）模式。
   它沿用 CLI 的登录状态，照常读取账户的 `~/.kiro` 配置及项目配置。
-  支持模型和推理强度选择、工具审批、上下文用量及原生会话删除，不支持手动压缩上下文。
+  支持模型和推理强度选择、工具审批、上下文与账号额度用量及原生会话删除，不支持手动压缩上下文。
+  lanting 会保活一个常驻 Kiro ACP 进程用于查询账号额度。
   lanting 每个会话都会关闭内容共享；也可以选择执行
   `kiro-cli settings codeWhisperer.shareCodeWhispererContentWithAWS false`，
   为其他 CLI 会话关闭内容共享。这个设置名来自 `kiro-cli settings list --all`。

@@ -27,11 +27,14 @@ import {
   type KiroSessionConfig,
   type KiroUpdate,
 } from "./acp-client.ts";
+import { ResidentKiroServer } from "./resident.ts";
 
 export type KiroAdapterOptions = {
   executable: string;
-  /** How long one account usage read may take before its process is closed; tests shorten it. */
+  /** How long one account usage read may take before its resident process is reset; tests shorten it. */
   usageTimeoutMs?: number;
+  /** Overrides the resident ACP server startup timeout; mainly for tests. */
+  startupTimeoutMs?: number;
 };
 
 const INTERRUPT_TIMEOUT_MS = 10_000;
@@ -72,13 +75,15 @@ export class KiroAdapter implements AgentAdapter {
   readonly #options: KiroAdapterOptions;
   readonly #catalogCache = new CatalogCache();
   readonly #usage = new Map<string, UsagePart[]>();
+  readonly #resident: ResidentKiroServer;
+  readonly #directResident: ResidentKiroServer;
   /** Only one account usage read per proxy choice is in flight at a time; concurrent calls share it. */
   readonly #quota = new Map<string, Promise<UsagePart[]>>();
 
   readonly features: AgentFeatures = {
     models: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).models,
     permissions: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).permissions,
-    usage: ({ nativeId, cwd, useProxy }) => this.#readUsage(nativeId, cwd, useProxy),
+    usage: ({ nativeId, useProxy }) => this.#readUsage(nativeId, useProxy),
     deleteSession: async (nativeId, cwd, useProxy) => {
       const client = this.#client(cwd, useProxy);
       try {
@@ -93,6 +98,21 @@ export class KiroAdapter implements AgentAdapter {
 
   constructor(options: KiroAdapterOptions) {
     this.#options = options;
+    const residentOptions = (useProxy?: boolean) => ({
+      executable: options.executable,
+      environment: () => childEnvironment(proxyEnvironment(useProxy)),
+      ...(options.startupTimeoutMs === undefined ? {} : { startupTimeoutMs: options.startupTimeoutMs }),
+    });
+    this.#resident = new ResidentKiroServer(residentOptions(undefined));
+    this.#directResident = new ResidentKiroServer(residentOptions(false));
+  }
+
+  start(): void {
+    this.#resident.start();
+  }
+
+  close(): Promise<void> {
+    return Promise.all([this.#resident.close(), this.#directResident.close()]).then(() => {});
   }
 
   startSession(options: SessionOptions): Promise<AgentSession> {
@@ -101,6 +121,10 @@ export class KiroAdapter implements AgentAdapter {
 
   resumeSession(nativeId: string, options: SessionOptions): Promise<AgentSession> {
     return KiroSession.open(nativeId, options, this.#options, (id, usage) => this.#usage.set(id, usage));
+  }
+
+  #residentFor(useProxy?: boolean): ResidentKiroServer {
+    return useProxy === false ? this.#directResident : this.#resident;
   }
 
   #catalog(cwd: string, useProxy?: boolean): Promise<AgentCatalog> {
@@ -127,42 +151,35 @@ export class KiroAdapter implements AgentAdapter {
     return new KiroAcpClient({ executable: this.#options.executable, cwd, env: childEnvironment(proxyEnvironment(useProxy)) });
   }
 
-  /** Context comes from the session's own updates; the account quota is read fresh each time, as Codex does. */
-  async #readUsage(nativeId: string, cwd: string, useProxy?: boolean): Promise<UsagePart[]> {
-    const context = this.#usage.get(nativeId) ?? [{ kind: "context", percent: null }];
-    const key = String(useProxy);
+  /** Context comes from the session's own updates; the account quota is read fresh from the resident server, as Codex does. */
+  async #readUsage(nativeId: string, useProxy?: boolean): Promise<UsagePart[]> {
+    const key = useProxy === false ? "direct" : "default";
     let quota = this.#quota.get(key);
     if (!quota) {
-      quota = this.#readQuota(cwd, useProxy).finally(() => this.#quota.delete(key));
+      quota = this.#readQuota(this.#residentFor(useProxy)).finally(() => {
+        if (this.#quota.get(key) === quota) this.#quota.delete(key);
+      });
       this.#quota.set(key, quota);
     }
-    return [...context, ...await quota];
+    const parts = await quota;
+    const context = this.#usage.get(nativeId) ?? [{ kind: "context", percent: null }];
+    return [...context, ...parts];
   }
 
   /**
-   * Kiro's processes close after every round, so a short-lived one answers `_kiro/account/getUsage`; it sends no
-   * prompt. Kiro 3.3 answers this method without listing it in its advertised extension methods.
+   * Reads `_kiro/account/getUsage` on the resident ACP server without opening a session or sending a prompt.
+   * Kiro 3.3+ answers this method without listing it in its advertised extension methods.
    */
-  async #readQuota(cwd: string, useProxy?: boolean): Promise<UsagePart[]> {
-    const client = this.#client(cwd, useProxy);
-    // Closing the client rejects its pending requests, so a stuck read ends at the timeout and the next read starts fresh.
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      void client.close();
-    }, this.#options.usageTimeoutMs ?? USAGE_TIMEOUT_MS);
+  async #readQuota(resident: ResidentKiroServer): Promise<UsagePart[]> {
     try {
-      await client.initialize();
-      const parts = accountUsageParts(await client.request("_kiro/account/getUsage", {}));
+      const response = await resident.request("_kiro/account/getUsage", {}, {
+        timeoutMs: this.#options.usageTimeoutMs ?? USAGE_TIMEOUT_MS,
+      });
+      const parts = accountUsageParts(response);
       return parts.length ? parts : [{ kind: "unavailable" }];
     } catch (error) {
-      const reason = timedOut ? "timed out" : error instanceof Error ? error.message : String(error);
-      console.error(`Reading the Kiro account usage failed: ${reason}`);
+      console.error(`Reading the Kiro account usage failed: ${errorText(error)}`);
       return [{ kind: "unavailable" }];
-    } finally {
-      clearTimeout(timer);
-      // After a timeout the process is already being closed; don't hold the result back while it exits.
-      if (!timedOut) await client.close();
     }
   }
 }
