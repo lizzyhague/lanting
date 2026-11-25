@@ -24,11 +24,12 @@ Do not commit completed configuration files.
   `cursor-agent login`. lanting does not select a Cursor model and uses Cursor's current default.
   Antigravity uses Google's Antigravity ACP Server (`agy_acp_server.par`); install it according to
   Google's documentation. It has no separate login command, so follow section 7. lanting can select
-  Antigravity's model and thinking level and display context usage. ACP Server only returns its model
-  list when a session is opened, so lanting creates one empty Antigravity session for this, keeps its
-  id under `DATA_DIR/agents/antigravity/`, and reuses it for later lookups. lanting cannot compact
-  Antigravity's context and does not delete Antigravity's saved session when a group is permanently
-  deleted.
+  Antigravity's model and thinking level and display context usage and Gemini quota limits. ACP
+  Server only returns its model list and `/usage` quota report from an open session, so lanting
+  keeps one resident ACP Server process with a single empty Antigravity session, saves its id under
+  `DATA_DIR/agents/antigravity/`, and reuses it for model lookups and quota queries. lanting cannot
+  compact Antigravity's context and does not delete Antigravity's saved session when a group is
+  permanently deleted.
   Install Kimi Code with its official installer and run `kimi login` as the account that runs
   lanting. lanting can select Kimi's model and thinking level, display context usage, and delete its
   saved session. Kimi's ACP interface does not provide manual context compaction.
@@ -37,7 +38,8 @@ Do not commit completed configuration files.
   `kiro-cli acp --agent-engine v3` and supports only the v3 engine, with Default (`vibe`) mode fixed.
   It uses the CLI's existing login and reads the account's `~/.kiro` configuration and project
   configuration normally. lanting supports model and reasoning effort selection, tool approvals,
-  context usage, and deletion of saved sessions, but not manual context compaction.
+  context and account credit usage, and deletion of saved sessions, but not manual context
+  compaction. lanting keeps one resident Kiro ACP process for account usage queries.
   Content collection is disabled for every lanting session. Optionally disable content sharing for
   other CLI sessions too with
   `kiro-cli settings codeWhisperer.shareCodeWhispererContentWithAWS false`;

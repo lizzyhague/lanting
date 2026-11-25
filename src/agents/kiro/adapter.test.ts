@@ -17,8 +17,12 @@ import {
 } from "./adapter.ts";
 
 const FAKE_KIRO = `#!/usr/bin/env node
-import { readFileSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 if (process.argv.slice(2).join(" ") !== "acp --agent-engine v3") process.exit(2);
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const storePath = process.cwd() + "/sessions.json";
 const load = () => { try { return JSON.parse(readFileSync(storePath, "utf8")); } catch { return {}; } };
 const save = (store) => writeFileSync(storePath, JSON.stringify(store));
@@ -74,17 +78,39 @@ function handle(message) {
   }
   const { id, method, params } = message;
   switch (method) {
-    case "initialize": return reply(id, { protocolVersion: 1 });
+    case "initialize": {
+      appendFileSync(path.join(scriptDir, "starts"), "start\\n");
+      if (existsSync(path.join(scriptDir, "spawn-child"))) {
+        const helper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+        writeFileSync(path.join(scriptDir, "server.pid"), String(process.pid));
+        writeFileSync(path.join(scriptDir, "child.pid"), String(helper.pid));
+      }
+      if (existsSync(path.join(scriptDir, "init-hang"))) {
+        rmSync(path.join(scriptDir, "init-hang"));
+        process.stdin.removeAllListeners("end");
+        process.on("SIGTERM", () => {});
+        return;
+      }
+      return reply(id, { protocolVersion: 1 });
+    }
     case "_kiro/account/getUsage": {
-      if (process.env.FAKE_ACCOUNT_USAGE === "hang") {
-        writeFileSync(process.cwd() + "/usage-reads", "h", { flag: "a" });
+      if (process.env.FAKE_ACCOUNT_USAGE === "hang" || existsSync(path.join(scriptDir, "usage-hang"))) {
+        writeFileSync(path.join(scriptDir, "usage-reads"), "h", { flag: "a" });
         // Ignore stdin closing and SIGTERM so only the process-group kill ends this read.
         process.stdin.removeAllListeners("end");
         process.on("SIGTERM", () => {});
         return;
       }
+      if (existsSync(path.join(scriptDir, "crash-on-usage"))) {
+        rmSync(path.join(scriptDir, "crash-on-usage"));
+        process.exit(3);
+      }
+      if (existsSync(path.join(scriptDir, "usage-auth-error"))) {
+        return fail(id, -32000, "Authentication required");
+      }
       if (process.env.FAKE_ACCOUNT_USAGE !== "1") return fail(id, -32601, "Method not found");
-      writeFileSync(process.cwd() + "/usage-reads", "x", { flag: "a" });
+      writeFileSync(path.join(scriptDir, "usage-reads"), "x", { flag: "a" });
+      appendFileSync(path.join(scriptDir, "usage-proxy"), (process.env.HTTPS_PROXY ?? "direct") + "\\n");
       return setTimeout(() => reply(id, { success: true, data: {
         planName: "KIRO PRO+", billingCycleReset: "2026-12-01",
         usageBreakdowns: [
@@ -193,19 +219,24 @@ type Approval = { ask: ApprovalAsk; signal: AbortSignal | undefined; resolve: (a
 async function setup(
   t: test.TestContext,
   env: Record<string, string> = {},
-  adapterOptions: { usageTimeoutMs?: number } = {},
+  adapterOptions: { usageTimeoutMs?: number; startupTimeoutMs?: number } = {},
 ): Promise<{ adapter: KiroAdapter; cwd: string }> {
   const cwd = await mkdtemp(path.join(tmpdir(), "lanting-kiro-adapter-"));
   const executable = path.join(cwd, "fake-kiro.mjs");
   await writeFile(executable, FAKE_KIRO, "utf8");
   await chmod(executable, 0o700);
+  const previousDirectory = process.cwd();
+  process.chdir(cwd);
   const saved = new Map<string, string | undefined>();
   for (const [key, value] of Object.entries(env)) { saved.set(key, process.env[key]); process.env[key] = value; }
+  const adapter = new KiroAdapter({ executable, ...adapterOptions });
   t.after(async () => {
+    await adapter.close();
+    process.chdir(previousDirectory);
     for (const [key, value] of saved) value === undefined ? delete process.env[key] : process.env[key] = value;
     await rm(cwd, { recursive: true, force: true });
   });
-  return { adapter: new KiroAdapter({ executable, ...adapterOptions }), cwd };
+  return { adapter, cwd };
 }
 
 function options(cwd: string, settings = { model: null, effort: null, permission: null } as SessionOptions["settings"], approvals: Approval[] = []): SessionOptions {
@@ -446,21 +477,41 @@ test("retains opening usage batched with new and loaded session responses", asyn
   assert.deepEqual(await usage(), [{ kind: "context", percent: 1.4 }, { kind: "unavailable" }]);
 });
 
-test("reads account usage once for concurrent calls: plan credits by reset date, other credits listed after", async (t) => {
+async function countLines(file: string): Promise<number> {
+  try {
+    return (await readFile(file, "utf8")).trim().split("\n").filter(Boolean).length;
+  } catch {
+    return 0;
+  }
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+const EXPECTED_CREDITS = [
+  { kind: "credits", name: "Credits", left: 1017.5, total: 1100, resetsOn: "2026-12-01" },
+  { kind: "credits", name: "Trial credits", left: 500, total: 500, expiresInDays: 364 },
+  { kind: "credits", name: "Add-on pack", left: 87.745, total: 100 },
+];
+
+test("reads account usage once for concurrent calls and reuses one resident process warmed by start()", async (t) => {
   const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "1" });
+  adapter.start();
   const usage = () => adapter.features.usage!({ nativeId: "s-unknown", cwd, reason: "view", session: async () => null });
   const [first, second] = await Promise.all([usage(), usage()]);
-  const expected = [
-    { kind: "context", percent: null },
-    { kind: "credits", name: "Credits", left: 1017.5, total: 1100, resetsOn: "2026-12-01" },
-    { kind: "credits", name: "Trial credits", left: 500, total: 500, expiresInDays: 364 },
-    { kind: "credits", name: "Add-on pack", left: 87.745, total: 100 },
-  ];
+  const expected = [{ kind: "context", percent: null }, ...EXPECTED_CREDITS];
   assert.deepEqual(first, expected);
   assert.deepEqual(second, expected);
   assert.equal(await readFile(path.join(cwd, "usage-reads"), "utf8"), "x");
   assert.deepEqual(await usage(), expected);
   assert.equal(await readFile(path.join(cwd, "usage-reads"), "utf8"), "xx");
+  assert.equal(await countLines(path.join(cwd, "starts")), 1);
 });
 
 test("a stuck account usage read times out, shows unavailable, closes its process, and the next read starts fresh", async (t) => {
@@ -471,6 +522,102 @@ test("a stuck account usage read times out, shows unavailable, closes its proces
   assert.ok(Date.now() - started < 2_000);
   assert.deepEqual(await usage(), [{ kind: "context", percent: null }, { kind: "unavailable" }]);
   assert.equal(await readFile(path.join(cwd, "usage-reads"), "utf8"), "hh");
+  assert.equal(await countLines(path.join(cwd, "starts")), 2);
   // Both stuck processes are killed by their own closing, which ignores SIGTERM and stdin closing here.
   await waitFor(() => !fakeKiroRunning(cwd));
+});
+
+test("a hung resident initialization times out promptly and the next account usage read recovers", async (t) => {
+  const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "1" }, { usageTimeoutMs: 250 });
+  await writeFile(path.join(cwd, "init-hang"), "");
+  const usage = () => adapter.features.usage!({ nativeId: "s-unknown", cwd, reason: "view", session: async () => null });
+  const started = Date.now();
+  assert.deepEqual(await usage(), [{ kind: "context", percent: null }, { kind: "unavailable" }]);
+  assert.ok(Date.now() - started < 2_000);
+  assert.deepEqual(await usage(), [{ kind: "context", percent: null }, ...EXPECTED_CREDITS]);
+  assert.equal(await countLines(path.join(cwd, "starts")), 2);
+});
+
+test("resets the resident server after an auth error and restarts cleanly on the next read", async (t) => {
+  const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "1" });
+  const usage = () => adapter.features.usage!({ nativeId: "s-unknown", cwd, reason: "view", session: async () => null });
+  assert.deepEqual(await usage(), [{ kind: "context", percent: null }, ...EXPECTED_CREDITS]);
+  assert.equal(await countLines(path.join(cwd, "starts")), 1);
+
+  const authError = path.join(cwd, "usage-auth-error");
+  await writeFile(authError, "");
+  assert.deepEqual(await usage(), [{ kind: "context", percent: null }, { kind: "unavailable" }]);
+  await rm(authError);
+
+  assert.deepEqual(await usage(), [{ kind: "context", percent: null }, ...EXPECTED_CREDITS]);
+  assert.equal(await countLines(path.join(cwd, "starts")), 2);
+});
+
+test("does not restart the resident server after close", async (t) => {
+  const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "1" });
+  const usage = () => adapter.features.usage!({ nativeId: "s-unknown", cwd, reason: "view", session: async () => null });
+  assert.deepEqual(await usage(), [{ kind: "context", percent: null }, ...EXPECTED_CREDITS]);
+  assert.equal(await countLines(path.join(cwd, "starts")), 1);
+
+  await adapter.close();
+  assert.deepEqual(await usage(), [{ kind: "context", percent: null }, { kind: "unavailable" }]);
+  assert.equal(await countLines(path.join(cwd, "starts")), 1);
+  assert.equal(fakeKiroRunning(cwd), false);
+});
+
+test("uses a separate direct resident when useProxy is false", async (t) => {
+  const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "1", HTTPS_PROXY: "http://proxy.invalid:8080" });
+  const request = (useProxy?: boolean) => ({
+    nativeId: "s-unknown",
+    cwd,
+    ...(useProxy === undefined ? {} : { useProxy }),
+    reason: "view" as const,
+    session: async () => null,
+  });
+  assert.deepEqual(await adapter.features.usage!(request(undefined)), [{ kind: "context", percent: null }, ...EXPECTED_CREDITS]);
+  assert.deepEqual(await adapter.features.usage!(request(true)), [{ kind: "context", percent: null }, ...EXPECTED_CREDITS]);
+  assert.deepEqual(await adapter.features.usage!(request(false)), [{ kind: "context", percent: null }, ...EXPECTED_CREDITS]);
+  assert.equal(await countLines(path.join(cwd, "starts")), 2);
+  assert.deepEqual((await readFile(path.join(cwd, "usage-proxy"), "utf8")).trim().split("\n"), [
+    "http://proxy.invalid:8080",
+    "http://proxy.invalid:8080",
+    "direct",
+  ]);
+});
+
+test("cleans up child processes in the resident process group after an unexpected exit", async (t) => {
+  const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "1" });
+  await writeFile(path.join(cwd, "spawn-child"), "");
+  const usage = () => adapter.features.usage!({ nativeId: "s-unknown", cwd, reason: "view", session: async () => null });
+  const readPid = async (name: string) => Number((await readFile(path.join(cwd, name), "utf8")).trim());
+  const cleanupPid = (pid: number) => {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Already exited.
+    }
+  };
+
+  // Case 1: unexpected exit during a request cleans up its child process and restarts on the next read.
+  assert.deepEqual(await usage(), [{ kind: "context", percent: null }, ...EXPECTED_CREDITS]);
+  const firstChild = await readPid("child.pid");
+  t.after(() => cleanupPid(firstChild));
+  assert.equal(processExists(firstChild), true);
+
+  await writeFile(path.join(cwd, "crash-on-usage"), "");
+  assert.deepEqual(await usage(), [{ kind: "context", percent: null }, { kind: "unavailable" }]);
+  assert.equal(processExists(firstChild), false);
+
+  // Case 2: unexpected exit while idle still tears down the whole process group and close() waits for it.
+  assert.deepEqual(await usage(), [{ kind: "context", percent: null }, ...EXPECTED_CREDITS]);
+  assert.equal(await countLines(path.join(cwd, "starts")), 2);
+  const secondServer = await readPid("server.pid");
+  const secondChild = await readPid("child.pid");
+  t.after(() => cleanupPid(secondChild));
+  assert.equal(processExists(secondChild), true);
+
+  process.kill(secondServer, "SIGKILL");
+  await waitFor(() => !processExists(secondServer));
+  await adapter.close();
+  assert.equal(processExists(secondChild), false);
 });
