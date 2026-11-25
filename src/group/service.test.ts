@@ -438,6 +438,46 @@ test("trashed groups keep their data, can be restored, and refuse other operatio
   assert.equal(service.snapshot(groupId).group.id, groupId);
 });
 
+for (const action of ["archive", "trash"] as const) {
+  test(`${action} never reports permanent deletion and rejects overlapping operations`, async (t) => {
+    const { service, groupId, adapter, events } = await setup(t);
+    await withSession(service, groupId);
+    events.length = 0;
+    const closing = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const session = adapter.sessions[0]!;
+    const close = session.close.bind(session);
+    t.mock.method(session, "close", async () => {
+      closing.resolve();
+      await release.promise;
+      await close();
+    });
+    const pending = service[action]([groupId]);
+    try {
+      await closing.promise;
+      assert.equal(service.groups()[0]?.deleting, false);
+      for (const overlapping of ["archive", "trash"] as const) {
+        const result = await service[overlapping]([groupId]);
+        assert.deepEqual(result.done, []);
+        assert.equal(result.failed.length, 1);
+      }
+      await assert.rejects(service.startRound(groupId, "q", ["claude"]), /trash/u);
+    } finally {
+      release.resolve();
+      assert.deepEqual(await pending, { done: [groupId], failed: [] });
+    }
+    const updates = events.flatMap((event) =>
+      event.scope === "global" && event.payload.type === "group.updated" ? [event.payload.group] : []
+    );
+    assert.ok(updates.some((group) => action === "trash" ? group.trashedAt : group.archived));
+    assert.ok(updates.every((group) => group.deleting === false));
+    assert.equal(service.groups()[0]?.deleting, false);
+    if (action === "trash") {
+      assert.deepEqual(await service.restore([groupId]), { done: [groupId], failed: [] });
+    }
+  });
+}
+
 test("archived groups stay archived through trash and restore until explicitly unarchived", async (t) => {
   const { service, store, groupId } = await setup(t);
 
@@ -484,7 +524,10 @@ test("purging deletes each agent's native session before the group's own data", 
   assert.match((await service.purge([groupId])).failed[0]?.message ?? "", /Only groups in trash can be permanently deleted/u);
   await service.trash([groupId]);
   assert.equal(adapter.sessions[0]!.closed, true);
-  assert.deepEqual(await service.purge([groupId]), { done: [groupId], failed: [] });
+  const purging = service.purge([groupId]);
+  assert.equal(store.get(groupId)?.deletingAt, null);
+  assert.equal(service.groups()[0]?.deleting, true);
+  assert.deepEqual(await purging, { done: [groupId], failed: [] });
   assert.deepEqual(adapter.deleted, [nativeId]);
   assert.equal(store.get(groupId), null);
   assert.deepEqual(service.groups(), []);
@@ -532,13 +575,17 @@ test("purging clears a native session when its CLI does not support deletion", a
 });
 
 test("a failed purge stays in the trash as deleting and is finished by the next sweep", async (t) => {
-  const { service, store, groupId, adapter } = await setup(t);
+  const { service, store, groupId, adapter, events } = await setup(t);
   await withSession(service, groupId);
   await service.trash([groupId]);
+  events.length = 0;
   adapter.deleteError = new Error("disk busy");
   assert.match((await service.purge([groupId])).failed[0]?.message ?? "", /disk busy/u);
   assert.ok(store.get(groupId)?.deletingAt);
   assert.equal(service.groups()[0]?.deleting, true);
+  assert.ok(events.some((event) =>
+    event.scope === "global" && event.payload.type === "group.updated" && event.payload.group.deleting
+  ));
   assert.match((await service.restore([groupId])).failed[0]?.message ?? "", /can't be restored/u);
 
   adapter.deleteError = null;

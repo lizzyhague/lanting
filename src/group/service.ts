@@ -156,8 +156,10 @@ export class GroupService {
   readonly #settings: SettingsStore;
   readonly #uploads: UploadClient | null;
   readonly #listeners = new Set<(event: ServiceEvent) => void>();
-  /** Groups being moved to trash or permanently deleted; no new round or compaction can start meanwhile. */
+  /** Groups being archived, moved to trash or permanently deleted; no new round or compaction can start meanwhile. */
   readonly #locked = new Set<string>();
+  /** Permanent deletions in progress, including session shutdown before deletingAt is saved. */
+  readonly #purging = new Set<string>();
   /** usage cache, keyed by "group id\0member". */
   readonly #usage = new Map<string, PublicUsage>();
   readonly #usageTasks = new Map<string, UsageTask>();
@@ -626,6 +628,7 @@ export class GroupService {
       if (this.#runtime.isBusy(groupId)) {
         throw new GroupError("busy", localText("error.busyTrash"));
       }
+      if (this.#locked.has(groupId)) throw new GroupError("busy", localText("error.groupLocked"));
       this.#locked.add(groupId);
       try {
         await this.#runtime.closeSessions(groupId);
@@ -699,6 +702,7 @@ export class GroupService {
   async #purge(groupId: string): Promise<void> {
     if (this.#locked.has(groupId)) throw new GroupError("busy", localText("error.groupDeleting"));
     this.#locked.add(groupId);
+    this.#purging.add(groupId);
     try {
       await this.#runtime.closeSessions(groupId);
       let group = this.#requireGroup(groupId);
@@ -744,6 +748,7 @@ export class GroupService {
       }
       this.#emit({ scope: "global", payload: { type: "group.removed", groupId } });
     } finally {
+      this.#purging.delete(groupId);
       this.#locked.delete(groupId);
     }
   }
@@ -1020,7 +1025,7 @@ export class GroupService {
       purgeAt: group.trashedAt
         ? new Date(Date.parse(group.trashedAt) + TRASH_RETENTION_MS).toISOString()
         : null,
-      deleting: group.deletingAt !== null || this.#locked.has(group.id),
+      deleting: group.deletingAt !== null || this.#purging.has(group.id),
     };
   }
 
