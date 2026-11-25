@@ -18,10 +18,10 @@
   Cursor 用 Cursor Agent CLI，按 Cursor 官方说明安装后运行 `cursor-agent login` 登录；
   lanting 不切换 Cursor 的模型，用的是 Cursor 当前的默认模型。
   Antigravity 用 Google 官方的 Antigravity ACP Server（`agy_acp_server.par`），按官方说明安装；
-  它没有单独的登录命令，登录方法见第 7 节。lanting 可以切换 Antigravity 的模型和思考强度，并显示上下文用量。
-  ACP Server 只在开会话时给出模型列表，所以 lanting 为此建一个空的 Antigravity 会话，把它的 id 存在
-  `DATA_DIR/agents/antigravity/` 下，以后取列表都恢复这一个会话。lanting 不支持压缩 Antigravity 的上下文，
-  永久删除群时也不删除 Antigravity 自己保存的会话。
+  它没有单独的登录命令，登录方法见第 7 节。lanting 可以切换 Antigravity 的模型和思考强度，并显示上下文用量与 Gemini 额度。
+  ACP Server 只在打开会话后才返回模型列表和 `/usage` 额度报告，所以 lanting 会保活一个常驻 ACP Server 进程，
+  复用一个空的 Antigravity 会话（其 id 存在 `DATA_DIR/agents/antigravity/` 下），用于模型列表和额度查询。
+  lanting 不支持压缩 Antigravity 的上下文，永久删除群时也不删除 Antigravity 自己保存的会话。
   Kimi Code 按官方说明安装，并用运行 lanting 的同一个账户执行 `kimi login`。lanting 可以切换
   Kimi 的模型和思考强度、显示上下文用量，并在永久删除群时删除 Kimi 保存的会话；Kimi 的 ACP
   接口不提供手动压缩上下文。

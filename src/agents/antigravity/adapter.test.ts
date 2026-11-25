@@ -11,6 +11,7 @@ import {
   AntigravityAdapter,
   firstMessage,
   LOGIN_REQUIRED,
+  parseAntigravityQuota,
   toolActivity,
 } from "./adapter.ts";
 
@@ -24,6 +25,11 @@ const MODELS = [
 const DEFAULT_MODEL = "gemini-4-neon";
 const DEFAULT_EFFORT = "medium";
 
+const EXPECTED_QUOTA = [
+  { kind: "quota", window: { minutes: 300 }, left: 88, resetsAt: "2026-11-25T13:03:00.000Z" },
+  { kind: "quota", window: { minutes: 10080 }, left: 72, resetsAt: "2026-12-01T00:23:00.000Z" },
+];
+
 /**
  * Fake ACP Server: the prompt text decides how the round goes; session records are stored in cwd, so they can be resumed across processes.
  * Each process starts on the default model and thinking level; session/new and session/resume both return configOptions.
@@ -31,7 +37,8 @@ const DEFAULT_EFFORT = "medium";
  * with `auth-required`, session/new returns auth_required.
  */
 const FAKE_SERVER = `#!/usr/bin/env node
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 const MODELS = ${JSON.stringify(MODELS)};
 const DEFAULT_MODEL = ${JSON.stringify(DEFAULT_MODEL)};
 const DEFAULT_EFFORT = ${JSON.stringify(DEFAULT_EFFORT)};
@@ -127,7 +134,14 @@ function handle(message) {
   const { id, method, params } = message;
   calls.push(method);
   switch (method) {
-    case "initialize": return reply(id, { protocolVersion: 1 });
+    case "initialize":
+      appendFileSync(process.cwd() + "/starts", "start\\n");
+      if (existsSync(process.cwd() + "/spawn-child")) {
+        const helper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+        writeFileSync(process.cwd() + "/server.pid", String(process.pid));
+        writeFileSync(process.cwd() + "/child.pid", String(helper.pid));
+      }
+      return reply(id, { protocolVersion: 1 });
     case "session/new": {
       if (existsSync(process.cwd() + "/login-on-new")) { ignoreEof = true; loginPrompt(); setInterval(() => {}, 1000); return; }
       if (existsSync(process.cwd() + "/auth-required")) return fail(id, -32000, "Authentication required");
@@ -142,6 +156,8 @@ function handle(message) {
     }
     case "session/resume": {
       const store = load();
+      if (existsSync(process.cwd() + "/resume-hang")) { rmSync(process.cwd() + "/resume-hang"); ignoreEof = true; setInterval(() => {}, 1000); return; }
+      if (existsSync(process.cwd() + "/crash-on-resume")) { rmSync(process.cwd() + "/crash-on-resume"); process.exit(3); }
       if (existsSync(process.cwd() + "/resume-fails")) return fail(id, -32603, "Internal error");
       if (!store[params.sessionId]) return fail(id, -32002, "Session not found");
       additionalDirectories = params.additionalDirectories ?? null;
@@ -155,6 +171,7 @@ function handle(message) {
       mode = params.modeId;
       return reply(id, {});
     case "session/set_config_option":
+      if (existsSync(process.cwd() + "/config-hang")) { rmSync(process.cwd() + "/config-hang"); ignoreEof = true; setInterval(() => {}, 1000); return; }
       if (params.configId === "model") {
         const target = MODELS.find((item) => item.value === params.value);
         if (!target) return fail(id, -32602, "Invalid value");
@@ -198,8 +215,38 @@ function execute(toolCallId, cwd, next) {
   ask("session/request_permission", { sessionId: session, toolCall, options: EXECUTE_OPTIONS }, (response) => next(response.result.outcome));
 }
 const picked = (outcome) => outcome.outcome === "selected" ? outcome.optionId : "cancelled";
+function sendQuotaReport() {
+  say([
+    "### Session Usage",
+    "- **Session total:** data not available yet",
+    "",
+    "### Quota Limits",
+    "- **Gemini Models**",
+    "  *(Models within this group: Gemini 4 Neon, Gemini 3.8 Flash)*",
+    "  - **Weekly Limit Remaining:** 72% remaining (resets Dec 01, 2026, 00:23 UTC)",
+    "",
+  ].join("\\n"));
+  say([
+    "  - **Five Hour Limit Remaining:** 88% remaining (resets Nov 25, 2026, 13:03 UTC)",
+    "- **Claude and GPT models**",
+    "  *(Models within this group: Claude Opus 5.5, GPT-OSS 120B)*",
+    "  - **Weekly Limit Remaining:** 100% remaining",
+    "  - **Five Hour Limit Remaining:** 100% remaining",
+  ].join("\\n"));
+  end();
+}
 function prompt(id, text) {
   promptId = id;
+  if (text.trim() === "/usage") {
+    appendFileSync(process.cwd() + "/usage-reads", "read\\n");
+    if (existsSync(process.cwd() + "/usage-hang")) { ignoreEof = true; setInterval(() => {}, 1000); return; }
+    if (existsSync(process.cwd() + "/usage-login")) { ignoreEof = true; loginPrompt(); setInterval(() => {}, 1000); return; }
+    if (existsSync(process.cwd() + "/crash-on-usage")) { rmSync(process.cwd() + "/crash-on-usage"); process.exit(3); }
+    if (existsSync(process.cwd() + "/usage-fails")) { promptId = null; return fail(id, -32603, "Quota read failed"); }
+    if (existsSync(process.cwd() + "/usage-empty")) { say("### Session Usage\\n- **Session total:** data not available yet"); return end(); }
+    if (existsSync(process.cwd() + "/usage-delay")) { setTimeout(sendQuotaReport, 80); return; }
+    return sendQuotaReport();
+  }
   const store = load();
   store[session].push(text);
   save(store);
@@ -266,7 +313,9 @@ async function setup(t: test.TestContext): Promise<{ adapter: AntigravityAdapter
   t.after(() => rm(cwd, { recursive: true, force: true }));
   // Not created in advance, as at startup.
   const stateDirectory = path.join(cwd, "state", "agents", "antigravity");
-  return { adapter: new AntigravityAdapter({ executable, stateDirectory }), cwd, executable, stateDirectory };
+  const adapter = new AntigravityAdapter({ executable, stateDirectory });
+  t.after(() => adapter.close());
+  return { adapter, cwd, executable, stateDirectory };
 }
 
 function sessionOptions(
@@ -310,6 +359,14 @@ async function catalogSessionId(stateDirectory: string): Promise<unknown> {
   return (JSON.parse(await readFile(path.join(stateDirectory, "catalog-session.json"), "utf8")) as { sessionId: unknown }).sessionId;
 }
 
+async function countLines(file: string): Promise<number> {
+  try {
+    return (await readFile(file, "utf8")).trim().split("\n").filter(Boolean).length;
+  } catch {
+    return 0;
+  }
+}
+
 test("declares models, permissions and usage", async () => {
   const adapter = new AntigravityAdapter({ executable: "/unused", stateDirectory: "/unused" });
   assert.equal(adapter.kind, "antigravity");
@@ -332,9 +389,11 @@ test("reads models and per-model thinking levels from one catalog session that l
   assert.equal(sessions.length, 1);
   assert.equal(await catalogSessionId(stateDirectory), sessions[0]);
 
-  // Another proxy choice is a separate cache entry, so the Server is asked again; it resumes the same session.
+  // Another proxy choice is a separate cache entry, so the Server is asked again; it resumes the same session on the resident process.
   assert.deepEqual(await adapter.features.models!(cwd, true), models);
+  assert.equal(await countLines(path.join(stateDirectory, "starts")), 1);
   const restarted = new AntigravityAdapter({ executable, stateDirectory });
+  t.after(() => restarted.close());
   assert.deepEqual(await restarted.features.models!("/elsewhere"), models);
   assert.deepEqual(await storedSessions(stateDirectory), sessions);
   // The catalog session lives in the state directory, never in a group's directory.
@@ -363,12 +422,13 @@ test("keeps the saved catalog session when resuming it fails for another reason"
   const saved = await catalogSessionId(stateDirectory);
   await writeFile(path.join(stateDirectory, "resume-fails"), "");
   const restarted = new AntigravityAdapter({ executable, stateDirectory });
+  t.after(() => restarted.close());
   await assert.rejects(restarted.features.models!(cwd), /Antigravity session\/resume failed: Internal error/u);
   assert.equal(await catalogSessionId(stateDirectory), saved);
   assert.deepEqual(await storedSessions(stateDirectory), [saved]);
 });
 
-test("leaves an unreadable catalog record in place and creates no session", async (t) => {
+test("leaves an unreadable catalog record in place, creates no session, and recovers once fixed", async (t) => {
   for (const record of ["not json", JSON.stringify({ other: 1 }), "[]", "null", ""]) {
     const { adapter, cwd, stateDirectory } = await setup(t);
     await mkdir(stateDirectory, { recursive: true });
@@ -377,6 +437,8 @@ test("leaves an unreadable catalog record in place and creates no session", asyn
     await assert.rejects(adapter.features.models!(cwd), /State file/u);
     assert.equal(await readFile(file, "utf8"), record);
     await assert.rejects(readFile(path.join(stateDirectory, "sessions.json")), { code: "ENOENT" });
+    await rm(file);
+    assert.equal((await adapter.features.models!(cwd)).length, MODELS.length);
   }
 });
 
@@ -469,14 +531,14 @@ test("fails to open a session with a model or thinking level the server does not
   );
 });
 
-test("reports the context share from usage updates", async (t) => {
+test("reports the context share from usage updates alongside Gemini quota limits", async (t) => {
   const { adapter, cwd } = await setup(t);
   const request = (nativeId: string) => ({ nativeId, cwd, reason: "turn" as const, session: async () => null });
-  assert.equal(await adapter.features.usage!(request("unknown")), null);
+  assert.deepEqual(await adapter.features.usage!(request("unknown")), [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
   const session = await adapter.startSession(sessionOptions(cwd));
   t.after(() => session.close());
   assert.equal(endOf(await drain(session, "usage")).text, "counted");
-  assert.deepEqual(await adapter.features.usage!(request(session.nativeId!)), [{ kind: "context", percent: 25 }]);
+  assert.deepEqual(await adapter.features.usage!(request(session.nativeId!)), [{ kind: "context", percent: 25 }, ...EXPECTED_QUOTA]);
   await session.close();
 });
 
@@ -723,6 +785,7 @@ test("passes disabledTools on every session open and additionalDirectories only 
   const { executable, cwd, stateDirectory } = await setup(t);
   const extraDirs = [path.join(cwd, "projects"), path.join(cwd, "preview"), path.join(cwd, "blobs")];
   const adapter = new AntigravityAdapter({ executable, stateDirectory, additionalDirectories: extraDirs });
+  t.after(() => adapter.close());
 
   await adapter.features.models!(cwd);
   assert.deepEqual(
@@ -774,4 +837,198 @@ test("toolActivity labels commands as bash and shows the command or the file pat
     detail: "/w/b.txt",
   });
   assert.deepEqual(toolActivity({}), { kind: "tool", toolName: "Tool", toolKey: "tool.generic", detail: "" });
+});
+
+test("parseAntigravityQuota parses Gemini quota windows shortest-first and ignores non-Gemini groups", () => {
+  const report = [
+    "### Session Usage",
+    "- **Session total:** data not available yet",
+    "",
+    "### Quota Limits",
+    "- **Gemini Models**",
+    "  *(Models within this group: Gemini 4 Neon, Gemini 3.8 Flash)*",
+    "  - **Weekly Limit Remaining:** 72% remaining (resets Dec 01, 2026, 00:23 UTC)",
+    "  - **Five Hour Limit Remaining:** 88.5% remaining (resets Nov 25, 2026, 13:03 UTC)",
+    "- **Claude and GPT models**",
+    "  *(Models within this group: Claude Opus 5.5, GPT-OSS 120B)*",
+    "  - **Weekly Limit Remaining:** 100% remaining",
+    "  - **Five Hour Limit Remaining:** 100% remaining",
+    "",
+    "### AI Credits",
+    "- **Available:** 500",
+  ].join("\n");
+  assert.deepEqual(parseAntigravityQuota(report), [
+    { kind: "quota", window: { minutes: 300 }, left: 88.5, resetsAt: "2026-11-25T13:03:00.000Z" },
+    { kind: "quota", window: { minutes: 10080 }, left: 72, resetsAt: "2026-12-01T00:23:00.000Z" },
+  ]);
+});
+
+test("parseAntigravityQuota handles ISO reset times, missing resets, zero remaining, and skips disabled buckets", () => {
+  const report = [
+    "### Quota Limits",
+    "- **Gemini Models**",
+    "  - **Monthly Limit Remaining:** 0% remaining (resets 2026-12-31T23:59:59Z)",
+    "  - **Daily Limit Remaining:** 100% remaining",
+    "  - **12 Hour Limit Remaining:** 50% remaining (resets invalid date)",
+    "  - **Hourly Limit Remaining:** Disabled (resets Nov 25, 2026, 14:00 UTC)",
+  ].join("\n");
+  assert.deepEqual(parseAntigravityQuota(report), [
+    { kind: "quota", window: { minutes: 720 }, left: 50 },
+    { kind: "quota", window: { minutes: 1440 }, left: 100 },
+    { kind: "quota", window: { name: "Monthly" }, left: 0, resetsAt: "2026-12-31T23:59:59.000Z" },
+  ]);
+  assert.deepEqual(parseAntigravityQuota("### Session Usage\n- **Session total:** data not available yet"), []);
+  assert.deepEqual(parseAntigravityQuota("### Quota Limits\n- **Claude and GPT models**\n  - **Weekly Limit Remaining:** 100% remaining"), []);
+});
+
+test("start warms up one resident process shared by models and usage without polluting session history", async (t) => {
+  const { adapter, cwd, stateDirectory } = await setup(t);
+  adapter.start();
+  const request = { nativeId: "s-1", cwd, reason: "view" as const, session: async () => null };
+  assert.deepEqual(await adapter.features.usage!(request), [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
+  assert.equal((await adapter.features.models!(cwd)).length, MODELS.length);
+  assert.equal((await adapter.features.models!(cwd, true)).length, MODELS.length);
+  assert.deepEqual(await adapter.features.usage!(request), [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
+  assert.equal(await countLines(path.join(stateDirectory, "starts")), 1);
+  assert.equal((await storedSessions(stateDirectory)).length, 1);
+});
+
+test("coalesces concurrent usage quota reads into one /usage prompt", async (t) => {
+  const { adapter, cwd, stateDirectory } = await setup(t);
+  await mkdir(stateDirectory, { recursive: true });
+  await writeFile(path.join(stateDirectory, "usage-delay"), "");
+  const request = (nativeId: string) => ({ nativeId, cwd, reason: "visible" as const, session: async () => null });
+  const results = await Promise.all([
+    adapter.features.usage!(request("a")),
+    adapter.features.usage!(request("b")),
+    adapter.features.usage!(request("c")),
+  ]);
+  for (const parts of results) {
+    assert.deepEqual(parts, [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
+  }
+  assert.equal(await countLines(path.join(stateDirectory, "starts")), 1);
+  assert.equal(await countLines(path.join(stateDirectory, "usage-reads")), 1);
+});
+
+test("restarts the resident server on the next request after an unexpected exit", async (t) => {
+  const { adapter, cwd, stateDirectory } = await setup(t);
+  const request = { nativeId: "s-1", cwd, reason: "view" as const, session: async () => null };
+  assert.deepEqual(await adapter.features.usage!(request), [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
+  assert.equal(await countLines(path.join(stateDirectory, "starts")), 1);
+
+  await writeFile(path.join(stateDirectory, "crash-on-usage"), "");
+  assert.deepEqual(await adapter.features.usage!(request), [{ kind: "context", percent: null }, { kind: "unavailable" }]);
+
+  assert.deepEqual(await adapter.features.usage!(request), [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
+  assert.equal(await countLines(path.join(stateDirectory, "starts")), 2);
+});
+
+test("does not restart the resident server after close", async (t) => {
+  const { adapter, cwd, stateDirectory } = await setup(t);
+  const request = { nativeId: "s-1", cwd, reason: "view" as const, session: async () => null };
+  assert.deepEqual(await adapter.features.usage!(request), [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
+  assert.equal(await countLines(path.join(stateDirectory, "starts")), 1);
+
+  await adapter.close();
+  assert.deepEqual(await adapter.features.usage!(request), [{ kind: "context", percent: null }, { kind: "unavailable" }]);
+  await assert.rejects(adapter.features.models!(cwd), /closed/u);
+  assert.equal(await countLines(path.join(stateDirectory, "starts")), 1);
+});
+
+test("reports unavailable quota on error, empty output, login prompt, or timeout while keeping context and recovering later", async (t) => {
+  const { executable, cwd, stateDirectory } = await setup(t);
+  const adapter = new AntigravityAdapter({ executable, stateDirectory, usageTimeoutMs: 120 });
+  t.after(() => adapter.close());
+
+  const session = await adapter.startSession(sessionOptions(cwd));
+  t.after(() => session.close());
+  assert.equal(endOf(await drain(session, "usage")).text, "counted");
+  const nativeId = session.nativeId!;
+  await session.close();
+
+  const request = { nativeId, cwd, reason: "turn" as const, session: async () => null };
+  assert.deepEqual(await adapter.features.usage!(request), [{ kind: "context", percent: 25 }, ...EXPECTED_QUOTA]);
+
+  for (const flag of ["usage-fails", "usage-empty", "usage-login", "usage-hang"]) {
+    const flagFile = path.join(stateDirectory, flag);
+    await writeFile(flagFile, "");
+    assert.deepEqual(await adapter.features.usage!(request), [{ kind: "context", percent: 25 }, { kind: "unavailable" }]);
+    await rm(flagFile);
+    assert.deepEqual(await adapter.features.usage!(request), [{ kind: "context", percent: 25 }, ...EXPECTED_QUOTA]);
+  }
+});
+
+test("uses a separate direct resident when useProxy is false while sharing the single catalog session", async (t) => {
+  const { adapter, cwd, stateDirectory } = await setup(t);
+  const defaultRequest = { nativeId: "s-1", cwd, reason: "view" as const, session: async () => null };
+  const directRequest = { nativeId: "s-1", cwd, useProxy: false, reason: "view" as const, session: async () => null };
+  assert.deepEqual(await adapter.features.usage!(defaultRequest), [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
+  assert.deepEqual(await adapter.features.usage!(directRequest), [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
+  assert.equal(await countLines(path.join(stateDirectory, "starts")), 2);
+  assert.equal((await storedSessions(stateDirectory)).length, 1);
+});
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+test("times out a hung model refresh, resets the resident server, and unblocks queued quota reads", async (t) => {
+  const { executable, cwd, stateDirectory } = await setup(t);
+  const adapter = new AntigravityAdapter({ executable, stateDirectory, catalogTimeoutMs: 120, usageTimeoutMs: 500 });
+  t.after(() => adapter.close());
+
+  assert.equal((await adapter.features.models!(cwd)).length, MODELS.length);
+  assert.equal(await countLines(path.join(stateDirectory, "starts")), 1);
+
+  const request = { nativeId: "s-1", cwd, reason: "view" as const, session: async () => null };
+  for (const [index, flag] of (["resume-hang", "config-hang"] as const).entries()) {
+    await writeFile(path.join(stateDirectory, flag), "");
+    const refresh = adapter.features.models!(cwd, true);
+    const quota = adapter.features.usage!(request);
+    await assert.rejects(refresh, /Antigravity model lookup did not finish within/u);
+    assert.deepEqual(await quota, [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
+    assert.equal(await countLines(path.join(stateDirectory, "starts")), index + 2);
+  }
+});
+
+test("cleans up child processes in the resident process group after an unexpected exit", async (t) => {
+  const { adapter, cwd, stateDirectory } = await setup(t);
+  await mkdir(stateDirectory, { recursive: true });
+  await writeFile(path.join(stateDirectory, "spawn-child"), "");
+  const request = { nativeId: "s-1", cwd, reason: "view" as const, session: async () => null };
+  const readPid = async (name: string) => Number((await readFile(path.join(stateDirectory, name), "utf8")).trim());
+  const cleanupPid = (pid: number) => {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Already exited.
+    }
+  };
+
+  // Case 1: unexpected exit during a request cleans up its child process before the next restart.
+  assert.deepEqual(await adapter.features.usage!(request), [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
+  const firstChild = await readPid("child.pid");
+  t.after(() => cleanupPid(firstChild));
+  assert.equal(processExists(firstChild), true);
+
+  await writeFile(path.join(stateDirectory, "crash-on-usage"), "");
+  assert.deepEqual(await adapter.features.usage!(request), [{ kind: "context", percent: null }, { kind: "unavailable" }]);
+  assert.equal(processExists(firstChild), false);
+
+  // Case 2: unexpected exit while idle still tears down the whole process group and close() waits for it.
+  assert.deepEqual(await adapter.features.usage!(request), [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
+  const secondServer = await readPid("server.pid");
+  const secondChild = await readPid("child.pid");
+  t.after(() => cleanupPid(secondChild));
+  assert.equal(processExists(secondChild), true);
+
+  process.kill(secondServer, "SIGKILL");
+  await waitFor(() => !processExists(secondServer));
+  await adapter.close();
+  assert.equal(processExists(secondChild), false);
 });

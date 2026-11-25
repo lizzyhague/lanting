@@ -1,10 +1,6 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-
 import { proxyEnvironment } from "../proxy.ts";
-import type { AgentFeatures, UsagePart } from "../../features/index.ts";
+import type { AgentFeatures, UsagePart, UsageWindow } from "../../features/index.ts";
 import { englishText, localText, LocalizedError } from "../../i18n/text.ts";
-import { ensurePrivateDirectory, isMissingFile, writeJsonAtomically } from "../../state/atomic-json.ts";
 import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
 import {
@@ -30,6 +26,7 @@ import {
   type AntigravitySessionConfig,
   type AntigravityUpdate,
 } from "./acp-client.ts";
+import { LOGIN_PROMPT, ResidentAntigravityServer } from "./resident.ts";
 
 export type AntigravityAdapterOptions = {
   executable: string;
@@ -37,18 +34,24 @@ export type AntigravityAdapterOptions = {
   stateDirectory: string;
   /** Extra workspace roots passed to group sessions on both session/new and session/resume. */
   additionalDirectories?: readonly string[];
+  /** Overrides the resident ACP Server startup timeout; mainly for tests. */
+  startupTimeoutMs?: number;
+  /** Overrides the model catalog lookup timeout; mainly for tests. */
+  catalogTimeoutMs?: number;
+  /** Overrides the `/usage` quota prompt timeout; mainly for tests. */
+  usageTimeoutMs?: number;
 };
 
-/** Stores the id of the one session used only to read the model list. */
-const CATALOG_SESSION_FILE = "catalog-session.json";
-
-/** ACP resource_not_found: session/resume found no saved session with that id (server.py `_restore_session`, 1.5.2). */
-const SESSION_NOT_FOUND_CODE = -32002;
-
-type UsageListener = (sessionId: string, usage: UsagePart[]) => void;
+type ContextListener = (sessionId: string, percent: number) => void;
 
 /** If the round hasn't ended this long after session/cancel, the Antigravity process is closed outright. */
 const INTERRUPT_TIMEOUT_MS = 10_000;
+
+/** If a catalog refresh does not finish this quickly, the resident process is reset so queued requests can proceed. */
+const DEFAULT_CATALOG_TIMEOUT_MS = 30_000;
+
+/** If `/usage` does not answer this quickly, the resident process is reset so later requests can restart cleanly. */
+const DEFAULT_USAGE_TIMEOUT_MS = 15_000;
 
 /**
  * always-approve doesn't use the Server's own `auto_edit` or `yolo` modes; instead lanting picks a one-time allow for each approval.
@@ -79,12 +82,6 @@ const DEFAULT_MODE = "default";
  */
 const DISABLED_TOOLS: readonly string[] = ["run_workflow"];
 
-/**
- * When credentials expire and can't be refreshed silently, the Server doesn't error; it prints this authorization URL line on stderr and waits up to 5 minutes for a browser callback.
- * The callback must reach the server machine itself, which the group owner on the web page can't complete, so the round ends when this line appears.
- */
-const LOGIN_PROMPT = "Open the following link to authenticate the ACP server";
-
 export const LOGIN_REQUIRED = localText("error.antigravityLogin");
 
 /**
@@ -106,114 +103,133 @@ export class AntigravityAdapter implements AgentAdapter {
   /** Closes the ACP process after every round and resumes by session id next time, same as Codex, Grok, Pi and Cursor. */
   readonly closeAfterTurn = true;
   /**
-   * The ACP Server has no model-list request and no way to delete a session; the list only comes with `session/new` and `session/resume`.
-   * So models come from one catalog session that is created once, its id saved in the state directory, and resumed for each lookup.
-   * The model and thinking-level choices don't persist across processes, so they are set again with `session/set_config_option` every time a session opens.
-   * usage is the context share from the Server's `usage_update`, kept in memory per session; there is no data before a session's first round.
+   * The ACP Server has no model-list request and no way to delete a session; the model list only comes with `session/new` and `session/resume`,
+   * and quota limits come from sending `/usage` to an open session (handled locally by ACP Server before any LLM call).
+   * One resident ACP Server process keeps a single empty catalog session open (id saved in the state directory) for both model lookups and `/usage` quota reads.
+   * The model and thinking-level choices don't persist across processes, so they are set again with `session/set_config_option` every time a group session opens.
+   * Context share comes from the Server's `usage_update` notifications during turns, kept in memory per session; quota limits report Gemini Models only.
    * deleteSession and compact aren't implemented: the ACP Server has no delete-session or compaction API.
    */
   readonly features: AgentFeatures = {
     models: async (_cwd, useProxy) => (await this.#catalog(useProxy)).models,
     permissions: async () => [...ANTIGRAVITY_PERMISSIONS],
-    usage: async ({ nativeId }) => this.#usage.get(nativeId) ?? null,
+    usage: (request) => this.#usage(request.nativeId, request.useProxy),
   };
   readonly #options: AntigravityAdapterOptions;
   readonly #catalogCache = new CatalogCache();
-  readonly #usage = new Map<string, UsagePart[]>();
-  /** Catalog lookups run one at a time, so concurrent lookups never create two catalog sessions. */
-  #catalogQueue: Promise<unknown> = Promise.resolve();
+  readonly #contexts = new Map<string, number>();
+  readonly #resident: ResidentAntigravityServer;
+  readonly #directResident: ResidentAntigravityServer;
+  /** Coalesces concurrent quota reads per proxy mode so several usage refreshes share one `/usage` call. */
+  readonly #quota = new Map<string, Promise<UsagePart[]>>();
+  /** Serializes catalog-session.json creation across proxy and direct residents. */
+  #catalogLock: Promise<unknown> = Promise.resolve();
 
   constructor(options: AntigravityAdapterOptions) {
     this.#options = options;
+    const withCatalogLock = <T>(work: () => Promise<T>): Promise<T> => {
+      const next = this.#catalogLock.then(work);
+      this.#catalogLock = next.catch(() => {});
+      return next;
+    };
+    const residentOptions = (useProxy?: boolean) => ({
+      executable: options.executable,
+      stateDirectory: options.stateDirectory,
+      disabledTools: DISABLED_TOOLS,
+      environment: childEnvironment(proxyEnvironment(useProxy)),
+      loginError: () => new LocalizedError(LOGIN_REQUIRED),
+      withCatalogLock,
+      ...(options.startupTimeoutMs === undefined ? {} : { startupTimeoutMs: options.startupTimeoutMs }),
+    });
+    this.#resident = new ResidentAntigravityServer(residentOptions(undefined));
+    this.#directResident = new ResidentAntigravityServer(residentOptions(false));
+  }
+
+  start(): void {
+    this.#resident.start();
+  }
+
+  close(): Promise<void> {
+    return Promise.all([this.#resident.close(), this.#directResident.close()]).then(() => {});
   }
 
   startSession(options: SessionOptions): Promise<AgentSession> {
-    return AntigravitySession.open(null, options, this.#options, (id, usage) => this.#usage.set(id, usage));
+    return AntigravitySession.open(null, options, this.#options, (id, percent) => this.#contexts.set(id, percent));
   }
 
   resumeSession(nativeId: string, options: SessionOptions): Promise<AgentSession> {
-    return AntigravitySession.open(nativeId, options, this.#options, (id, usage) => this.#usage.set(id, usage));
+    return AntigravitySession.open(nativeId, options, this.#options, (id, percent) => this.#contexts.set(id, percent));
+  }
+
+  #residentFor(useProxy?: boolean): ResidentAntigravityServer {
+    return useProxy === false ? this.#directResident : this.#resident;
   }
 
   /** The model list doesn't depend on the group's directory; only the proxy choice changes how the Server is reached. */
   #catalog(useProxy?: boolean): Promise<AgentCatalog> {
-    return this.#catalogCache.get(String(useProxy), () => {
-      const next = this.#catalogQueue.then(() => this.#readCatalog(useProxy));
-      this.#catalogQueue = next.catch(() => {});
-      return next;
-    });
+    return this.#catalogCache.get(String(useProxy), () => this.#readCatalog(useProxy));
   }
 
   async #readCatalog(useProxy?: boolean): Promise<AgentCatalog> {
-    const directory = this.#options.stateDirectory;
-    await ensurePrivateDirectory(directory);
-    const file = path.join(directory, CATALOG_SESSION_FILE);
-    const stored = await readCatalogSessionId(file);
-    const client = new AntigravityAcpClient({
-      executable: this.#options.executable,
-      cwd: directory,
-      env: childEnvironment(proxyEnvironment(useProxy)),
-    });
-    let loginRequired = false;
-    client.on("diagnostic", () => {
-      if (loginRequired || !client.stderrTail.includes(LOGIN_PROMPT)) return;
-      // Don't wait out the 5-minute login; closing rejects the pending request.
-      loginRequired = true;
-      void client.close();
-    });
+    const models = await this.#residentFor(useProxy).run(
+      async (handle) => {
+        const config = handle.takeFreshConfig() ?? await handle.refreshSession();
+        return readModels(handle.client, config);
+      },
+      {
+        timeoutMs: this.#options.catalogTimeoutMs ?? DEFAULT_CATALOG_TIMEOUT_MS,
+        operation: "model lookup",
+      },
+    );
+    // The Server leaves the list out when it can't list models; failing keeps the empty result out of the cache.
+    if (models.length === 0) throw new Error("Antigravity returned no model list.");
+    return { models, permissions: [...ANTIGRAVITY_PERMISSIONS] };
+  }
+
+  async #usage(nativeId: string, useProxy?: boolean): Promise<UsagePart[]> {
+    const key = useProxy === false ? "direct" : "default";
+    let pending = this.#quota.get(key);
+    if (!pending) {
+      pending = this.#readQuota(this.#residentFor(useProxy)).finally(() => {
+        if (this.#quota.get(key) === pending) this.#quota.delete(key);
+      });
+      this.#quota.set(key, pending);
+    }
+    const quota = await pending;
+    return [{ kind: "context", percent: this.#contexts.get(nativeId) ?? null }, ...quota];
+  }
+
+  async #readQuota(resident: ResidentAntigravityServer): Promise<UsagePart[]> {
     try {
-      await client.initialize();
-      let config: AntigravitySessionConfig | null = null;
-      if (stored) {
-        try {
-          config = await client.sessionResume(stored, directory, { disabledTools: DISABLED_TOOLS });
-        } catch (error) {
-          // Only a session the Server confirms is gone is replaced. Any other failure keeps the saved id and fails this lookup,
-          // so a passing error never leaves an unreachable empty session behind.
-          if (!(error instanceof AntigravityRpcError) || error.code !== SESSION_NOT_FOUND_CODE) throw error;
-        }
-      }
-      if (!config) {
-        config = await client.sessionNew(directory, { disabledTools: DISABLED_TOOLS });
-        await writeJsonAtomically(file, { sessionId: config.sessionId });
-      }
-      const models = await readModels(client, config);
-      // The Server leaves the list out when it can't list models; failing keeps the empty result out of the cache.
-      if (models.length === 0) throw new Error("Antigravity returned no model list.");
-      return { models, permissions: [...ANTIGRAVITY_PERMISSIONS] };
+      const text = await resident.run(
+        async (handle) => {
+          const chunks: string[] = [];
+          const onUpdate = (payload: AntigravityUpdate) => {
+            if (payload.sessionId !== handle.sessionId) return;
+            if (payload.update.sessionUpdate !== "agent_message_chunk") return;
+            const delta = contentText(payload.update.content);
+            if (delta) chunks.push(delta);
+          };
+          handle.client.on("update", onUpdate);
+          try {
+            await handle.client.sessionPrompt(handle.sessionId, "/usage");
+          } finally {
+            handle.client.off("update", onUpdate);
+          }
+          return chunks.join("");
+        },
+        {
+          timeoutMs: this.#options.usageTimeoutMs ?? DEFAULT_USAGE_TIMEOUT_MS,
+          operation: "/usage",
+        },
+      );
+      const parts = parseAntigravityQuota(text);
+      return parts.length > 0 ? parts : [{ kind: "unavailable" }];
     } catch (error) {
-      if (client.stderrTail.trim()) console.error(`Antigravity stderr: ${client.stderrTail.trim()}`);
-      throw loginRequired || isAuthRequired(error) ? new LocalizedError(LOGIN_REQUIRED) : error;
-    } finally {
-      await client.close();
+      console.error(`Reading the Antigravity quota failed: ${error instanceof Error ? error.message : String(error)}`);
+      return [{ kind: "unavailable" }];
     }
   }
-}
-
-/**
- * Only a missing file means there is no catalog session yet. A file that can't be read or has no session id fails the lookup
- * and is left as it is, rather than being overwritten by a new session.
- */
-async function readCatalogSessionId(file: string): Promise<string | null> {
-  // Reads the file itself: readJsonIfPresent also returns null for a file whose content is JSON null.
-  let source: string;
-  try {
-    source = await readFile(file, "utf8");
-  } catch (error) {
-    if (isMissingFile(error)) return null;
-    throw error;
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(source);
-  } catch (error) {
-    throw new Error(`State file is not valid JSON: ${file}`, { cause: error });
-  }
-  const sessionId = typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as { sessionId?: unknown }).sessionId
-    : undefined;
-  if (typeof sessionId !== "string" || !sessionId) throw new Error(`State file has no session id: ${file}`);
-  return sessionId;
 }
 
 type Turn = {
@@ -231,7 +247,7 @@ type Turn = {
 class AntigravitySession implements AgentSession {
   readonly #client: AntigravityAcpClient;
   readonly #options: SessionOptions;
-  readonly #usage: UsageListener;
+  readonly #onContext: ContextListener;
   /** Approvals not yet answered on the web page, keyed by the Server's JSON-RPC id. */
   readonly #approvals = new Map<number | string, AbortController>();
   #sessionId = "";
@@ -241,10 +257,10 @@ class AntigravitySession implements AgentSession {
   #loginRequired = false;
   #turn: Turn | null = null;
 
-  private constructor(client: AntigravityAcpClient, options: SessionOptions, usage: UsageListener) {
+  private constructor(client: AntigravityAcpClient, options: SessionOptions, onContext: ContextListener) {
     this.#client = client;
     this.#options = options;
-    this.#usage = usage;
+    this.#onContext = onContext;
     client.on("update", (payload: AntigravityUpdate) => this.#onUpdate(payload));
     client.on("permission", (request: AntigravityPermissionRequest) => this.#onPermission(request));
     client.on("diagnostic", () => {
@@ -264,14 +280,14 @@ class AntigravitySession implements AgentSession {
     sessionId: string | null,
     options: SessionOptions,
     adapter: AntigravityAdapterOptions,
-    usage: UsageListener,
+    onContext: ContextListener,
   ): Promise<AntigravitySession> {
     const client = new AntigravityAcpClient({
       executable: adapter.executable,
       cwd: options.cwd,
       env: childEnvironment(proxyEnvironment(options.useProxy)),
     });
-    const session = new AntigravitySession(client, options, usage);
+    const session = new AntigravitySession(client, options, onContext);
     try {
       await client.initialize();
       const additionalDirectories = adapter.additionalDirectories ?? [];
@@ -385,7 +401,7 @@ class AntigravitySession implements AgentSession {
       const used = finiteNumber(update.used);
       const size = finiteNumber(update.size);
       if (used !== null && size !== null && size > 0) {
-        this.#usage(this.#sessionId, [{ kind: "context", percent: Math.max(0, Math.min(100, used / size * 100)) }]);
+        this.#onContext(this.#sessionId, Math.max(0, Math.min(100, used / size * 100)));
       }
       return;
     }
@@ -482,31 +498,174 @@ async function readModels(client: AntigravityAcpClient, config: AntigravitySessi
   let currentEffort = initialEffort;
   const models: ModelOption[] = [];
 
+  const restoreInitial = async (): Promise<void> => {
+    if (!canRestoreInitial || currentModel === initialModel) return;
+    let restored = await client.sessionSetConfigOption(config.sessionId, model.id, initialModel);
+    const restoredThinking = thinkingSelect(restored);
+    if (
+      initialEffort
+      && restoredThinking
+      && restoredThinking.currentValue !== initialEffort
+      && restoredThinking.choices.some((item) => item.value === initialEffort)
+    ) {
+      restored = await client.sessionSetConfigOption(config.sessionId, restoredThinking.id, initialEffort);
+    }
+    currentModel = initialModel;
+    currentEffort = thinkingSelect(restored)?.currentValue ?? "";
+  };
+
   for (const choice of choices) {
     if (choice.value === initialModel) {
       models.push(modelOption(choice, config.configOptions));
       continue;
     }
-    if (canRestoreInitial && currentModel !== initialModel && currentEffort !== initialEffort) {
-      let restored = await client.sessionSetConfigOption(config.sessionId, model.id, initialModel);
-      const restoredThinking = thinkingSelect(restored);
-      if (
-        initialEffort
-        && restoredThinking
-        && restoredThinking.currentValue !== initialEffort
-        && restoredThinking.choices.some((item) => item.value === initialEffort)
-      ) {
-        restored = await client.sessionSetConfigOption(config.sessionId, restoredThinking.id, initialEffort);
-      }
-      currentModel = initialModel;
-      currentEffort = thinkingSelect(restored)?.currentValue ?? "";
+    if (currentModel !== initialModel && currentEffort !== initialEffort) {
+      await restoreInitial();
     }
     const updated = await client.sessionSetConfigOption(config.sessionId, model.id, choice.value);
     currentModel = choice.value;
     currentEffort = thinkingSelect(updated)?.currentValue ?? "";
     models.push(modelOption(choice, updated));
   }
+  // Leave the resident catalog session on its initial selection so a later warm session/resume starts from the same defaults.
+  await restoreInitial();
   return models;
+}
+
+const MONTH_INDEX: Record<string, number> = {
+  jan: 0,
+  feb: 1,
+  mar: 2,
+  apr: 3,
+  may: 4,
+  jun: 5,
+  jul: 6,
+  aug: 7,
+  sep: 8,
+  oct: 9,
+  nov: 10,
+  dec: 11,
+};
+
+/**
+ * Parses Gemini quota windows from ACP Server's `/usage` markdown reply.
+ * Only buckets under the Gemini model group are kept; Claude/GPT quotas and other sections are ignored.
+ * Timed windows are sorted shortest first so five-hour limits appear before weekly limits.
+ */
+export function parseAntigravityQuota(markdown: string): UsagePart[] {
+  const parts: Extract<UsagePart, { kind: "quota" }>[] = [];
+  let inQuotaSection = false;
+  let inGeminiGroup = false;
+
+  for (const rawLine of markdown.split(/\r?\n/u)) {
+    const trimmed = rawLine.trim();
+    const heading = trimmed.match(/^#{1,6}\s+(.+)$/u);
+    if (heading) {
+      inQuotaSection = heading[1]!.trim().toLowerCase() === "quota limits";
+      inGeminiGroup = false;
+      continue;
+    }
+    if (!inQuotaSection) continue;
+
+    const topBullet = rawLine.match(/^-\s+(.+)$/u);
+    if (topBullet) {
+      const groupName = topBullet[1]!.replaceAll("**", "").trim();
+      inGeminiGroup = /\bgemini\b/iu.test(groupName);
+      continue;
+    }
+    if (!inGeminiGroup) continue;
+
+    const bucket = rawLine.match(/^\s+-\s+\*\*(.+?)\*\*\s*(.*)$/u);
+    if (!bucket) continue;
+    const label = bucket[1]!.replace(/:$/u, "").trim();
+    const value = bucket[2]!.replace(/^:\s*/u, "").trim();
+    const quota = value.match(/^(\d+(?:\.\d+)?)%\s+remaining(?:\s*\(resets\s+(.+?)\))?/iu);
+    if (!quota) continue;
+    const remaining = Number(quota[1]);
+    if (!Number.isFinite(remaining)) continue;
+    const resetsAt = quota[2] ? parseQuotaResetTime(quota[2]) : undefined;
+    parts.push({
+      kind: "quota",
+      window: parseQuotaWindow(label),
+      left: Math.max(0, Math.min(100, remaining)),
+      ...(resetsAt ? { resetsAt } : {}),
+    });
+  }
+
+  parts.sort((a, b) => {
+    const aMin = a.window.minutes;
+    const bMin = b.window.minutes;
+    if (aMin !== undefined && bMin !== undefined) return aMin - bMin;
+    if (aMin !== undefined) return -1;
+    if (bMin !== undefined) return 1;
+    return 0;
+  });
+  return parts;
+}
+
+function parseQuotaWindow(label: string): UsageWindow {
+  const cleaned = label
+    .replace(/\b(?:limit|quota|remaining|usage)\b/giu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+  const normalized = cleaned.toLowerCase();
+  if (normalized === "five hour" || normalized === "5 hour" || normalized === "5-hour" || normalized === "5h") {
+    return { minutes: 300 };
+  }
+  if (normalized === "weekly" || normalized === "7 day" || normalized === "7-day" || normalized === "7d") {
+    return { minutes: 10_080 };
+  }
+  if (normalized === "daily" || normalized === "24 hour" || normalized === "24-hour" || normalized === "1 day" || normalized === "1-day") {
+    return { minutes: 1_440 };
+  }
+  if (normalized === "hourly" || normalized === "1 hour" || normalized === "1-hour" || normalized === "1h") {
+    return { minutes: 60 };
+  }
+  const duration = normalized.match(/^(\d+)\s*-?\s*(minute|min|hour|hr|day|week)s?$/u);
+  if (duration) {
+    const count = Number(duration[1]);
+    const unit = duration[2];
+    if (Number.isFinite(count) && count > 0) {
+      const multiplier = unit === "week" ? 10_080
+        : unit === "day" ? 1_440
+          : unit === "hour" || unit === "hr" ? 60
+            : 1;
+      return { minutes: count * multiplier };
+    }
+  }
+  return { name: cleaned || label };
+}
+
+/** Parses ACP Server's `%b %d, %Y, %H:%M UTC` reset timestamp or an ISO-8601 fallback into an ISO UTC string. */
+function parseQuotaResetTime(raw: string): string | undefined {
+  const trimmed = raw.trim();
+  const utc = trimmed.match(/^([A-Za-z]{3})\s+(\d{1,2}),\s*(\d{4}),\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s+UTC$/iu);
+  if (utc) {
+    const month = MONTH_INDEX[utc[1]!.toLowerCase()];
+    const day = Number(utc[2]);
+    const year = Number(utc[3]);
+    const hour = Number(utc[4]);
+    const minute = Number(utc[5]);
+    const second = utc[6] ? Number(utc[6]) : 0;
+    if (month === undefined) return undefined;
+    const date = new Date(Date.UTC(year, month, day, hour, minute, second));
+    if (
+      date.getUTCFullYear() !== year
+      || date.getUTCMonth() !== month
+      || date.getUTCDate() !== day
+      || date.getUTCHours() !== hour
+      || date.getUTCMinutes() !== minute
+      || date.getUTCSeconds() !== second
+    ) {
+      return undefined;
+    }
+    return date.toISOString();
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/u.test(trimmed)) {
+    const date = new Date(trimmed);
+    if (Number.isFinite(date.getTime())) return date.toISOString();
+  }
+  return undefined;
 }
 
 /**
