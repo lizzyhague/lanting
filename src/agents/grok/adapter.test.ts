@@ -6,10 +6,11 @@ import test from "node:test";
 
 import type { AgentEvent, ApprovalAsk, SessionOptions } from "../types.ts";
 import type { UsagePart, UsageRequest } from "../../features/index.ts";
-import { GrokAdapter, toolActivity, usageParts } from "./adapter.ts";
+import { GrokAdapter, sessionContextPercent, storedContextPercent, toolActivity, usageParts } from "./adapter.ts";
 
 /** Fake `grok agent stdio`: in one round it says an interim line, calls a tool needing approval, then gives the final answer. */
 const FAKE_GROK = `#!/usr/bin/env node
+import { appendFileSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 const send = (message) => console.log(JSON.stringify({ jsonrpc: "2.0", ...message }));
 let rules = null;
@@ -31,6 +32,24 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     state.model = p.modelId; state.effort = p._meta?.reasoningEffort ?? null; send({ id: m.id, result: {} });
   }
   else if (m.method === "_x.ai/compact_conversation") { state.compacted += 1; send({ id: m.id, result: {} }); }
+  else if (m.method === "_x.ai/session/info") {
+    appendFileSync("info-reads", "x");
+    let mode = "success";
+    try { mode = readFileSync("context-mode", "utf8"); } catch {}
+    if (mode === "hang") return;
+    if (mode === "exit") process.exit(1);
+    if (mode === "error") { send({ id: m.id, error: { code: -32601, message: "Unsupported context" } }); return; }
+    send({ id: m.id, result: { result: { sessionId: p.sessionId, context: {
+      used: state.compacted ? 500 : 12345, total: 1000000, usagePct: state.compacted ? 0 : 1,
+    } } } });
+  }
+  else if (m.method === "_x.ai/billing") send({ id: m.id, result: {} });
+  else if (m.method === "_x.ai/session/state") {
+    appendFileSync("state-reads", "x");
+    let stored = {};
+    try { stored = JSON.parse(readFileSync("stored-context.json", "utf8")); } catch {}
+    setTimeout(() => send({ id: m.id, result: stored }), 150);
+  }
   else if (m.method === "session/close") send({ id: m.id, result: {} });
   else if (m.method === "session/prompt") {
     promptId = m.id;
@@ -58,7 +77,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 });
 `;
 
-async function setup(t: test.TestContext, decision: "allow" | "deny" = "allow") {
+async function setup(t: test.TestContext, decision: "allow" | "deny" = "allow", contextTimeoutMs = 2000) {
   const directory = await mkdtemp(path.join(tmpdir(), "lanting-grok-adapter-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const executable = path.join(directory, "grok");
@@ -74,7 +93,7 @@ async function setup(t: test.TestContext, decision: "allow" | "deny" = "allow") 
       return { decision, message: "" };
     },
   };
-  return { adapter: new GrokAdapter({ executable }), options, asks };
+  return { adapter: new GrokAdapter({ executable, grokHome: path.join(directory, "grok-home"), contextTimeoutMs }), options, asks };
 }
 
 async function collect(events: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
@@ -114,6 +133,7 @@ test("interrupting a Grok turn ends it as interrupted and close stops the proces
   await new Promise((resolve) => setTimeout(resolve, 100));
   await session.interrupt();
   assert.deepEqual((await collected).at(-1), { type: "end", outcome: "interrupted", text: "" });
+  await assert.rejects(readFile(path.join(options.cwd, "info-reads")), { code: "ENOENT" });
   await session.close();
   assert.equal(session.alive, false);
 });
@@ -184,6 +204,108 @@ test("Grok tool activity shows the path for read_file, list_dir and grep", () =>
     detail: "/w",
   });
 });
+
+function signals(used: number, total = 1000000) {
+  return { signals: { contextTokensUsed: used, contextWindowTokens: total, contextWindowUsage: Math.floor(used / total * 100) } };
+}
+
+function contextAndQuota(percent: number | null, quota = weeklyQuota(98)): UsagePart[] {
+  return [{ kind: "context", percent }, ...quota];
+}
+
+test("Grok context keeps fractional precision and falls back to an explicit percentage", () => {
+  assert.equal(sessionContextPercent({ result: { context: { used: 12345, total: 1000000, usagePct: 1 } } }), 1.2345);
+  assert.equal(storedContextPercent(signals(12345)), 1.2345);
+  assert.equal(sessionContextPercent({ result: { context: { usagePct: 12.5 } } }), 12.5);
+  assert.equal(storedContextPercent({ signals: { contextWindowUsage: 12.5 } }), 12.5);
+  assert.equal(storedContextPercent(signals(0)), 0);
+  assert.equal(storedContextPercent(signals(2000000)), 100);
+});
+
+test("Grok context stays pending for missing, malformed, and zero-window data", () => {
+  for (const value of [null, {}, [], { signals: {} }, signals(0, 0), signals(10, -1), signals(-1),
+    { signals: { contextTokensUsed: "10", contextWindowTokens: 100 } },
+    { signals: { contextWindowUsage: NaN } }, { signals: { contextWindowUsage: Infinity } }]) {
+    assert.equal(storedContextPercent(value), null);
+  }
+  assert.equal(sessionContextPercent({ result: { context: { used: 0, total: 0, usagePct: 0 } } }), null);
+  assert.equal(sessionContextPercent({ result: { context: { used: -1, total: 100 } } }), null);
+});
+
+test("Grok records live context before the reply ends and refreshes it after compaction", async (t) => {
+  const { adapter, options } = await setup(t);
+  const session = await adapter.startSession(options);
+  t.after(() => session.close());
+  const usage = () => adapter.features.usage!({
+    nativeId: session.nativeId!, cwd: options.cwd, reason: "turn", session: async () => null,
+  });
+  assert.equal((await collect(session.send("state"))).at(-1)?.type, "end");
+  await session.close();
+  assert.deepEqual(await usage(), contextAndQuota(1.2345, [{ kind: "unavailable" }]));
+  const resumed = await adapter.resumeSession(session.nativeId!, options);
+  t.after(() => resumed.close());
+  await adapter.features.compact!(resumed);
+  await resumed.close();
+  assert.deepEqual(await usage(), contextAndQuota(0.05, [{ kind: "unavailable" }]));
+  assert.equal(await readFile(path.join(options.cwd, "info-reads"), "utf8"), "xx");
+  await assert.rejects(readFile(path.join(options.cwd, "state-reads")), { code: "ENOENT" });
+});
+
+test("unsupported or slow Grok live context never fails a reply or compaction", async (t) => {
+  const { adapter, options } = await setup(t, "allow", 40);
+  const session = await adapter.startSession(options);
+  t.after(() => session.close());
+  for (const mode of ["error", "hang"]) {
+    await writeFile(path.join(options.cwd, "context-mode"), mode);
+    const started = Date.now();
+    const end = (await collect(session.send("state"))).at(-1);
+    assert.equal(end?.type === "end" && end.outcome, "completed");
+    await adapter.features.compact!(session);
+    assert.ok(Date.now() - started < 1000);
+  }
+});
+
+test("a late persisted Grok context cannot replace a newer live context", async (t) => {
+  const { adapter, options } = await setup(t);
+  const session = await adapter.resumeSession("grok-1", options);
+  t.after(() => session.close());
+  await writeFile(path.join(options.cwd, "stored-context.json"), JSON.stringify(signals(500000)));
+  const pending = adapter.features.usage!({ nativeId: "grok-1", cwd: options.cwd, reason: "view", session: async () => null });
+  await waitForFile(path.join(options.cwd, "state-reads"));
+  await collect(session.send("state"));
+  assert.deepEqual(await pending, contextAndQuota(1.2345, [{ kind: "unavailable" }]));
+});
+
+test("a Grok exit during the context read ends the reply once as failed", async (t) => {
+  const { adapter, options } = await setup(t);
+  const session = await adapter.startSession(options);
+  t.after(() => session.close());
+  await writeFile(path.join(options.cwd, "context-mode"), "exit");
+  const endings = (await collect(session.send("state"))).filter((event) => event.type === "end");
+  assert.equal(endings.length, 1);
+  assert.equal(endings[0]?.outcome, "failed");
+});
+
+test("interrupting during a Grok context lookup still ends the reply as interrupted", async (t) => {
+  const { adapter, options } = await setup(t, "allow", 150);
+  const session = await adapter.startSession(options);
+  t.after(() => session.close());
+  await writeFile(path.join(options.cwd, "context-mode"), "hang");
+  const pending = collect(session.send("state"));
+  await waitForFile(path.join(options.cwd, "info-reads"));
+  await session.interrupt();
+  const endings = (await pending).filter((event) => event.type === "end");
+  assert.equal(endings.length, 1);
+  assert.equal(endings[0]?.outcome, "interrupted");
+});
+
+async function waitForFile(filename: string): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (await stat(filename).then(() => true, () => false)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(`Timed out waiting for ${filename}`);
+}
 
 const WEEK = {
   type: "USAGE_PERIOD_TYPE_WEEKLY",
@@ -283,6 +405,15 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       return;
     }
     setTimeout(() => send({ id: m.id, result: JSON.parse(readFileSync("billing.json", "utf8")) }), 30);
+  } else if (m.method === "_x.ai/session/state") {
+    assert.equal(initialized, true);
+    assert.equal(m.params.cwd, process.cwd());
+    appendFileSync("state-reads", "x");
+    const stateMode = readFileSync("state-mode", "utf8");
+    if (stateMode === "error") { send({ id: m.id, error: { code: -32601, message: "Unsupported state" } }); return; }
+    if (stateMode === "hang") return;
+    const state = JSON.parse(readFileSync("states.json", "utf8"))[m.params.sessionId] ?? {};
+    setTimeout(() => send({ id: m.id, result: state }), stateMode === "slow" ? 300 : 5);
   } else send({ id: m.id, error: { code: -32601, message: "Unexpected method" } });
 });
 `;
@@ -301,7 +432,7 @@ function processExists(pid: number): boolean {
   }
 }
 
-async function setupBilling(t: test.TestContext, mode = "success", usageTimeoutMs = 2000) {
+async function setupBilling(t: test.TestContext, mode = "success", usageTimeoutMs = 2000, contextTimeoutMs = 2000) {
   const cwd = await mkdtemp(path.join(tmpdir(), "lanting-grok-billing-"));
   t.after(async () => {
     for (const { pid } of await readStarts(cwd)) {
@@ -313,10 +444,12 @@ async function setupBilling(t: test.TestContext, mode = "success", usageTimeoutM
   await writeFile(executable, FAKE_BILLING_GROK);
   await chmod(executable, 0o700);
   await writeFile(path.join(cwd, "mode"), mode);
+  await writeFile(path.join(cwd, "state-mode"), "success");
+  await writeFile(path.join(cwd, "states.json"), JSON.stringify({ "existing-chat": signals(25000) }));
   await writeFile(path.join(cwd, "billing.json"), JSON.stringify({ config: { creditUsagePercent: 2, currentPeriod: WEEK } }));
-  const adapter = new GrokAdapter({ executable, usageTimeoutMs });
-  const usage = (useProxy?: boolean) => adapter.features.usage!({
-    nativeId: "existing-chat", cwd, reason: "view", ...(useProxy === undefined ? {} : { useProxy }),
+  const adapter = new GrokAdapter({ executable, grokHome: path.join(cwd, "grok-home"), usageTimeoutMs, contextTimeoutMs });
+  const usage = (useProxy?: boolean, nativeId = "existing-chat") => adapter.features.usage!({
+    nativeId, cwd, reason: "view", ...(useProxy === undefined ? {} : { useProxy }),
     session: async () => { throw new Error("Billing must not open a chat session."); },
   } satisfies UsageRequest);
   return { adapter, cwd, usage };
@@ -324,35 +457,35 @@ async function setupBilling(t: test.TestContext, mode = "success", usageTimeoutM
 
 test("Grok account usage initializes ACP, reads billing, and closes without opening a session", async (t) => {
   const { cwd, usage } = await setupBilling(t);
-  assert.deepEqual(await usage(), weeklyQuota(98));
+  assert.deepEqual(await usage(), contextAndQuota(2.5));
   const requests = (await readFile(path.join(cwd, "requests"), "utf8")).trim().split("\n")
     .map((line) => JSON.parse(line));
-  assert.deepEqual(requests.map((request) => request.method), ["initialize", "_x.ai/billing"]);
+  assert.deepEqual(requests.map((request) => request.method), ["initialize", "_x.ai/billing", "_x.ai/session/state"]);
   const starts = await readStarts(cwd);
   assert.equal(starts.length, 1);
   assert.equal(processExists(starts[0]!.pid), false);
   await writeFile(path.join(cwd, "billing.json"), JSON.stringify({ config: { currentPeriod: WEEK } }));
-  assert.deepEqual(await usage(), weeklyQuota(null));
+  assert.deepEqual(await usage(), contextAndQuota(2.5, weeklyQuota(null)));
   assert.equal((await readStarts(cwd)).length, 2);
 });
 
 test("concurrent Grok account queries merge by proxy channel, with fresh reads after completion", async (t) => {
   const { cwd, usage } = await setupBilling(t);
   assert.deepEqual(await Promise.all([usage(), usage(true), usage(false), usage(false)]),
-    [weeklyQuota(98), weeklyQuota(98), weeklyQuota(98), weeklyQuota(98)]);
+    Array.from({ length: 4 }, () => contextAndQuota(2.5)));
   assert.equal((await readStarts(cwd)).length, 2);
   await writeFile(path.join(cwd, "billing.json"), JSON.stringify({ config: { creditUsagePercent: 25, currentPeriod: WEEK } }));
-  assert.deepEqual(await usage(), weeklyQuota(75));
+  assert.deepEqual(await usage(), contextAndQuota(2.5, weeklyQuota(75)));
   assert.equal((await readStarts(cwd)).length, 3);
 });
 
 test("Grok billing RPC errors and early exits are unavailable and allow the next query to recover", async (t) => {
   const { cwd, usage } = await setupBilling(t, "error");
-  assert.deepEqual(await usage(), [{ kind: "unavailable" }]);
+  assert.deepEqual(await usage(), contextAndQuota(2.5, [{ kind: "unavailable" }]));
   await writeFile(path.join(cwd, "mode"), "exit");
-  assert.deepEqual(await usage(), [{ kind: "unavailable" }]);
+  assert.deepEqual(await usage(), contextAndQuota(2.5, [{ kind: "unavailable" }]));
   await writeFile(path.join(cwd, "mode"), "success");
-  assert.deepEqual(await usage(), weeklyQuota(98));
+  assert.deepEqual(await usage(), contextAndQuota(2.5));
   const starts = await readStarts(cwd);
   assert.equal(starts.length, 3);
   assert.ok(starts.every(({ pid }) => !processExists(pid)));
@@ -361,19 +494,19 @@ test("Grok billing RPC errors and early exits are unavailable and allow the next
 test("a hung Grok billing query times out, reaps its process group, and permits a fresh query", async (t) => {
   const { cwd, usage } = await setupBilling(t, "hang", 500);
   const started = Date.now();
-  assert.deepEqual(await usage(), [{ kind: "unavailable" }]);
+  assert.deepEqual(await usage(), contextAndQuota(2.5, [{ kind: "unavailable" }]));
   assert.ok(Date.now() - started < 3000);
   const helperPid = Number(await readFile(path.join(cwd, "helper.pid"), "utf8"));
   assert.equal(processExists(helperPid), false);
   assert.ok((await readStarts(cwd)).every(({ pid }) => !processExists(pid)));
   await writeFile(path.join(cwd, "mode"), "success");
-  assert.deepEqual(await usage(), weeklyQuota(98));
+  assert.deepEqual(await usage(), contextAndQuota(2.5));
 });
 
 test("the Grok quota deadline also covers initialization", async (t) => {
   const { cwd, usage } = await setupBilling(t, "init-hang", 500);
   const started = Date.now();
-  assert.deepEqual(await usage(), [{ kind: "unavailable" }]);
+  assert.deepEqual(await usage(), contextAndQuota(null, [{ kind: "unavailable" }]));
   assert.ok(Date.now() - started < 3000);
   assert.ok((await readStarts(cwd)).every(({ pid }) => !processExists(pid)));
 });
@@ -383,5 +516,46 @@ test("a missing Grok executable is unavailable rather than leaving a pending que
   await rm(path.join(options.cwd, "grok"));
   assert.deepEqual(await adapter.features.usage!({
     nativeId: "existing-chat", cwd: options.cwd, reason: "view", session: async () => null,
-  }), [{ kind: "unavailable" }]);
+  }), contextAndQuota(null, [{ kind: "unavailable" }]));
+});
+
+test("Grok persisted context failure or timeout leaves quota available and can be retried", async (t) => {
+  const { cwd, usage } = await setupBilling(t, "success", 2000, 40);
+  for (const mode of ["error", "hang"]) {
+    await writeFile(path.join(cwd, "state-mode"), mode);
+    assert.deepEqual(await usage(), contextAndQuota(null));
+  }
+  await writeFile(path.join(cwd, "state-mode"), "success");
+  assert.deepEqual(await usage(), contextAndQuota(2.5));
+});
+
+test("concurrent Grok sessions share billing but load and deduplicate their own persisted contexts", async (t) => {
+  const { cwd, usage } = await setupBilling(t);
+  await writeFile(path.join(cwd, "states.json"), JSON.stringify({ first: signals(100000), second: signals(200000) }));
+  await writeFile(path.join(cwd, "state-mode"), "slow");
+  assert.deepEqual(await Promise.all([usage(true, "first"), usage(true, "second"), usage(true, "second")]),
+    [contextAndQuota(10), contextAndQuota(20), contextAndQuota(20)]);
+  const requests = (await readFile(path.join(cwd, "requests"), "utf8")).trim().split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(requests.filter((request) => request.method === "_x.ai/billing").length, 1);
+  assert.deepEqual(requests.filter((request) => request.method === "_x.ai/session/state")
+    .map((request) => request.params.sessionId).sort(), ["first", "second"]);
+  assert.equal((await readStarts(cwd)).length, 2);
+});
+
+test("deleting a Grok session clears its cached context", async (t) => {
+  const { adapter, cwd, usage } = await setupBilling(t);
+  assert.deepEqual(await usage(), contextAndQuota(2.5));
+  await adapter.features.deleteSession!("existing-chat", cwd);
+  await writeFile(path.join(cwd, "states.json"), "{}");
+  assert.deepEqual(await usage(), contextAndQuota(null));
+});
+
+test("a pending Grok context read cannot repopulate a deleted session's cache", async (t) => {
+  const { adapter, cwd, usage } = await setupBilling(t);
+  await writeFile(path.join(cwd, "state-mode"), "slow");
+  const pending = usage();
+  await waitForFile(path.join(cwd, "state-reads"));
+  await adapter.features.deleteSession!("existing-chat", cwd);
+  assert.deepEqual(await pending, contextAndQuota(null));
 });

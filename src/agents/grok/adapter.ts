@@ -31,12 +31,15 @@ export type GrokAdapterOptions = {
   grokHome?: string;
   /** Deadline covering process initialization and the billing request. */
   usageTimeoutMs?: number;
+  /** Best-effort context lookups must not hold up a reply or compaction. */
+  contextTimeoutMs?: number;
 };
 
 /** If the round hasn't ended this long after session/cancel, the Grok process is closed outright. */
 const INTERRUPT_TIMEOUT_MS = 10_000;
 const EXIT_WAIT_MS = 8_000;
 const USAGE_TIMEOUT_MS = 15_000;
+const CONTEXT_TIMEOUT_MS = 2_000;
 
 /** Grok tools that ask the user a question directly. In the group chat questions go in the reply, so these requests are always cancelled. */
 const HUMAN_TOOL_NAMES = new Set(["ask_user_question", "ask_user", "request_user_input", "elicitation"]);
@@ -66,11 +69,14 @@ export class GrokAdapter implements AgentAdapter {
     deleteSession: (nativeId) => this.#deleteSession(nativeId),
     models: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).models,
     permissions: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).permissions,
-    usage: (request) => this.#usage(request.cwd, request.useProxy),
+    usage: (request) => this.#usage(request.nativeId, request.cwd, request.useProxy),
   };
   readonly #options: GrokAdapterOptions;
   readonly #catalogs = new CatalogCache();
-  readonly #quota = new Map<boolean, Promise<UsagePart[]>>();
+  readonly #quota = new Map<boolean, { nativeId: string; result: Promise<UsagePart[]> }>();
+  readonly #contexts = new Map<string, number>();
+  readonly #contextReads = new Map<string, { nativeId: string; promise: Promise<void> }>();
+  readonly #onContext = (nativeId: string, percent: number) => this.#contexts.set(nativeId, percent);
 
   constructor(options: GrokAdapterOptions) {
     this.#options = options;
@@ -91,31 +97,73 @@ export class GrokAdapter implements AgentAdapter {
     });
   }
 
-  #usage(cwd: string, useProxy?: boolean): Promise<UsagePart[]> {
+  async #usage(nativeId: string, cwd: string, useProxy?: boolean): Promise<UsagePart[]> {
     const key = useProxy !== false;
     let pending = this.#quota.get(key);
     if (!pending) {
-      pending = this.#readQuota(cwd, useProxy).finally(() => this.#quota.delete(key));
+      pending = {
+        nativeId,
+        result: this.#readQuota(nativeId, cwd, useProxy).finally(() => this.#quota.delete(key)),
+      };
       this.#quota.set(key, pending);
     }
+    // Another session can share the account quota, but needs its own persisted context lookup.
+    const context = pending.nativeId !== nativeId && !this.#contexts.has(nativeId)
+      ? this.#readContext(nativeId, cwd, useProxy) : Promise.resolve();
+    const [quota] = await Promise.all([pending.result, context]);
+    return [{ kind: "context", percent: this.#contexts.get(nativeId) ?? null }, ...quota];
+  }
+
+  async #readQuota(nativeId: string, cwd: string, useProxy?: boolean): Promise<UsagePart[]> {
+    let quota: UsagePart[] = [{ kind: "unavailable" }];
+    await this.#withClient(cwd, useProxy, async (client) => {
+      await Promise.all([
+        client.billing().then(
+          (billing) => { quota = usageParts(billing); },
+          (error: unknown) => console.error(`Reading the Grok quota failed: ${error instanceof Error ? error.message : String(error)}`),
+        ),
+        this.#readContext(nativeId, cwd, useProxy, client),
+      ]);
+    });
+    return quota;
+  }
+
+  #readContext(nativeId: string, cwd: string, useProxy?: boolean, client?: AcpClient): Promise<void> {
+    if (this.#contexts.has(nativeId)) return Promise.resolve();
+    const key = JSON.stringify([nativeId, cwd, useProxy !== false]);
+    const existing = this.#contextReads.get(key);
+    if (existing) return existing.promise;
+    const read = async (rpc: AcpClient) => {
+      const state = await withTimeout(rpc.sessionState(nativeId, cwd), this.#options.contextTimeoutMs ?? CONTEXT_TIMEOUT_MS);
+      const percent = storedContextPercent(state);
+      // A live reply or compaction can finish while the persisted read is pending. Keep the newer value.
+      if (percent !== null && this.#contextReads.get(key)?.promise === pending && !this.#contexts.has(nativeId)) {
+        this.#contexts.set(nativeId, percent);
+      }
+    };
+    const pending = (client ? read(client) : this.#withClient(cwd, useProxy, read))
+      .finally(() => {
+        if (this.#contextReads.get(key)?.promise === pending) this.#contextReads.delete(key);
+      });
+    this.#contextReads.set(key, { nativeId, promise: pending });
     return pending;
   }
 
-  /** Billing needs only initialize, so account queries never open or resume a chat session. */
-  async #readQuota(cwd: string, useProxy?: boolean): Promise<UsagePart[]> {
+  /** Account and persisted-context queries only initialize ACP; they never open or resume a session. */
+  async #withClient(cwd: string, useProxy: boolean | undefined, read: (client: AcpClient) => Promise<unknown>): Promise<void> {
     try {
       const child = spawnGrok(this.#options.executable, cwd, useProxy);
       const client = new AcpClient(child);
       let timer: NodeJS.Timeout | undefined;
       try {
         if (child.pid === undefined) throw new Error("Cannot start Grok.");
-        return await Promise.race([
+        await Promise.race([
           (async () => {
             await client.initialize();
-            return usageParts(await client.billing());
+            await read(client);
           })(),
           new Promise<never>((_, reject) => {
-            timer = setTimeout(() => reject(new Error("Grok quota lookup timed out.")),
+            timer = setTimeout(() => reject(new Error("Grok usage lookup timed out.")),
               this.#options.usageTimeoutMs ?? USAGE_TIMEOUT_MS);
           }),
         ]);
@@ -125,8 +173,7 @@ export class GrokAdapter implements AgentAdapter {
         await terminateGroup(child);
       }
     } catch (error) {
-      console.error(`Reading the Grok quota failed: ${error instanceof Error ? error.message : String(error)}`);
-      return [{ kind: "unavailable" }];
+      console.error(`Reading the Grok usage failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -145,14 +192,18 @@ export class GrokAdapter implements AgentAdapter {
       const info = await stat(directory).catch(() => null);
       if (info?.isDirectory()) await rm(directory, { recursive: true, force: true });
     }
+    this.#contexts.delete(nativeId);
+    for (const [key, read] of this.#contextReads) {
+      if (read.nativeId === nativeId) this.#contextReads.delete(key);
+    }
   }
 
   startSession(options: SessionOptions): Promise<AgentSession> {
-    return GrokSession.open(null, options, this.#options);
+    return GrokSession.open(null, options, this.#options, this.#onContext);
   }
 
   resumeSession(nativeId: string, options: SessionOptions): Promise<AgentSession> {
-    return GrokSession.open(nativeId, options, this.#options);
+    return GrokSession.open(nativeId, options, this.#options, this.#onContext);
   }
 }
 
@@ -169,6 +220,8 @@ type Turn = {
   interrupted: boolean;
 };
 
+type ContextListener = (nativeId: string, percent: number) => void;
+
 /**
  * One separate `grok agent stdio` subprocess (in its own process group) per native session.
  * The plain reply is the round's last agent_message; earlier interim text becomes progress info.
@@ -177,16 +230,25 @@ class GrokSession implements AgentSession {
   readonly #process: ChildProcessWithoutNullStreams;
   readonly #client: AcpClient;
   readonly #options: SessionOptions;
+  readonly #onContext: ContextListener;
+  readonly #contextTimeoutMs: number;
   readonly #approvals = new Set<AbortController>();
   #sessionId = "";
   #turn: Turn | null = null;
   #exited = false;
   #stderrTail = "";
 
-  private constructor(child: ChildProcessWithoutNullStreams, options: SessionOptions) {
+  private constructor(
+    child: ChildProcessWithoutNullStreams,
+    options: SessionOptions,
+    onContext: ContextListener,
+    contextTimeoutMs: number,
+  ) {
     this.#process = child;
     this.#client = new AcpClient(child);
     this.#options = options;
+    this.#onContext = onContext;
+    this.#contextTimeoutMs = contextTimeoutMs;
     this.#client.on("update", (payload: AcpUpdate) => this.#onUpdate(payload));
     this.#client.on("permission", (request: AcpPermissionRequest) => this.#onPermission(request));
     this.#client.on("stderr", (text: string) => {
@@ -203,9 +265,10 @@ class GrokSession implements AgentSession {
     sessionId: string | null,
     options: SessionOptions,
     adapter: GrokAdapterOptions,
+    onContext: ContextListener,
   ): Promise<GrokSession> {
     const child = spawnGrok(adapter.executable, options.cwd, options.useProxy);
-    const session = new GrokSession(child, options);
+    const session = new GrokSession(child, options, onContext, adapter.contextTimeoutMs ?? CONTEXT_TIMEOUT_MS);
     const yolo = options.settings.permission === ALWAYS_APPROVE;
     try {
       if (child.pid === undefined) throw new Error("Cannot start Grok.");
@@ -240,12 +303,14 @@ class GrokSession implements AgentSession {
     const turn: Turn = { channel: new EventChannel<AgentEvent>(), segment: "", interrupted: false };
     this.#turn = turn;
     void this.#client.sessionPrompt(this.#sessionId, text).then(
-      (result) => {
+      async (result) => {
         const stop = result?.stopReason ?? "end_turn";
         if (turn.interrupted || stop === "cancelled") {
           this.#finish({ type: "end", outcome: "interrupted", text: turn.segment });
         } else if (stop === "end_turn") {
-          this.#finish({ type: "end", outcome: "completed", text: turn.segment });
+          await this.#recordContext();
+          if (this.#turn !== turn) return;
+          this.#finish({ type: "end", outcome: turn.interrupted ? "interrupted" : "completed", text: turn.segment });
         } else {
           this.#finish({ type: "end", outcome: "failed", text: turn.segment, error: `Grok ended the round early (${stop}).` });
         }
@@ -266,6 +331,14 @@ class GrokSession implements AgentSession {
     if (!this.alive) throw new Error("The Grok process is closed.");
     if (this.#turn) throw new Error("Grok is still handling the previous round.");
     await this.#client.sessionCompact(this.#sessionId);
+    await this.#recordContext();
+  }
+
+  async #recordContext(): Promise<void> {
+    if (!this.alive) return;
+    const info = await withTimeout(this.#client.sessionInfo(this.#sessionId), this.#contextTimeoutMs);
+    const percent = sessionContextPercent(info);
+    if (this.alive && percent !== null) this.#onContext(this.#sessionId, percent);
   }
 
   async interrupt(): Promise<void> {
@@ -422,6 +495,26 @@ export function usageParts(billing: unknown): UsagePart[] {
 
 function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function sessionContextPercent(info: unknown): number | null {
+  const context = objectField(objectField(objectField(info).result).context);
+  return contextPercent(context.used, context.total, context.usagePct);
+}
+
+export function storedContextPercent(state: unknown): number | null {
+  const signals = objectField(objectField(state).signals);
+  return contextPercent(signals.contextTokensUsed, signals.contextWindowTokens, signals.contextWindowUsage);
+}
+
+function contextPercent(usedValue: unknown, totalValue: unknown, fallbackValue: unknown): number | null {
+  const used = finiteNumber(usedValue);
+  const total = finiteNumber(totalValue);
+  // Persisted signals can contain zero defaults before the context size is known.
+  if (total !== null && total <= 0) return null;
+  if (used !== null && used >= 0 && total !== null) return Math.min(100, used / total * 100);
+  const percent = finiteNumber(fallbackValue);
+  return percent !== null && percent >= 0 ? Math.min(100, percent) : null;
 }
 
 function timestamp(value: unknown): number | null {
