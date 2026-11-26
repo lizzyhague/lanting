@@ -374,7 +374,7 @@ test("missing or malformed Grok billing data is unavailable", () => {
 const FAKE_BILLING_GROK = `#!/usr/bin/env node
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 assert.deepEqual(process.argv.slice(2), ["agent", "--no-leader", "stdio"]);
 appendFileSync("starts", JSON.stringify({ pid: process.pid }) + "\\n");
@@ -407,7 +407,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     setTimeout(() => send({ id: m.id, result: JSON.parse(readFileSync("billing.json", "utf8")) }), 30);
   } else if (m.method === "_x.ai/session/state") {
     assert.equal(initialized, true);
-    assert.equal(m.params.cwd, process.cwd());
+    // The child resolves cwd symlinks, including macOS's /var alias for /private/var.
+    assert.equal(realpathSync(m.params.cwd), realpathSync(process.cwd()));
     appendFileSync("state-reads", "x");
     const stateMode = readFileSync("state-mode", "utf8");
     if (stateMode === "error") { send({ id: m.id, error: { code: -32601, message: "Unsupported state" } }); return; }
