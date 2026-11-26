@@ -136,6 +136,7 @@ function handle(message) {
   switch (method) {
     case "initialize":
       appendFileSync(process.cwd() + "/starts", "start\\n");
+      appendFileSync(process.cwd() + "/start-proxies", (process.env.HTTPS_PROXY ?? "direct") + "\\n");
       if (existsSync(process.cwd() + "/spawn-child")) {
         const helper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
         writeFileSync(process.cwd() + "/server.pid", String(process.pid));
@@ -143,6 +144,7 @@ function handle(message) {
       }
       return reply(id, { protocolVersion: 1 });
     case "session/new": {
+      appendFileSync(process.cwd() + "/catalog-opens", "new\\n");
       if (existsSync(process.cwd() + "/login-on-new")) { ignoreEof = true; loginPrompt(); setInterval(() => {}, 1000); return; }
       if (existsSync(process.cwd() + "/auth-required")) return fail(id, -32000, "Authentication required");
       additionalDirectories = params.additionalDirectories ?? null;
@@ -155,6 +157,7 @@ function handle(message) {
       return reply(id, { sessionId: session, modes: { currentModeId: "default" }, configOptions: configOptions() });
     }
     case "session/resume": {
+      appendFileSync(process.cwd() + "/catalog-opens", "resume\\n");
       const store = load();
       if (existsSync(process.cwd() + "/resume-hang")) { rmSync(process.cwd() + "/resume-hang"); ignoreEof = true; setInterval(() => {}, 1000); return; }
       if (existsSync(process.cwd() + "/crash-on-resume")) { rmSync(process.cwd() + "/crash-on-resume"); process.exit(3); }
@@ -305,7 +308,7 @@ function prompt(id, text) {
 
 type Approval = { ask: ApprovalAsk; signal: AbortSignal | undefined; resolve: (answer: ApprovalAnswer) => void };
 
-async function setup(t: test.TestContext): Promise<{ adapter: AntigravityAdapter; cwd: string; executable: string; stateDirectory: string }> {
+async function setup(t: test.TestContext, env: NodeJS.ProcessEnv = {}): Promise<{ adapter: AntigravityAdapter; cwd: string; executable: string; stateDirectory: string }> {
   const cwd = await realpath(await mkdtemp(path.join(tmpdir(), "lanting-antigravity-adapter-")));
   const executable = path.join(cwd, "fake-antigravity.mjs");
   await writeFile(executable, FAKE_SERVER, "utf8");
@@ -313,8 +316,18 @@ async function setup(t: test.TestContext): Promise<{ adapter: AntigravityAdapter
   t.after(() => rm(cwd, { recursive: true, force: true }));
   // Not created in advance, as at startup.
   const stateDirectory = path.join(cwd, "state", "agents", "antigravity");
+  const environment = { HTTP_PROXY: undefined, HTTPS_PROXY: undefined, ALL_PROXY: undefined, http_proxy: undefined, https_proxy: undefined, all_proxy: undefined, ...env };
+  const saved = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(environment)) {
+    saved.set(key, process.env[key]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   const adapter = new AntigravityAdapter({ executable, stateDirectory });
-  t.after(() => adapter.close());
+  t.after(async () => {
+    await adapter.close();
+    for (const [key, value] of saved) value === undefined ? delete process.env[key] : process.env[key] = value;
+  });
   return { adapter, cwd, executable, stateDirectory };
 }
 
@@ -389,7 +402,7 @@ test("reads models and per-model thinking levels from one catalog session that l
   assert.equal(sessions.length, 1);
   assert.equal(await catalogSessionId(stateDirectory), sessions[0]);
 
-  // Another proxy choice is a separate cache entry, so the Server is asked again; it resumes the same session on the resident process.
+  // Equivalent proxy choices reuse the cached catalog and its resident process.
   assert.deepEqual(await adapter.features.models!(cwd, true), models);
   assert.equal(await countLines(path.join(stateDirectory, "starts")), 1);
   const restarted = new AntigravityAdapter({ executable, stateDirectory });
@@ -401,8 +414,39 @@ test("reads models and per-model thinking levels from one catalog session that l
 });
 
 test("concurrent catalog lookups create only one catalog session", async (t) => {
-  const { adapter, cwd, stateDirectory } = await setup(t);
+  const { adapter, cwd, stateDirectory } = await setup(t, { HTTPS_PROXY: "http://proxy.invalid:8080" });
   await Promise.all([adapter.features.models!(cwd), adapter.features.models!(cwd, true), adapter.features.models!(cwd, false)]);
+  assert.equal((await storedSessions(stateDirectory)).length, 1);
+  assert.equal(await countLines(path.join(stateDirectory, "starts")), 2);
+  assert.equal(await countLines(path.join(stateDirectory, "catalog-opens")), 2);
+});
+
+test("without a proxy, all Antigravity proxy choices share the warmed resident, catalog cache, and quota reads", async (t) => {
+  const { adapter, cwd, stateDirectory } = await setup(t, { NO_PROXY: "localhost", HTTPS_PROXY: " " });
+  adapter.start();
+  const models = await Promise.all([
+    adapter.features.models!(cwd),
+    adapter.features.models!(cwd, true),
+    adapter.features.models!(cwd, false),
+  ]);
+  assert.equal(models[0]!.length, MODELS.length);
+  assert.deepEqual(models[0], models[1]);
+  assert.deepEqual(models[0], models[2]);
+  assert.deepEqual(await adapter.features.models!("/elsewhere", false), models[0]);
+  assert.equal(await countLines(path.join(stateDirectory, "catalog-opens")), 1);
+
+  await writeFile(path.join(stateDirectory, "usage-delay"), "");
+  const request = { nativeId: "s-1", cwd, reason: "view" as const, session: async () => null };
+  const results = await Promise.all([
+    adapter.features.usage!(request),
+    adapter.features.usage!({ ...request, useProxy: true }),
+    adapter.features.usage!({ ...request, nativeId: "s-2", useProxy: false }),
+  ]);
+  for (const parts of results) assert.deepEqual(parts, [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
+  assert.equal(await countLines(path.join(stateDirectory, "usage-reads")), 1);
+  await adapter.features.usage!({ ...request, useProxy: false });
+  assert.equal(await countLines(path.join(stateDirectory, "usage-reads")), 2);
+  assert.equal(await countLines(path.join(stateDirectory, "starts")), 1);
   assert.equal((await storedSessions(stateDirectory)).length, 1);
 });
 
@@ -445,6 +489,8 @@ test("leaves an unreadable catalog record in place, creates no session, and reco
 test("does not cache an empty model list", async (t) => {
   const { adapter, cwd, stateDirectory } = await setup(t);
   await adapter.features.models!(cwd);
+  const now = Date.now();
+  t.mock.method(Date, "now", () => now + 10 * 60_000);
   await writeFile(path.join(stateDirectory, "no-models"), "");
   await assert.rejects(adapter.features.models!(cwd, true), /Antigravity returned no model list/u);
   await rm(path.join(stateDirectory, "no-models"));
@@ -793,6 +839,8 @@ test("passes disabledTools on every session open and additionalDirectories only 
     { method: "session/new", additionalDirectories: null, disabledTools: ["run_workflow"] },
   );
 
+  const now = Date.now();
+  t.mock.method(Date, "now", () => now + 10 * 60_000);
   await adapter.features.models!(cwd, true);
   assert.deepEqual(
     JSON.parse(await readFile(path.join(stateDirectory, "last-open.json"), "utf8")),
@@ -958,13 +1006,31 @@ test("reports unavailable quota on error, empty output, login prompt, or timeout
   }
 });
 
-test("uses a separate direct resident when useProxy is false while sharing the single catalog session", async (t) => {
-  const { adapter, cwd, stateDirectory } = await setup(t);
+test("with a proxy, Antigravity keeps separate residents, catalog caches, and quota reads while sharing the catalog session", async (t) => {
+  const { adapter, cwd, stateDirectory } = await setup(t, { HTTPS_PROXY: "http://proxy.invalid:8080" });
+  adapter.start();
+  const models = await adapter.features.models!(cwd);
+  assert.deepEqual(await adapter.features.models!(cwd, true), models);
+  assert.equal(await countLines(path.join(stateDirectory, "starts")), 1);
+  assert.equal(await countLines(path.join(stateDirectory, "catalog-opens")), 1);
+  await writeFile(path.join(stateDirectory, "usage-delay"), "");
   const defaultRequest = { nativeId: "s-1", cwd, reason: "view" as const, session: async () => null };
   const directRequest = { nativeId: "s-1", cwd, useProxy: false, reason: "view" as const, session: async () => null };
-  assert.deepEqual(await adapter.features.usage!(defaultRequest), [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
-  assert.deepEqual(await adapter.features.usage!(directRequest), [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
+  const results = await Promise.all([
+    adapter.features.usage!(defaultRequest),
+    adapter.features.usage!({ ...defaultRequest, useProxy: true }),
+    adapter.features.usage!(directRequest),
+    adapter.features.usage!(directRequest),
+  ]);
+  for (const parts of results) assert.deepEqual(parts, [{ kind: "context", percent: null }, ...EXPECTED_QUOTA]);
+  assert.equal(await countLines(path.join(stateDirectory, "usage-reads")), 2);
+  assert.deepEqual(await adapter.features.models!(cwd, false), models);
+  assert.deepEqual(await adapter.features.models!(cwd), models);
   assert.equal(await countLines(path.join(stateDirectory, "starts")), 2);
+  assert.equal(await countLines(path.join(stateDirectory, "catalog-opens")), 2);
+  assert.deepEqual((await readFile(path.join(stateDirectory, "start-proxies"), "utf8")).trim().split("\n"), [
+    "http://proxy.invalid:8080", "direct",
+  ]);
   assert.equal((await storedSessions(stateDirectory)).length, 1);
 });
 
@@ -985,8 +1051,11 @@ test("times out a hung model refresh, resets the resident server, and unblocks q
   assert.equal((await adapter.features.models!(cwd)).length, MODELS.length);
   assert.equal(await countLines(path.join(stateDirectory, "starts")), 1);
 
+  let now = Date.now();
+  t.mock.method(Date, "now", () => now);
   const request = { nativeId: "s-1", cwd, reason: "view" as const, session: async () => null };
   for (const [index, flag] of (["resume-hang", "config-hang"] as const).entries()) {
+    now += 10 * 60_000;
     await writeFile(path.join(stateDirectory, flag), "");
     const refresh = adapter.features.models!(cwd, true);
     const quota = adapter.features.usage!(request);

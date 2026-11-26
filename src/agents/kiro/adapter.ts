@@ -1,4 +1,4 @@
-import { proxyEnvironment } from "../proxy.ts";
+import { proxyAvailable, proxyEnvironment } from "../proxy.ts";
 import type { AgentFeatures, UsagePart } from "../../features/index.ts";
 import { englishText, localText, LocalizedError } from "../../i18n/text.ts";
 import { CatalogCache } from "../catalog-cache.ts";
@@ -76,9 +76,9 @@ export class KiroAdapter implements AgentAdapter {
   readonly #catalogCache = new CatalogCache();
   readonly #usage = new Map<string, UsagePart[]>();
   readonly #resident: ResidentKiroServer;
-  readonly #directResident: ResidentKiroServer;
-  /** Only one account usage read per proxy choice is in flight at a time; concurrent calls share it. */
-  readonly #quota = new Map<string, Promise<UsagePart[]>>();
+  readonly #directResident: ResidentKiroServer | null;
+  /** Only one account usage read per resident is in flight at a time; concurrent calls share it. */
+  readonly #quota = new Map<ResidentKiroServer, Promise<UsagePart[]>>();
 
   readonly features: AgentFeatures = {
     models: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).models,
@@ -104,7 +104,7 @@ export class KiroAdapter implements AgentAdapter {
       ...(options.startupTimeoutMs === undefined ? {} : { startupTimeoutMs: options.startupTimeoutMs }),
     });
     this.#resident = new ResidentKiroServer(residentOptions(undefined));
-    this.#directResident = new ResidentKiroServer(residentOptions(false));
+    this.#directResident = proxyAvailable() ? new ResidentKiroServer(residentOptions(false)) : null;
   }
 
   start(): void {
@@ -112,7 +112,7 @@ export class KiroAdapter implements AgentAdapter {
   }
 
   close(): Promise<void> {
-    return Promise.all([this.#resident.close(), this.#directResident.close()]).then(() => {});
+    return Promise.all([this.#resident.close(), this.#directResident?.close()]).then(() => {});
   }
 
   startSession(options: SessionOptions): Promise<AgentSession> {
@@ -124,11 +124,12 @@ export class KiroAdapter implements AgentAdapter {
   }
 
   #residentFor(useProxy?: boolean): ResidentKiroServer {
-    return useProxy === false ? this.#directResident : this.#resident;
+    return useProxy === false ? this.#directResident ?? this.#resident : this.#resident;
   }
 
   #catalog(cwd: string, useProxy?: boolean): Promise<AgentCatalog> {
-    return this.#catalogCache.get(`${cwd}\0${useProxy}`, async () => {
+    const channel = this.#residentFor(useProxy) === this.#resident ? "default" : "direct";
+    return this.#catalogCache.get(`${cwd}\0${channel}`, async () => {
       const client = this.#client(cwd, useProxy);
       let sessionId: string | null = null;
       try {
@@ -153,13 +154,13 @@ export class KiroAdapter implements AgentAdapter {
 
   /** Context comes from the session's own updates; the account quota is read fresh from the resident server, as Codex does. */
   async #readUsage(nativeId: string, useProxy?: boolean): Promise<UsagePart[]> {
-    const key = useProxy === false ? "direct" : "default";
-    let quota = this.#quota.get(key);
+    const resident = this.#residentFor(useProxy);
+    let quota = this.#quota.get(resident);
     if (!quota) {
-      quota = this.#readQuota(this.#residentFor(useProxy)).finally(() => {
-        if (this.#quota.get(key) === quota) this.#quota.delete(key);
+      quota = this.#readQuota(resident).finally(() => {
+        if (this.#quota.get(resident) === quota) this.#quota.delete(resident);
       });
-      this.#quota.set(key, quota);
+      this.#quota.set(resident, quota);
     }
     const parts = await quota;
     const context = this.#usage.get(nativeId) ?? [{ kind: "context", percent: null }];

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -228,7 +228,12 @@ async function setup(
   const previousDirectory = process.cwd();
   process.chdir(cwd);
   const saved = new Map<string, string | undefined>();
-  for (const [key, value] of Object.entries(env)) { saved.set(key, process.env[key]); process.env[key] = value; }
+  const environment = { HTTP_PROXY: undefined, HTTPS_PROXY: undefined, ALL_PROXY: undefined, http_proxy: undefined, https_proxy: undefined, all_proxy: undefined, ...env };
+  for (const [key, value] of Object.entries(environment)) {
+    saved.set(key, process.env[key]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   const adapter = new KiroAdapter({ executable, ...adapterOptions });
   t.after(async () => {
     await adapter.close();
@@ -281,6 +286,39 @@ test("catalog maps Kiro models and thinking levels without leaving its probe ses
   ]);
   assert.deepEqual(await adapter.features.permissions!(cwd), [...KIRO_PERMISSIONS]);
   assert.deepEqual(JSON.parse(await readFile(path.join(cwd, "sessions.json"), "utf8")), {});
+});
+
+test("without a proxy, Kiro shares catalog caches across proxy choices while retaining working-directory boundaries", async (t) => {
+  const { adapter, cwd } = await setup(t);
+  const [models, proxied, direct, permissions] = await Promise.all([
+    adapter.features.models!(cwd),
+    adapter.features.models!(cwd, true),
+    adapter.features.models!(cwd, false),
+    adapter.features.permissions!(cwd, false),
+  ]);
+  assert.equal(models.length, 2);
+  assert.deepEqual(models, proxied);
+  assert.deepEqual(models, direct);
+  assert.deepEqual(permissions, [...KIRO_PERMISSIONS]);
+  assert.equal(await countLines(path.join(cwd, "starts")), 1);
+  assert.deepEqual(await adapter.features.models!(cwd, false), models);
+  assert.equal(await countLines(path.join(cwd, "starts")), 1);
+
+  const otherDirectory = path.join(cwd, "other");
+  await mkdir(otherDirectory);
+  assert.deepEqual(await adapter.features.models!(otherDirectory, false), models);
+  assert.equal(await countLines(path.join(cwd, "starts")), 2);
+});
+
+test("with a proxy, Kiro keeps default and direct catalog caches separate", async (t) => {
+  const { adapter, cwd } = await setup(t, { HTTPS_PROXY: "http://proxy.invalid:8080" });
+  const models = await adapter.features.models!(cwd);
+  assert.deepEqual(await adapter.features.models!(cwd, true), models);
+  assert.equal(await countLines(path.join(cwd, "starts")), 1);
+  assert.deepEqual(await adapter.features.models!(cwd, false), models);
+  assert.equal(await countLines(path.join(cwd, "starts")), 2);
+  assert.deepEqual(await adapter.features.permissions!(cwd, false), [...KIRO_PERMISSIONS]);
+  assert.equal(await countLines(path.join(cwd, "starts")), 2);
 });
 
 test("new and resumed sessions apply settings and send group rules only once", async (t) => {
@@ -514,6 +552,25 @@ test("reads account usage once for concurrent calls and reuses one resident proc
   assert.equal(await countLines(path.join(cwd, "starts")), 1);
 });
 
+test("without a proxy, all Kiro proxy choices reuse the warmed resident and coalesce account usage reads", async (t) => {
+  const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "1", NO_PROXY: "localhost", HTTPS_PROXY: " " });
+  adapter.start();
+  const request = { nativeId: "s-unknown", cwd, reason: "view" as const, session: async () => null };
+  const results = await Promise.all([
+    adapter.features.usage!(request),
+    adapter.features.usage!({ ...request, useProxy: true }),
+    adapter.features.usage!({ ...request, nativeId: "s-other", useProxy: false }),
+  ]);
+  for (const parts of results) assert.deepEqual(parts, [{ kind: "context", percent: null }, ...EXPECTED_CREDITS]);
+  assert.equal(await readFile(path.join(cwd, "usage-reads"), "utf8"), "x");
+  await adapter.features.usage!({ ...request, useProxy: false });
+  assert.equal(await readFile(path.join(cwd, "usage-reads"), "utf8"), "xx");
+  await adapter.close();
+  assert.deepEqual(await adapter.features.usage!({ ...request, useProxy: false }), [{ kind: "context", percent: null }, { kind: "unavailable" }]);
+  assert.equal(await countLines(path.join(cwd, "starts")), 1);
+  assert.equal(fakeKiroRunning(cwd), false);
+});
+
 test("a stuck account usage read times out, shows unavailable, closes its process, and the next read starts fresh", async (t) => {
   const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "hang" }, { usageTimeoutMs: 300 });
   const usage = () => adapter.features.usage!({ nativeId: "s-unknown", cwd, reason: "view", session: async () => null });
@@ -565,8 +622,9 @@ test("does not restart the resident server after close", async (t) => {
   assert.equal(fakeKiroRunning(cwd), false);
 });
 
-test("uses a separate direct resident when useProxy is false", async (t) => {
+test("with a proxy, Kiro starts a separate direct resident on demand and coalesces reads per resident", async (t) => {
   const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "1", HTTPS_PROXY: "http://proxy.invalid:8080" });
+  adapter.start();
   const request = (useProxy?: boolean) => ({
     nativeId: "s-unknown",
     cwd,
@@ -575,8 +633,14 @@ test("uses a separate direct resident when useProxy is false", async (t) => {
     session: async () => null,
   });
   assert.deepEqual(await adapter.features.usage!(request(undefined)), [{ kind: "context", percent: null }, ...EXPECTED_CREDITS]);
-  assert.deepEqual(await adapter.features.usage!(request(true)), [{ kind: "context", percent: null }, ...EXPECTED_CREDITS]);
-  assert.deepEqual(await adapter.features.usage!(request(false)), [{ kind: "context", percent: null }, ...EXPECTED_CREDITS]);
+  assert.equal(await countLines(path.join(cwd, "starts")), 1);
+  const results = await Promise.all([
+    adapter.features.usage!(request(undefined)),
+    adapter.features.usage!(request(true)),
+    adapter.features.usage!(request(false)),
+    adapter.features.usage!(request(false)),
+  ]);
+  for (const parts of results) assert.deepEqual(parts, [{ kind: "context", percent: null }, ...EXPECTED_CREDITS]);
   assert.equal(await countLines(path.join(cwd, "starts")), 2);
   assert.deepEqual((await readFile(path.join(cwd, "usage-proxy"), "utf8")).trim().split("\n"), [
     "http://proxy.invalid:8080",

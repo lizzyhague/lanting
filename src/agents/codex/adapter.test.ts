@@ -15,6 +15,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 const directory = path.dirname(fileURLToPath(import.meta.url));
 appendFileSync(path.join(directory, "starts"), "x");
+appendFileSync(path.join(directory, "start-proxies"), (process.env.https_proxy ?? "direct") + "\\n");
 const send = (message) => console.log(JSON.stringify(message));
 let instructions = null;
 let turn = 0;
@@ -116,9 +117,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 });
 `;
 
-async function setup(t: test.TestContext) {
+async function setup(t: test.TestContext, env: NodeJS.ProcessEnv = {}) {
   const directory = await mkdtemp(path.join(tmpdir(), "lanting-codex-adapter-"));
-  t.after(() => rm(directory, { recursive: true, force: true }));
   const executable = path.join(directory, "codex");
   await writeFile(executable, FAKE_APP_SERVER);
   await chmod(executable, 0o700);
@@ -132,8 +132,22 @@ async function setup(t: test.TestContext) {
       return { decision: "allow", message: "" };
     },
   };
+  const previousDirectory = process.cwd();
+  process.chdir(directory);
+  const environment = { HTTP_PROXY: undefined, HTTPS_PROXY: undefined, ALL_PROXY: undefined, http_proxy: undefined, https_proxy: undefined, all_proxy: undefined, ...env };
+  const saved = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(environment)) {
+    saved.set(key, process.env[key]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   const adapter = new CodexAdapter({ executable });
-  t.after(() => adapter.close());
+  t.after(async () => {
+    await adapter.close();
+    process.chdir(previousDirectory);
+    for (const [key, value] of saved) value === undefined ? delete process.env[key] : process.env[key] = value;
+    await rm(directory, { recursive: true, force: true });
+  });
   return {
     adapter,
     options,
@@ -197,6 +211,52 @@ test("the Codex catalog lists visible models and the allowed permission profiles
     [":danger-full-access", "Full access", "permission.codex.fullAccess", true],
   ]);
   assert.equal((await readFile(starts, "utf8")).length, 1, "模型和权限共用同一个常驻进程");
+});
+
+test("without a proxy, all Codex proxy choices reuse the warmed resident and coalesce quota reads", async (t) => {
+  const { adapter, options, starts, quotaReads } = await setup(t, { NO_PROXY: "localhost", HTTPS_PROXY: " " });
+  adapter.start();
+  for (const useProxy of [undefined, true, false]) {
+    assert.equal((await adapter.features.models!(options.cwd, useProxy)).length, 1);
+    assert.equal((await adapter.features.permissions!(options.cwd, useProxy)).length, 3);
+  }
+  const request = { nativeId: "thread-1", cwd: options.cwd, reason: "view" as const, session: async () => null };
+  const results = await Promise.all([
+    adapter.features.usage!(request),
+    adapter.features.usage!({ ...request, useProxy: true }),
+    adapter.features.usage!({ ...request, nativeId: "thread-2", useProxy: false }),
+  ]);
+  assert.deepEqual(results[0], results[1]);
+  assert.deepEqual(results[0], results[2]);
+  assert.equal(await readFile(quotaReads, "utf8"), "x");
+  await adapter.features.usage!({ ...request, useProxy: false });
+  assert.equal(await readFile(quotaReads, "utf8"), "xx");
+  await adapter.close();
+  await assert.rejects(adapter.features.models!(options.cwd, false), /closed/u);
+  assert.equal((await readFile(starts, "utf8")).length, 1);
+});
+
+test("with a proxy, Codex starts a separate direct resident on demand and coalesces reads per resident", async (t) => {
+  const { adapter, options, starts, quotaReads } = await setup(t, { https_proxy: "http://proxy.invalid:8080" });
+  adapter.start();
+  await adapter.features.models!(options.cwd, true);
+  assert.equal((await readFile(starts, "utf8")).length, 1);
+  const request = { nativeId: "thread-1", cwd: options.cwd, reason: "view" as const, session: async () => null };
+  const results = await Promise.all([
+    adapter.features.usage!(request),
+    adapter.features.usage!({ ...request, useProxy: true }),
+    adapter.features.usage!({ ...request, useProxy: false }),
+    adapter.features.usage!({ ...request, useProxy: false }),
+  ]);
+  for (const parts of results) assert.deepEqual(parts, results[0]);
+  assert.equal(await readFile(quotaReads, "utf8"), "xx");
+  assert.equal((await readFile(starts, "utf8")).length, 2);
+  assert.deepEqual((await readFile(path.join(options.cwd, "start-proxies"), "utf8")).trim().split("\n"), [
+    "http://proxy.invalid:8080", "direct",
+  ]);
+  await adapter.features.models!(options.cwd, false);
+  await adapter.features.permissions!(options.cwd, false);
+  assert.equal((await readFile(starts, "utf8")).length, 2);
 });
 
 test("the resident Codex process restarts on the next catalog request after it exits", async (t) => {
