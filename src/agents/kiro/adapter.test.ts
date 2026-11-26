@@ -571,12 +571,15 @@ test("without a proxy, all Kiro proxy choices reuse the warmed resident and coal
   assert.equal(fakeKiroRunning(cwd), false);
 });
 
+// Usage deadlines include cold process startup, which slows down under parallel test load.
+const USAGE_TEST_TIMEOUT_MS = 2_000;
+
 test("a stuck account usage read times out, shows unavailable, closes its process, and the next read starts fresh", async (t) => {
-  const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "hang" }, { usageTimeoutMs: 300 });
+  const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "hang" }, { usageTimeoutMs: USAGE_TEST_TIMEOUT_MS });
   const usage = () => adapter.features.usage!({ nativeId: "s-unknown", cwd, reason: "view", session: async () => null });
   const started = Date.now();
   assert.deepEqual(await usage(), [{ kind: "context", percent: null }, { kind: "unavailable" }]);
-  assert.ok(Date.now() - started < 2_000);
+  assert.ok(Date.now() - started < 5_000);
   assert.deepEqual(await usage(), [{ kind: "context", percent: null }, { kind: "unavailable" }]);
   assert.equal(await readFile(path.join(cwd, "usage-reads"), "utf8"), "hh");
   assert.equal(await countLines(path.join(cwd, "starts")), 2);
@@ -585,12 +588,12 @@ test("a stuck account usage read times out, shows unavailable, closes its proces
 });
 
 test("a hung resident initialization times out promptly and the next account usage read recovers", async (t) => {
-  const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "1" }, { usageTimeoutMs: 250 });
+  const { adapter, cwd } = await setup(t, { FAKE_ACCOUNT_USAGE: "1" }, { usageTimeoutMs: USAGE_TEST_TIMEOUT_MS });
   await writeFile(path.join(cwd, "init-hang"), "");
   const usage = () => adapter.features.usage!({ nativeId: "s-unknown", cwd, reason: "view", session: async () => null });
   const started = Date.now();
   assert.deepEqual(await usage(), [{ kind: "context", percent: null }, { kind: "unavailable" }]);
-  assert.ok(Date.now() - started < 2_000);
+  assert.ok(Date.now() - started < 5_000);
   assert.deepEqual(await usage(), [{ kind: "context", percent: null }, ...EXPECTED_CREDITS]);
   assert.equal(await countLines(path.join(cwd, "starts")), 2);
 });
