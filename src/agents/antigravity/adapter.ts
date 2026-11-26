@@ -1,4 +1,4 @@
-import { proxyEnvironment } from "../proxy.ts";
+import { proxyAvailable, proxyEnvironment } from "../proxy.ts";
 import type { AgentFeatures, UsagePart, UsageWindow } from "../../features/index.ts";
 import { englishText, localText, LocalizedError } from "../../i18n/text.ts";
 import { CatalogCache } from "../catalog-cache.ts";
@@ -119,9 +119,9 @@ export class AntigravityAdapter implements AgentAdapter {
   readonly #catalogCache = new CatalogCache();
   readonly #contexts = new Map<string, number>();
   readonly #resident: ResidentAntigravityServer;
-  readonly #directResident: ResidentAntigravityServer;
-  /** Coalesces concurrent quota reads per proxy mode so several usage refreshes share one `/usage` call. */
-  readonly #quota = new Map<string, Promise<UsagePart[]>>();
+  readonly #directResident: ResidentAntigravityServer | null;
+  /** Coalesces concurrent quota reads per resident so several usage refreshes share one `/usage` call. */
+  readonly #quota = new Map<ResidentAntigravityServer, Promise<UsagePart[]>>();
   /** Serializes catalog-session.json creation across proxy and direct residents. */
   #catalogLock: Promise<unknown> = Promise.resolve();
 
@@ -142,7 +142,7 @@ export class AntigravityAdapter implements AgentAdapter {
       ...(options.startupTimeoutMs === undefined ? {} : { startupTimeoutMs: options.startupTimeoutMs }),
     });
     this.#resident = new ResidentAntigravityServer(residentOptions(undefined));
-    this.#directResident = new ResidentAntigravityServer(residentOptions(false));
+    this.#directResident = proxyAvailable() ? new ResidentAntigravityServer(residentOptions(false)) : null;
   }
 
   start(): void {
@@ -150,7 +150,7 @@ export class AntigravityAdapter implements AgentAdapter {
   }
 
   close(): Promise<void> {
-    return Promise.all([this.#resident.close(), this.#directResident.close()]).then(() => {});
+    return Promise.all([this.#resident.close(), this.#directResident?.close()]).then(() => {});
   }
 
   startSession(options: SessionOptions): Promise<AgentSession> {
@@ -162,12 +162,13 @@ export class AntigravityAdapter implements AgentAdapter {
   }
 
   #residentFor(useProxy?: boolean): ResidentAntigravityServer {
-    return useProxy === false ? this.#directResident : this.#resident;
+    return useProxy === false ? this.#directResident ?? this.#resident : this.#resident;
   }
 
   /** The model list doesn't depend on the group's directory; only the proxy choice changes how the Server is reached. */
   #catalog(useProxy?: boolean): Promise<AgentCatalog> {
-    return this.#catalogCache.get(String(useProxy), () => this.#readCatalog(useProxy));
+    const key = this.#residentFor(useProxy) === this.#resident ? "default" : "direct";
+    return this.#catalogCache.get(key, () => this.#readCatalog(useProxy));
   }
 
   async #readCatalog(useProxy?: boolean): Promise<AgentCatalog> {
@@ -187,13 +188,13 @@ export class AntigravityAdapter implements AgentAdapter {
   }
 
   async #usage(nativeId: string, useProxy?: boolean): Promise<UsagePart[]> {
-    const key = useProxy === false ? "direct" : "default";
-    let pending = this.#quota.get(key);
+    const resident = this.#residentFor(useProxy);
+    let pending = this.#quota.get(resident);
     if (!pending) {
-      pending = this.#readQuota(this.#residentFor(useProxy)).finally(() => {
-        if (this.#quota.get(key) === pending) this.#quota.delete(key);
+      pending = this.#readQuota(resident).finally(() => {
+        if (this.#quota.get(resident) === pending) this.#quota.delete(resident);
       });
-      this.#quota.set(key, pending);
+      this.#quota.set(resident, pending);
     }
     const quota = await pending;
     return [{ kind: "context", percent: this.#contexts.get(nativeId) ?? null }, ...quota];

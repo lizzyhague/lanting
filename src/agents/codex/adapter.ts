@@ -1,4 +1,4 @@
-import { proxyEnvironment } from "../proxy.ts";
+import { proxyAvailable, proxyEnvironment } from "../proxy.ts";
 import type { AgentFeatures, UsagePart, UsageWindow } from "../../features/index.ts";
 import { localText, type LocalText } from "../../i18n/text.ts";
 import { EventChannel } from "../event-channel.ts";
@@ -38,28 +38,28 @@ export class CodexAdapter implements AgentAdapter {
   readonly features: AgentFeatures = {
     compact: (session) => asOwnSession(session).compact(),
     deleteSession: (nativeId, cwd, useProxy) => this.#deleteSession(nativeId, cwd, useProxy),
-    models: (_cwd, useProxy) => listModels(useProxy === false ? this.#directResident : this.#resident),
-    permissions: (cwd, useProxy) => listPermissions(useProxy === false ? this.#directResident : this.#resident, cwd),
+    models: (_cwd, useProxy) => listModels(this.#residentFor(useProxy)),
+    permissions: (cwd, useProxy) => listPermissions(this.#residentFor(useProxy), cwd),
     usage: (request) => this.#usage(request.nativeId, request.useProxy),
   };
   readonly #options: CodexAdapterOptions;
   readonly #resident: ResidentAppServer;
-  readonly #directResident: ResidentAppServer;
+  readonly #directResident: ResidentAppServer | null;
   /**
    * As in Codex Remote: context is only recorded from thread/tokenUsage/updated during replies; sessions aren't resumed just to read context.
    * Kept only in memory and survives the process closing; after lanting restarts it waits for this member to reply again.
    */
   readonly #contexts = new Map<string, number>();
-  /** Only one quota query is in flight at a time; concurrent calls share it. */
-  #quota: Promise<QuotaWindow[]> | null = null;
+  /** Concurrent quota queries share one request per resident process. */
+  readonly #quota = new Map<ResidentAppServer, Promise<QuotaWindow[]>>();
 
   constructor(options: CodexAdapterOptions) {
     this.#options = options;
-    this.#directResident = new ResidentAppServer({
+    this.#directResident = proxyAvailable() ? new ResidentAppServer({
       executable: options.executable,
       initializeParams: INITIALIZE_PARAMS,
       environment: proxyEnvironment(false),
-    });
+    }) : null;
     this.#resident = new ResidentAppServer({
       executable: options.executable,
       initializeParams: INITIALIZE_PARAMS,
@@ -71,7 +71,11 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   close(): Promise<void> {
-    return Promise.all([this.#resident.close(), this.#directResident.close()]).then(() => {});
+    return Promise.all([this.#resident.close(), this.#directResident?.close()]).then(() => {});
+  }
+
+  #residentFor(useProxy?: boolean): ResidentAppServer {
+    return useProxy === false ? this.#directResident ?? this.#resident : this.#resident;
   }
 
   /** As in Codex Remote: start a temporary app-server to call thread/delete; one that no longer exists counts as deleted. */
@@ -110,13 +114,15 @@ export class CodexAdapter implements AgentAdapter {
   };
 
   async #usage(threadId: string, useProxy?: boolean): Promise<UsagePart[]> {
-    if (useProxy === false) {
-      return usageParts(this.#contexts.get(threadId) ?? null, await readQuota(this.#directResident));
+    const resident = this.#residentFor(useProxy);
+    let quota = this.#quota.get(resident);
+    if (!quota) {
+      quota = readQuota(resident).finally(() => {
+        if (this.#quota.get(resident) === quota) this.#quota.delete(resident);
+      });
+      this.#quota.set(resident, quota);
     }
-    this.#quota ??= readQuota(this.#resident).finally(() => {
-      this.#quota = null;
-    });
-    const windows = await this.#quota;
+    const windows = await quota;
     const context = this.#contexts.get(threadId);
     return usageParts(context ?? null, windows);
   }
