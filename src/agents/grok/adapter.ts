@@ -4,7 +4,7 @@ import { readdir, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { AgentFeatures } from "../../features/index.ts";
+import type { AgentFeatures, UsagePart, UsageWindow } from "../../features/index.ts";
 import { localText } from "../../i18n/text.ts";
 import { CatalogCache } from "../catalog-cache.ts";
 import { EventChannel } from "../event-channel.ts";
@@ -29,11 +29,14 @@ export type GrokAdapterOptions = {
   executable: string;
   /** Root directory where Grok stores sessions; defaults to GROK_HOME, otherwise ~/.grok. */
   grokHome?: string;
+  /** Deadline covering process initialization and the billing request. */
+  usageTimeoutMs?: number;
 };
 
 /** If the round hasn't ended this long after session/cancel, the Grok process is closed outright. */
 const INTERRUPT_TIMEOUT_MS = 10_000;
 const EXIT_WAIT_MS = 8_000;
+const USAGE_TIMEOUT_MS = 15_000;
 
 /** Grok tools that ask the user a question directly. In the group chat questions go in the reply, so these requests are always cancelled. */
 const HUMAN_TOOL_NAMES = new Set(["ask_user_question", "ask_user", "request_user_input", "elicitation"]);
@@ -63,9 +66,11 @@ export class GrokAdapter implements AgentAdapter {
     deleteSession: (nativeId) => this.#deleteSession(nativeId),
     models: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).models,
     permissions: async (cwd, useProxy) => (await this.#catalog(cwd, useProxy)).permissions,
+    usage: (request) => this.#usage(request.cwd, request.useProxy),
   };
   readonly #options: GrokAdapterOptions;
   readonly #catalogs = new CatalogCache();
+  readonly #quota = new Map<boolean, Promise<UsagePart[]>>();
 
   constructor(options: GrokAdapterOptions) {
     this.#options = options;
@@ -84,6 +89,45 @@ export class GrokAdapter implements AgentAdapter {
         await terminateGroup(child);
       }
     });
+  }
+
+  #usage(cwd: string, useProxy?: boolean): Promise<UsagePart[]> {
+    const key = useProxy !== false;
+    let pending = this.#quota.get(key);
+    if (!pending) {
+      pending = this.#readQuota(cwd, useProxy).finally(() => this.#quota.delete(key));
+      this.#quota.set(key, pending);
+    }
+    return pending;
+  }
+
+  /** Billing needs only initialize, so account queries never open or resume a chat session. */
+  async #readQuota(cwd: string, useProxy?: boolean): Promise<UsagePart[]> {
+    try {
+      const child = spawnGrok(this.#options.executable, cwd, useProxy);
+      const client = new AcpClient(child);
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        if (child.pid === undefined) throw new Error("Cannot start Grok.");
+        return await Promise.race([
+          (async () => {
+            await client.initialize();
+            return usageParts(await client.billing());
+          })(),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("Grok quota lookup timed out.")),
+              this.#options.usageTimeoutMs ?? USAGE_TIMEOUT_MS);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+        await client.close();
+        await terminateGroup(child);
+      }
+    } catch (error) {
+      console.error(`Reading the Grok quota failed: ${error instanceof Error ? error.message : String(error)}`);
+      return [{ kind: "unavailable" }];
+    }
   }
 
   /**
@@ -346,6 +390,44 @@ export function modelOptions(initialize: unknown): ModelOption[] {
         : [],
     }];
   });
+}
+
+/** ACP billing returns account credits, not per-session context usage. Missing usage stays unknown. */
+export function usageParts(billing: unknown): UsagePart[] {
+  const config = objectField(objectField(billing).config);
+  const period = objectField(config.currentPeriod);
+  let used = finiteNumber(config.creditUsagePercent);
+  if (used === null) {
+    const limit = finiteNumber(objectField(config.monthlyLimit).val);
+    const legacyUsed = finiteNumber(objectField(config.used).val);
+    if (limit !== null && limit > 0 && legacyUsed !== null) used = legacyUsed / limit * 100;
+  }
+  const start = timestamp(period.start) ?? timestamp(config.billingPeriodStart);
+  const end = timestamp(period.end) ?? timestamp(config.billingPeriodEnd);
+  const weekly = period.type === "USAGE_PERIOD_TYPE_WEEKLY";
+  const monthly = period.type === "USAGE_PERIOD_TYPE_MONTHLY";
+  if (used === null && start === null && end === null && !weekly && !monthly) {
+    return [{ kind: "unavailable" }];
+  }
+  const window: UsageWindow = weekly ? { minutes: 7 * 24 * 60 }
+    : start !== null && end !== null && end > start ? { minutes: (end - start) / 60_000 }
+    : { name: monthly ? "Monthly" : "Grok" };
+  return [{
+    kind: "quota",
+    window,
+    left: used === null ? null : 100 - Math.max(0, Math.min(100, used)),
+    ...(end === null ? {} : { resetsAt: new Date(end).toISOString() }),
+  }];
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function timestamp(value: unknown): number | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function permissionOutcome(

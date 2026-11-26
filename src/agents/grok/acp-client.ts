@@ -82,6 +82,10 @@ export class AcpClient extends EventEmitter {
     return this.#initialize;
   }
 
+  async billing(): Promise<unknown> {
+    return await this.request("_x.ai/billing", {});
+  }
+
   /**
    * rules are appended to the system prompt and sent only with session/new; session/resume doesn't carry them again,
    * so resuming doesn't append them twice.
